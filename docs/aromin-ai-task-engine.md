@@ -1,3 +1,7 @@
+# AROMIN AI — Task Engine Reference
+
+Detailed design behind §9 of the [AROMIN AI Architecture Blueprint](aromin-ai-blueprint.md#9-task--background-job-architecture). The blueprint section gives the architecture and key principles; this document holds the implementation-level detail. Section numbers below (§9.x) refer to this document; other § numbers refer to the blueprint.
+
 ## 9. Task / Background Job Architecture
 
 The Task Engine runs every unit of work that must survive a crash: multi-step agent work, follow-ups, SMS turns, memory extraction, ingestion, scheduled jobs. PostgreSQL is the only durable store for it (queue, journal, schedules, side-effect ledger). Redis carries only progress fan-out and rate-limit buckets; losing Redis loses no task and no result.

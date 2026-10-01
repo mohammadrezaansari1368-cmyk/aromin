@@ -243,29 +243,106 @@ router: needs_web? (time-sensitive, outside AROMIN knowledge, explicit request)
 
 ## 9. Task / Background Job Architecture
 
-**Source of truth**: Postgres `tasks` table. Workers claim work with `SELECT … FOR UPDATE SKIP LOCKED`.
+The Task Engine runs every unit of work that must survive a crash: agent turns, multi-step agent work, follow-ups, inbound SMS turns, memory extraction, ingestion and scheduled jobs. PostgreSQL is its only durable store (queue, step journal, schedules, side-effect ledger). Redis only carries progress notifications and rate-limit buckets, so losing Redis loses no task and no result. Full design: [Task Engine reference](aromin-ai-task-engine.md).
+
+**Execution model: one engine, two hosts**
+
+A task is a durable row in `tasks` plus an append-only step journal in `task_steps`. One `TaskRunner` executes it, and both process types host the runner with the same lease protocol:
+
+| Mode | Runs in | Used for |
+|---|---|---|
+| Immediate | `api`, inside the request | Agent turn with a user waiting (§3 inline limits: 25 s, 6 steps) |
+| Background | `worker` | Escalated turns, inbound SMS turns, post-turn jobs, API-submitted tasks |
+| Scheduled | `worker` | Future `run_at` (follow-ups, reminders) and recurring jobs from `schedules` |
 
 ```
-tasks(id, kind, status, priority, run_at, attempts, max_attempts, lease_until,
-      conversation_id, customer_id, lead_id, input jsonb, state jsonb, result jsonb,
-      error jsonb, cancel_requested bool, created_by, created_at, updated_at)
-task_steps(task_id, step_no, type, payload jsonb, status, started_at, finished_at)
+POST /v1/chat ─▶ txn: message + task row (running, owner api) ─▶ inline turn ─▶ reply
+                                     │ exceeds limits / needs a wait / pod dies
+                                     ▼
+              tasks (queued/waiting, by lane) ◀─ claim (SKIP LOCKED) ─ worker slots ─▶ journal ─▶ deliver
+                                     ▲                                                   │
+SMS webhook / POST /v1/tasks / schedules ──────────────────────── outbox events, Redis progress, SSE
 ```
 
-Status machine: `queued → running → (waiting_approval | waiting_time | waiting_human) → running → succeeded | failed | cancelled`.
+**Core principles**
 
-- **Immediate**: agent turn inline in the API process (no queue).
-- **Background**: `run_at = now()`; worker picks up.
-- **Scheduled**: `run_at` in future (follow-ups, reminders, KB re-scan). Recurring jobs defined in code (cron expressions) materialize the next `tasks` row after each run.
-- **Leases**: worker sets `lease_until = now()+60s` and heartbeats; expired leases are reclaimed (crash recovery).
-- **Retries**: exponential backoff per kind; after `max_attempts` → `failed` + `task.failed` event + alert.
-- **Resume**: worker reloads `task_steps` and continues from the last completed step.
-- **Status API**: `GET /v1/tasks/{id}`; progress events via the event system and SSE.
+- **Durable from the first moment.** Every agent turn gets its task row in the same transaction as the user's message, including turns with no tool calls. A crashed or redeployed API pod never drops a turn; its lease expires and a worker finishes it.
+- **API → worker handoff.** An inline turn that exceeds its limits, needs a wait, or is interrupted by a deploy is escalated at a step boundary: the API hands over the lease (`running → queued/waiting`) and a worker continues from the journal. Completed steps never re-run, and a step with side effects is never interrupted. The user gets an acknowledgement, progress labels over SSE, and the final reply through the conversation stream.
+- **Write-ahead step journal.** Each step is recorded before it runs and completed after. Model output (including tool arguments) is durable before any tool runs, so on resume the model is never re-asked for a decision it already made. Internal DB writes commit in the same transaction as step completion, so they happen exactly once.
+- **Leases and fencing.** Workers claim with `SELECT … FOR UPDATE SKIP LOCKED`, hold a 60 s lease renewed by heartbeat, and every write is fenced by a `lease_token`. A reaper requeues expired leases; a stalled worker that wakes up after losing its lease can write nothing.
+- **Idempotency.** Each step has a stable `idempotency_key` derived from task, generation and step number, fixed when the step is planned. Scheduled jobs, follow-ups, fallbacks and `POST /v1/tasks` (`Idempotency-Key`) use unique dedupe keys, so a repeat creates nothing new.
+- **External side-effect ledger.** SMS sends and other external calls are recorded in `side_effects` before the call. A retry with the same key returns the stored result. If the outcome is unknown (timeout after the request left), the engine reconciles through provider dedupe or lookup, and otherwise parks the task for a person to resolve. It never blindly re-sends. Outbound webhooks use the §10 outbox: exactly-once enqueue, at-least-once delivery with a stable event id.
+- **One active reply per conversation.** All turns of a conversation (inline, background and fallback) share `concurrency_key = conv:<id>`, enforced by a unique index on running tasks. A message that arrives during a turn is attached to the running owner, and a *deliver gate* re-plans before replying if the owner hasn't seen the newest message. The customer gets one coherent reply, never two parallel ones.
 
-Choice: Postgres-backed queue (SKIP LOCKED) with our own worker.
-Why: task state and queue are the same transactional record; no lost jobs on Redis eviction; enqueue in the same transaction as the domain write.
-Alternative: Celery/Arq on Redis; Temporal.
-Why not: Celery/Arq create a second source of truth and Celery is sync-first; Temporal is excellent for durable workflows but adds a cluster to operate. Revisit Temporal if workflows become long and branching.
+**Queues, priority and fairness**
+
+| Lane | Work | Capacity rule |
+|---|---|---|
+| 0 interactive | Agent turns with a web user waiting | Own slots that no other lane can take |
+| 1 customer | Inbound SMS turns, fallbacks, follow-ups, handoff/routing notifications | Own slots, with a per-replica reserve for inbound customer messages |
+| 2 default | Memory extraction, summaries, lead scoring | Shared slots that also serve lanes 0–1 under load; not customer-facing, watched by a lag alert |
+| 3 bulk | Ingestion, KB rescans, SMS campaigns, pruning | Separate `worker-bulk` container |
+
+Spare capacity is lent only toward more urgent work. Inside a lane, ordering is FIFO by `run_at`. Per-kind caps, split SMS and LLM rate budgets, and spread-out wake times keep one burst (a 20,000-recipient campaign, 600 follow-ups after quiet hours) from delaying a customer who just wrote.
+
+**Status lifecycle**
+
+```
+queued ─▶ running ─▶ succeeded | failed | cancelled | dead
+  ▲          │  └─▶ waiting (approval | human | time) ─▶ queued / running
+  └─ retry ──┘
+failed / dead ─▶ queued   (operator retry only)
+```
+
+Transitions are enforced in code and by a DB trigger. `waiting` releases the slot and lease; a waiting task costs one row and wakes on a signal (approval decision, staff or customer reply) or at its timer or wait deadline.
+
+**Retries, failures and fallback**
+
+- **Two-level retry.** Short in-process retries per tool and model policy; then task-level requeue with exponential backoff and jitter, tuned per lane. Errors are classified (transient, dependency unavailable, outcome unknown, tool error, permanent, bug), and only some classes retry. A tool error is returned to the model, not treated as a task failure. Provider outages open circuit breakers and don't count toward dead-lettering.
+- **Deadlines and budgets.** Stale work is not done late: agent turns have deadlines that count active time only (waits don't count), follow-ups have calendar deadlines, and background agents have step and cost budgets.
+- **Dead-letter.** A task becomes `dead` after repeated consecutive failures, too many total failures, or repeated crash-loop lease expiries. `dead` is a status, not a separate table, so the journal and ledger stay in place for diagnosis. Operators can list, retry (optionally rewinding to a step) or resolve dead tasks.
+- **Human-safe fallback.** Every transition into `failed` or `dead` inserts, in the same transaction, a `task.fallback` task. It posts a fixed Persian template message (works even during an LLM outage), opens a handoff to a salesperson, and on SMS sends the apology through the ledger. It obeys the one-reply rule and skips the apology if a later turn already answered.
+
+**Cancellation.** `POST /v1/tasks/{id}/cancel` cancels queued and waiting tasks immediately; a running task gets `cancel_requested` and stops at the next step boundary. Model calls and pure tools are cancelled mid-flight. Writes and external calls already in flight finish and are recorded, so a cancel never creates an unknown SMS. Fan-out tasks (campaigns) cascade the cancel to their children. The result lists side effects that already happened.
+
+**Scheduling.** One-off work is a task with a future `run_at` and a dedupe key; it re-checks consent, stage and quiet hours when it fires. Recurring jobs are defined in code and synced to a `schedules` table by the release job on every deploy and rollback. Every worker runs the scheduler tick, with no leader. A row lock, an atomic "insert task + advance `next_run_at`", and a slot-based unique key make duplicate runs impossible with any number of replicas.
+
+**Worker recovery and deploys.** On crash, the reaper requeues expired leases and the next owner resumes from the journal; an unfinished external step is reconciled, never blindly repeated. On SIGTERM, workers and API pods stop claiming, let in-flight steps reach a boundary, and release their tasks without counting a failure. During rolling deploys, workers claim only `kind@version` values they support. Tasks that no live process can run are failed by a sweep (with fallback and alert) instead of waiting forever.
+
+**Horizontal scale.** Any number of `api` and `worker` replicas can run: claims use `SKIP LOCKED`, wake-ups use `LISTEN/NOTIFY` with polling as fallback, and scheduling needs no leader. Capacity grows by adding replicas or slots per lane. Bulk work scales separately in `worker-bulk`. The design targets roughly 50k tasks/day and about 100 claims/s on one Postgres primary; beyond that, see §21.
+
+**Observability.** Prometheus metrics for queue depth and lag per lane, throughput by status, step latency, retries by error class, waiting tasks, live workers, side-effect outcomes, schedules, breakers and cost. The `api` also computes queue gauges, so "no live worker" pages even when every worker is down. Structured logs carry `task_id`, `kind`, `lane`, `attempt`, `step_no` and `conversation_id`, never chain-of-thought or raw prompts. Alerts page on stalled interactive/customer lanes, no live workers, unknown SMS outcomes, dead or failed fallbacks, unclaimable tasks and reaper errors. A Grafana "Tasks" dashboard shows lag, throughput, latency and the dead list.
+
+Choice: Postgres-backed queue (`SKIP LOCKED`) with our own runner, step journal and side-effect ledger.
+Why: task state, queue state and domain writes commit in one transaction, with one source of truth and nothing lost on Redis eviction. Journaling, waits, fencing and the ledger are the hard part, and no off-the-shelf queue provides them.
+Alternative: Procrastinate; Celery/Arq on Redis; Temporal.
+Why not: Procrastinate covers claiming and retries but not journaling, waits or the ledger. Celery/Arq keep durable state in Redis (§1 forbids it), and Celery is sync-first. Temporal adds a cluster to operate; revisit it if task graphs become long-lived and branching.
+
+Choice: lanes with reserved capacity and FIFO inside each lane.
+Why: no customer-facing lane can be starved by another lane or by a burst of one kind, and FIFO is fair and fully index-supported.
+Alternative: one queue ordered by numeric priority.
+Why not: strict priority starves low priorities, aging needs a query the index can't serve, and a burst at equal priority still blocks everything else.
+
+Choice: serialize all turns of a conversation and gate the reply.
+Why: concurrent turns produce two inconsistent replies, each blind to the other's input. The cost is that an attached message waits for the owner's next step boundary, and the widget shows progress meanwhile.
+Alternative: one concurrent turn per message, or cancel-and-restart on every new message.
+Why not: the first gives double replies by default; the second discards completed work and can leave an SMS send in flight.
+
+The [Task Engine reference](aromin-ai-task-engine.md) holds the detailed design:
+- schemas, indexes and the trigger-enforced state machine (§9.2–9.3)
+- claim SQL, heartbeat, fencing and reaper (§9.4)
+- lane slot configuration, caps and rate budgets (§9.5)
+- step protocol and resume rules (§9.6)
+- ledger protocol, reconciliation and the unknown-outcome resolve API (§9.7)
+- the full retry and backoff policy (§9.8)
+- timeouts, deadlines and budgets (§9.9)
+- cancellation (§9.10) and waiting states (§9.11)
+- schedule sync and the scheduler tick (§9.12)
+- dead-letter, fallback and operator retry/rewind (§9.13)
+- the escalation protocol and deliver gate (§9.14)
+- task kinds (§9.15), metrics and alerts (§9.16), operations (§9.17)
+- 35 failure scenarios with required tests (§9.18)
+- required follow-up edits to §3, §6, §10, §16, §17, §18 and §22 (§9.19)
 
 ---
 
