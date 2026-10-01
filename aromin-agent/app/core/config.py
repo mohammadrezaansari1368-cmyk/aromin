@@ -32,7 +32,7 @@ class LogFormat(StrEnum):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", env_parse_none_str="")
 
     # application
     app_env: AppEnv = AppEnv.development
@@ -56,6 +56,21 @@ class Settings(BaseSettings):
     llm_max_output_tokens: int = Field(default=1024, ge=1, le=32000)
     arvan_api_verified: bool = False
     allow_mock_provider_in_production: bool = False
+
+    # agent loop limits (Phase 2)
+    agent_max_tool_iterations: int = Field(default=5, ge=0, le=50)
+    agent_turn_timeout_seconds: float = Field(default=120.0, gt=0, le=3600)
+    agent_max_tokens_per_turn: int = Field(default=20000, ge=100)
+    agent_max_cost_per_turn: float | None = Field(default=None, gt=0)
+    # model pricing for cost estimates: {"<model>": {"input_per_1m": 0.0, "output_per_1m": 0.0}}
+    llm_pricing: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+    # tool policy (Phase 2): risk/decision overrides are configuration, not code
+    tool_risk_overrides: dict[str, str] = Field(default_factory=dict)
+    tool_policy_overrides: dict[str, str] = Field(default_factory=dict)
+    tools_disabled: list[str] = Field(default_factory=list)
+    allow_critical_tools: bool = False
+    approval_ttl_seconds: int = Field(default=86400, ge=60)
 
     # API authentication / security
     api_key_prefix: str = "ak"
@@ -84,6 +99,24 @@ class Settings(BaseSettings):
         if v not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("invalid log level")
         return v
+
+    @field_validator("tool_risk_overrides")
+    @classmethod
+    def _valid_risks(cls, v: dict[str, str]) -> dict[str, str]:
+        allowed = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+        out = {k: str(level).upper() for k, level in v.items()}
+        if bad := {k for k, level in out.items() if level not in allowed}:
+            raise ValueError(f"invalid risk level for {sorted(bad)}")
+        return out
+
+    @field_validator("tool_policy_overrides")
+    @classmethod
+    def _valid_decisions(cls, v: dict[str, str]) -> dict[str, str]:
+        allowed = {"ALLOW", "DENY", "REQUIRE_APPROVAL"}
+        out = {k: str(d).upper() for k, d in v.items()}
+        if bad := {k for k, d in out.items() if d not in allowed}:
+            raise ValueError(f"invalid policy decision for {sorted(bad)}")
+        return out
 
     @model_validator(mode="after")
     def _guard_production(self) -> Settings:

@@ -63,3 +63,11 @@ def test_env_example_lists_every_setting():
     example = (Path(__file__).resolve().parents[1] / ".env.example").read_text()
     for name in Settings.model_fields:
         assert f"{name.upper()}=" in example, f"{name.upper()} missing from .env.example"
+
+
+def test_env_example_loads_as_valid_settings():
+    from pathlib import Path
+
+    s = Settings(_env_file=Path(__file__).resolve().parents[1] / ".env.example")
+    assert s.redis_url is None and s.llm_api_key is None and s.agent_max_cost_per_turn is None
+    assert s.tool_policy_overrides == {} and s.tools_disabled == []

@@ -101,9 +101,10 @@ def settings(database_url: str) -> Settings:
 async def make_container(settings: Settings) -> AsyncIterator[Callable[..., Container]]:
     created: list[Container] = []
 
-    def _make(provider: LLMProvider | None = None, **overrides) -> Container:
+    def _make(provider: LLMProvider | None = None, *, profile=None, registry=None, **overrides) -> Container:
         s = Settings(_env_file=None, **{**settings.model_dump(), **overrides}) if overrides else settings
-        container = build_container(s, provider=provider or MockProvider())
+        extra = {k: v for k, v in (("profile", profile), ("registry", registry)) if v is not None}
+        container = build_container(s, provider=provider or MockProvider(), **extra)
         created.append(container)
         return container
 
@@ -148,3 +149,24 @@ async def create_key(container: Container, roles: list[str]) -> str:
 @pytest.fixture
 async def service_headers(container: Container) -> dict[str, str]:
     return {"Authorization": f"Bearer {await create_key(container, ['service'])}"}
+
+
+@pytest.fixture
+async def tool_env(make_container, client_for):
+    """Container with built-in + test tools, a scripted MockProvider and service/manager keys."""
+    from types import SimpleNamespace
+
+    from tests import tool_fixtures as tf
+
+    tf.CALLS.clear()
+    tf.SEEN_SCOPE.clear()
+    tf.CANCEL_HOOK.clear()
+
+    async def _env(script=None, **overrides):
+        provider = MockProvider(list(script or []))
+        c = make_container(provider, profile=tf.TEST_PROFILE, registry=tf.build_registry(), **overrides)
+        svc = {"Authorization": f"Bearer {await create_key(c, ['service'])}"}
+        mgr = {"Authorization": f"Bearer {await create_key(c, ['sales_manager'])}"}
+        return SimpleNamespace(c=c, client=client_for(c), provider=provider, svc=svc, mgr=mgr)
+
+    return _env

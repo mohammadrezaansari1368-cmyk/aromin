@@ -96,6 +96,8 @@ class TaskEngine:
                 log.warning("task.lease_expired", task_id=current.id, conversation_id=conversation_id)
             else:
                 raise ConversationBusy()
+        if await uow.tasks.waiting_for_conversation(conversation_id):
+            raise ConversationBusy("A previous turn is waiting for an approval decision")
         task = Task(
             id=new_id("task"),
             kind=AGENT_TURN_KIND,
@@ -125,6 +127,29 @@ class TaskEngine:
         except IntegrityError as exc:  # lost a race on tasks_one_running_per_key
             raise ConversationBusy() from exc
         return task
+
+    def enter_wait(self, task: Task, *, wait_kind: str, wait_ref: str) -> None:
+        """running -> waiting: the slot and lease are released while a human decides."""
+        self.transition(task, "waiting")
+        task.wait_kind, task.wait_ref = wait_kind, wait_ref
+
+    async def resume(self, uow: UnitOfWork, task: Task) -> None:
+        """waiting -> running under a fresh lease; still one running turn per conversation."""
+        now = utcnow()
+        self.transition(task, "running")
+        task.wait_kind = None
+        task.lease_owner, task.lease_until, task.heartbeat_at = api_owner(), now + self._lease, now
+        task.lease_token += 1
+        task.attempt += 1
+        try:
+            await uow.tasks.flush()
+        except IntegrityError as exc:
+            raise ConversationBusy() from exc
+
+    def cancel(self, task: Task, reason: str) -> None:
+        self.transition(task, "cancelled")
+        task.wait_kind = None
+        task.last_error = {"code": "cancelled", "error_class": "cancelled", "message": reason[:200]}
 
     def succeed(self, task: Task, result: dict[str, Any]) -> None:
         self.transition(task, "succeeded")

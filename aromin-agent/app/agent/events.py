@@ -20,6 +20,7 @@ class TurnStarted(BaseModel):
     task_id: str
     user_message_id: str
     replayed: bool = False
+    resumed: bool = False
 
 
 class MessageDelta(BaseModel):
@@ -42,6 +43,33 @@ class TurnCompleted(BaseModel):
     replayed: bool = False
 
 
+class ToolStarted(BaseModel):
+    """Display-safe: tool name and call id only, never arguments."""
+
+    type: Literal["tool.started"] = "tool.started"
+    tool: str
+    call_id: str
+    step_no: int
+
+
+class ToolCompleted(BaseModel):
+    type: Literal["tool.completed"] = "tool.completed"
+    tool: str
+    call_id: str
+    step_no: int
+    status: str  # succeeded | failed | denied | waiting_approval | cancelled
+    error_type: str | None = None
+
+
+class TurnAwaitingApproval(BaseModel):
+    type: Literal["approval.requested"] = "approval.requested"
+    conversation_id: str
+    task_id: str
+    approval_id: str
+    tool: str
+    step_no: int
+
+
 class TurnFailed(BaseModel):
     type: Literal["error"] = "error"
     conversation_id: str
@@ -51,4 +79,6 @@ class TurnFailed(BaseModel):
     retryable: bool
 
 
-RuntimeEvent = TurnStarted | MessageDelta | TurnCompleted | TurnFailed
+RuntimeEvent = (
+    TurnStarted | MessageDelta | ToolStarted | ToolCompleted | TurnAwaitingApproval | TurnCompleted | TurnFailed
+)

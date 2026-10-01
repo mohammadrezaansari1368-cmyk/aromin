@@ -49,3 +49,4 @@ ignore = ["S101", "UP046"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106", "S108"]
+"migrations/versions/**" = ["E501"]  # generated DDL contains long CHECK expressions

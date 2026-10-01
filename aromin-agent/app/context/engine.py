@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from app.providers.base import ChatMessage, ChatRequest
+from app.providers.base import ChatMessage, ChatRequest, ToolDefinition
 
 
 def estimate_tokens(text: str) -> int:
@@ -43,7 +43,11 @@ class ContextEngine:
         model: str,
         max_output_tokens: int,
         timeout_s: float,
+        turn_messages: Sequence[ChatMessage] = (),
+        tools: Sequence[ToolDefinition] = (),
     ) -> ChatRequest:
+        """``turn_messages`` are this turn's assistant tool calls and tool results (always kept,
+        each already size-capped by the executor); ``tools`` are the definitions offered."""
         if estimate_tokens(system_prompt) > self.budget.system_tokens:
             raise ValueError("system prompt exceeds its token budget")
         kept: list[ContextTurn] = []
@@ -59,4 +63,7 @@ class ContextEngine:
         kept.reverse()
         messages = [ChatMessage(role="system", content=system_prompt)]
         messages += [ChatMessage(role=t.role, content=t.content) for t in kept]  # type: ignore[arg-type]
-        return ChatRequest(model=model, messages=messages, max_output_tokens=max_output_tokens, timeout_s=timeout_s)
+        messages += list(turn_messages)
+        return ChatRequest(
+            model=model, messages=messages, max_output_tokens=max_output_tokens, timeout_s=timeout_s, tools=list(tools)
+        )

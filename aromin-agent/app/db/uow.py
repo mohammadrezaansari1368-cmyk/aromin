@@ -16,6 +16,13 @@ from app.db.repositories.conversations import ConversationRepository, MessageRep
 from app.db.repositories.events import EventRepository
 from app.db.repositories.security import ApiKeyRepository
 from app.db.repositories.tasks import TaskRepository
+from app.db.repositories.tooling import (
+    ApprovalRepository,
+    ExecutionRepository,
+    SideEffectRepository,
+    StepRepository,
+    UsageRepository,
+)
 
 
 class UnitOfWork:
@@ -32,6 +39,11 @@ class UnitOfWork:
         self.events = EventRepository(self.session)
         self.api_keys = ApiKeyRepository(self.session)
         self.audit = AuditRepository(self.session)
+        self.steps = StepRepository(self.session)
+        self.executions = ExecutionRepository(self.session)
+        self.approvals = ApprovalRepository(self.session)
+        self.side_effects = SideEffectRepository(self.session)
+        self.usage = UsageRepository(self.session)
         return self
 
     async def __aexit__(

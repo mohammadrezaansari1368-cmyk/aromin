@@ -1,5 +1,6 @@
-"""AgentProfile (blueprint §3). Phase 1 ships one generic profile with no tools.
-Profiles become versioned DB config with the policy layer in Phase 2.
+"""AgentProfile (blueprint §3). One generic profile, offered the Phase 2 built-in tools.
+Which tools a profile may *request* is listed here; whether a call may *run* is decided
+server-side by the executor and the policy engine.
 """
 
 from __future__ import annotations
@@ -7,6 +8,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 from app.providers.factory import ModelTier
+from app.tools.builtin import BUILTIN_TOOL_NAMES
 
 GENERIC_SYSTEM_PROMPT = (
     "تو دستیار هوش مصنوعی آرومین هستی. کوتاه، دقیق و مؤدبانه به فارسی پاسخ بده. "
@@ -28,4 +30,4 @@ class AgentProfile(BaseModel):
     max_output_tokens: int = 1024
 
 
-GENERIC_PROFILE = AgentProfile(name="generic", system_prompt=GENERIC_SYSTEM_PROMPT)
+GENERIC_PROFILE = AgentProfile(name="generic", system_prompt=GENERIC_SYSTEM_PROMPT, allowed_tools=BUILTIN_TOOL_NAMES)

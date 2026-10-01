@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.providers.base import ChatDelta, ChatRequest, ChatResponse, LLMProvider, ProviderCaps, Usage
+from app.providers.base import ChatDelta, ChatRequest, ChatResponse, LLMProvider, ProviderCaps, ToolCall, Usage
 from app.providers.errors import ProviderError
 
 MOCK_PREFIX = "[mock] "
@@ -24,14 +24,17 @@ def _estimate_tokens(text: str) -> int:
 
 
 class MockReply(BaseModel):
-    content: str
-    tool_calls: list[dict[str, Any]] = []
+    """A scripted model reply. ``tool_calls`` entries are ``{"name": ..., "arguments": {...}}``
+    (optionally ``"id"``), so tests can simulate any tool-call scenario."""
+
+    content: str = ""
+    tool_calls: list[ToolCall] = []
     reasoning: str | None = None  # simulates a provider reasoning field; never surfaced
 
 
 class MockProvider(LLMProvider):
     name = "mock"
-    capabilities = ProviderCaps(streaming=True, json_mode=True, tool_calling=False)
+    capabilities = ProviderCaps(streaming=True, json_mode=True, tool_calling=True)
 
     def __init__(
         self,
@@ -67,6 +70,7 @@ class MockProvider(LLMProvider):
         reply = await self._prepare(request)
         prompt = "".join(m.content for m in request.messages)
         return ChatResponse(
+            finish_reason="tool_calls" if reply.tool_calls else "stop",
             content=reply.content,
             model=request.model,
             provider=self.name,
@@ -86,6 +90,7 @@ class MockProvider(LLMProvider):
             finish_reason="tool_calls" if reply.tool_calls else "stop",
             model=request.model,
             usage=Usage(input_tokens=_estimate_tokens(prompt), output_tokens=_estimate_tokens(text)),
+            tool_calls=reply.tool_calls,
         )
 
 

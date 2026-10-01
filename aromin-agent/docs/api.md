@@ -1,4 +1,4 @@
-# API (Phase 1)
+# API (Phases 1–2)
 
 Contracts follow blueprint §16. Interactive docs are at `/docs` when `APP_ENV` is not `production`.
 
@@ -38,7 +38,12 @@ Error bodies never contain stack traces, SQL, provider payloads or secrets. Vali
 | `provider_timeout` | 504 | Model call exceeded `LLM_TIMEOUT_SECONDS` |
 | `provider_unavailable`, `provider_rate_limited`, `provider_not_configured` | 503 | Provider down, limiting, auth failure or not configured |
 | `provider_bad_request`, `provider_invalid_response`, `provider_error` | 502 | Provider rejected the request or answered invalidly |
-| `agent_error` | 500 | Turn could not complete (e.g. model requested a tool; tools are not enabled yet) |
+| `agent_error` | 500 | Turn could not complete (e.g. the model requested a tool that is not offered: fail closed) |
+| `agent_limit_exceeded` | 422 | Tool iterations, turn time, token or cost budget reached; the task's `error.code` names the limit |
+| `task_cancelled` | 409 | The task was cancelled while the turn ran |
+| `task_finished` | 409 | Cancel or resume on a task that is no longer running/waiting |
+| `approval_not_pending` / `approval_expired` | 409 | Decision on an approval that was already decided / has expired |
+| `self_approval_forbidden` | 403 | The requester tried to decide their own approval |
 | `internal_error` | 500 | Unexpected error (logged server-side with the request id) |
 
 ## Endpoints
@@ -92,5 +97,49 @@ Retrying with the same `client_msg_id` and the same text returns the stored repl
 
 Streaming: the runtime already produces events named after blueprint §16: `turn.started`, `message.delta`, `message.completed`, `error`. A `text/event-stream` variant of this endpoint is a later phase and needs no runtime change.
 
+**Tools (Phase 2).** The response lists `tool_calls`: `[{tool, step_no, status, error_type}]`. If a tool call needs approval, the turn pauses and the endpoint answers **`202`**:
+
+```json
+{"conversation_id": "conv_…", "task_id": "task_…", "user_message_id": "msg_…",
+ "status": "waiting_approval", "message": null, "approval_id": "apr_…", "tool_calls": [ … ]}
+```
+
+While a turn waits for approval, new messages to that conversation get `409 conversation_busy` until the approval is decided, expires, or the task is cancelled.
+
 ### `GET /v1/tasks/{task_id}`
-Permission `task:read`. Returns `id`, `kind`, `status`, `mode`, `lane`, `conversation_id` and the timestamps (`created_at`, `started_at`, `finished_at`). `error` is `{code, error_class}` or `null`; internal details are not exposed. In Phase 1 every chat turn creates one `agent.run` task in `immediate` mode.
+Permission `task:read`. Returns:
+- `id`, `kind`, `status`, `mode`, `lane`, `conversation_id`
+- the timestamps: `created_at`, `started_at`, `finished_at`
+- `error`: `{code, error_class}` or `null`; internal details are not exposed
+- Phase 2: `wait_kind`, `pending_approval_id`, `cancel_requested`, `step_count` and `usage` (`input_tokens`, `output_tokens`, `total_tokens`, `estimated_cost`, summed over every model invocation).
+
+### `GET /v1/tasks/{task_id}/steps`
+Permission `task:read`. Returns the task's steps in order: `model_call` / `tool_call` with `status` (`pending`, `running`, `succeeded`, `failed`, `cancelled`, `waiting_approval`, `skipped`), `error_type`, `error_code`, `execution_id`, `approval_id` and timestamps.
+
+### `POST /v1/tasks/{task_id}/cancel`
+Permission `task:cancel` (admin, sales_manager, service).
+- A waiting or queued task is cancelled at once (`200`), and its pending approvals become `cancelled`.
+- A running task gets `cancel_requested` (`202`) and stops at the next step boundary.
+- A finished task returns `409 task_finished`.
+
+### `GET /v1/tool-executions/{execution_id}`
+Permission `task:read`. Returns the execution record:
+- `tool_name`, `tool_version`, `actor_type`, `actor_id`
+- `input_hash` and `sanitized_input`; sensitive fields and secret-looking values are redacted
+- `output_status`, `error_type`, `error_code`, `policy_decision`, `risk_level`
+- timestamps, `latency_ms`, `retry_count`, `approval_id`, `idempotency_key`
+
+### `GET /v1/approvals/{approval_id}`
+Permission `approval:read` (admin, sales_manager, service). Returns:
+- `status`: `pending`, `approved`, `rejected`, `expired` or `cancelled`
+- `tool_name`, `risk_level`, `reason`, `sanitized_input`
+- `requested_by`, `expires_at`, `decided_by`, `decided_at`, `decision_note`
+
+### `POST /v1/approvals/{approval_id}/approve` and `…/reject`
+Permission `approval:decide` (admin, sales_manager). Service keys get `403`, and the requester gets `403 self_approval_forbidden`. The optional body is `{"note": "…"}` (≤ 500 chars).
+
+The paused turn resumes inline:
+- approved → the tool executes once;
+- rejected → it never executes and the model is told.
+
+The response is `{approval, task_id, task_status, message, next_approval_id, error_code}`; `message` is the final reply when the turn completed.

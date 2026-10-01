@@ -62,3 +62,30 @@ class AgentError(AppError):
 
 class DependencyUnavailable(AppError):
     code, status, title = "dependency_unavailable", 503, "A required dependency is unavailable"
+
+
+class AgentLimitExceeded(AppError):
+    """A turn hit a configured limit (tool iterations, turn time, token or cost budget) and was
+    stopped safely. ``reason`` names the limit."""
+
+    code, status, title = "agent_limit_exceeded", 422, "The agent stopped because a limit was reached"
+
+
+class TaskCancelledError(Conflict):
+    code, title = "task_cancelled", "The task was cancelled"
+
+
+class TaskFinished(Conflict):
+    code, title = "task_finished", "The task has already finished"
+
+
+class ApprovalNotPending(Conflict):
+    code, title = "approval_not_pending", "The approval is no longer pending"
+
+
+class ApprovalExpired(Conflict):
+    code, title = "approval_expired", "The approval has expired"
+
+
+class SelfApprovalForbidden(Forbidden):
+    code, title = "self_approval_forbidden", "The requester cannot approve their own request"

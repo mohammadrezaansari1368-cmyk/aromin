@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.errors import register_error_handlers
 from app.api.middleware import RequestContextMiddleware
-from app.api.routes import chat, conversations, health, tasks
+from app.api.routes import approvals, chat, conversations, health, tasks, tool_executions
 from app.core.config import Settings, get_settings
 from app.core.container import Container, build_container
 from app.core.logging import configure_logging, get_logger
@@ -55,7 +55,7 @@ def create_app(settings: Settings | None = None, *, container: Container | None 
         )
     app.add_middleware(RequestContextMiddleware)
     register_error_handlers(app)
-    for module in (health, conversations, chat, tasks):
+    for module in (health, conversations, chat, tasks, tool_executions, approvals):
         app.include_router(module.router)
     return app
 

@@ -1,6 +1,6 @@
 # AROMIN AI Agent
 
-Standalone AI agent service for AROMIN. **Status: Phase 1 (core foundation).** The service runs and answers chat messages through a mock model provider. It is not connected to a real LLM, to the AROMIN Dashboard or to the website chat.
+Standalone AI agent service for AROMIN. **Status: Phase 2 (controlled tool use).** The service answers chat messages and can call internal, read-only tools under server-side validation, permissions, policy, approvals and audit. It runs on a mock model provider and is not connected to a real LLM, to the AROMIN Dashboard or to the website chat.
 
 Architecture reference: [AROMIN AI Architecture Blueprint](../docs/aromin-ai-blueprint.md) and the [Task Engine reference](../docs/aromin-ai-task-engine.md).
 
@@ -62,37 +62,46 @@ The PostgreSQL run truncates every table in that database, so point it at a data
 ```
 HTTP ──▶ RequestContextMiddleware (request_id, access log)
      ──▶ auth (API key → Principal → permissions) ──▶ rate limit
-     ──▶ routes: /health /ready /v1/conversations /v1/chat /v1/tasks
+     ──▶ routes: /health /ready /v1/conversations /v1/chat /v1/tasks[/steps|/cancel]
+                 /v1/tool-executions /v1/approvals[/approve|/reject]
                     │
                     ▼
                AgentRuntime ── LLMProvider (mock | openai_compatible | arvan*) + ModelRouter
-                    │       ── ConversationMemory   ── ContextEngine (token budget)
-                    │       ── ToolRegistry (empty)  ── TaskEngine (inline turns)
-                    │       ── EventRecorder (transactional outbox)
+                    │       ── ConversationMemory   ── ContextEngine (token budget, tool transcript)
+                    │       ── ToolRegistry ── ToolExecutor ── PolicyEngine / ApprovalService
+                    │       ── TaskEngine (inline turns, waiting, cancel) ── EffectLedger
+                    │       ── EventRecorder (outbox) ── AuditLogger ── CostEstimator (llm_usage)
                     ▼
         UnitOfWork + repositories (fixed ORM queries) ──▶ PostgreSQL / SQLite
 ```
 
 \* the Arvan adapter refuses to start until its API is verified (blueprint §15 checklist).
 
-A chat turn works like this:
-1. **First transaction:** store the user message and create the task row, then record `message.received`.
-2. **Model call:** stream it with no database transaction open.
-3. **Second transaction:** store the reply, mark the task `succeeded` and record `message.sent`. If the provider fails, the task is marked `failed` and the client gets a normalized error.
+A chat turn:
+1. **Intake transaction:** store the user message, create the task row, record `message.received`.
+2. **Loop** (bounded by tool iterations, turn time, token and cost budgets):
+   - The model is called; every call is recorded as a `model_call` step with tokens, cost and latency in `llm_usage`.
+   - If the model requests tools, each request goes through the ToolExecutor: name → schema (unknown arguments and type mismatches rejected) → permissions → policy → approval → idempotency → handler.
+   - Each tool request gets a `tool_call` step and a `tool_executions` row, and its result goes back to the model.
+3. **Completion transaction:** store the reply, mark the task `succeeded`, record `message.sent`.
 
-The runtime emits transport-neutral events, so SSE or WebSocket can be added without changing it.
+A tool that needs approval pauses the turn: `/v1/chat` answers `202` and the task is `waiting`. A permitted human (not the requester) approves or rejects it, and the turn then resumes inline. The model never chooses identities, scope or approval state. It supplies only a tool name and arguments.
 
-Package layout: `app/core`, `app/api`, `app/agent`, `app/memory`, `app/context`, `app/tools`, `app/tasks`, `app/events`, `app/models`, `app/providers`, `app/services`, `app/security`, `app/db`, `app/workers`; plus `migrations/`, `tests/` and `docs/`. Details: [docs/architecture.md](docs/architecture.md), [docs/api.md](docs/api.md), [docs/development.md](docs/development.md).
+Built-in tools (all LOW risk, read-only): `get_conversation`, `get_message_history`, `get_task`, `get_current_time`, `calculate`.
+
+Package layout: `app/core`, `app/api`, `app/agent`, `app/memory`, `app/context`, `app/tools`, `app/policy`, `app/tasks`, `app/events`, `app/models`, `app/providers`, `app/services`, `app/security`, `app/db`, `app/workers`; plus `migrations/`, `tests/` and `docs/`. Details: [docs/architecture.md](docs/architecture.md), [docs/api.md](docs/api.md), [docs/development.md](docs/development.md).
 
 ## 5. Not implemented yet
 
-These are deliberately out of Phase 1. The blueprint section that covers each is in brackets.
+These are deliberately out of Phases 1–2. The blueprint section that covers each is in brackets.
 
 - **Real LLM:** Arvan's API is not verified [§15]. The generic OpenAI-compatible adapter is unit-tested against mocked HTTP only, never against a live provider.
-- **Tools:** no business tools, policy engine, approvals or tool-execution loop yet. If the model requests a tool, the turn fails [§6, §14].
-- **Task Engine background features:** no worker process (`python -m app.workers` exits with an error), claim loop, step journal, side-effect ledger, retries/backoff, waiting states, escalation, reaper, schedules, dead-letter or fallback task [§9].
-  - Phase 1 creates only inline task rows.
+- **Tools:** only the five internal read tools exist; no SMS, CRM write, payment or other external or destructive tools [§6]. The effect ledger is ready, but no real external effect exists to use it.
+- **Task Engine background features:** no worker process (`python -m app.workers` exits with an error), claim loop, task-level retries/backoff, reaper, schedules, dead-letter or fallback task [§9].
+  - Turns, including the continuation after an approval decision, run inline in the API request.
   - An inline turn whose lease expired is marked `failed` when the next message arrives.
+  - Approval expiry is checked lazily, when the approval is read or decided or a new message arrives; nothing sends reminders.
+  - New messages are refused (`409`) while a turn in the conversation waits for approval.
 - **Events:** the outbox is written, but nothing delivers it yet (no dispatcher, no webhooks) [§10].
 - **Memory and knowledge:** no rolling summary, customer/semantic memory, RAG or web research [§4, §7, §8].
 - **Domain and channels:** no Sales Agent, leads, scoring, routing, follow-ups, SMS, handoff [§11–13] and no SSE streaming endpoint [§16].

@@ -67,11 +67,21 @@ class UsageOut(BaseModel):
     output_tokens: int
 
 
+class ToolCallOut(BaseModel):
+    tool: str
+    step_no: int
+    status: str
+    error_type: str | None = None
+
+
 class ChatResponseOut(BaseModel):
     conversation_id: str
     task_id: str
     user_message_id: str
-    message: MessageOut
+    status: Literal["completed", "waiting_approval"] = "completed"
+    message: MessageOut | None = None
+    approval_id: str | None = None
+    tool_calls: list[ToolCallOut] = Field(default_factory=list)
     sources: list[dict[str, Any]] = Field(default_factory=list)
     usage: UsageOut | None = None
     replayed: bool = False
@@ -80,6 +90,13 @@ class ChatResponseOut(BaseModel):
 class TaskErrorOut(BaseModel):
     code: str
     error_class: str | None = None
+
+
+class TaskUsageOut(BaseModel):
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    estimated_cost: float | None
 
 
 class TaskOut(BaseModel):
@@ -93,6 +110,92 @@ class TaskOut(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     error: TaskErrorOut | None = None
+    wait_kind: str | None = None
+    pending_approval_id: str | None = None
+    cancel_requested: bool = False
+    step_count: int = 0
+    usage: TaskUsageOut | None = None
+
+
+class TaskStepOut(BaseModel):
+    step_no: int
+    type: str
+    name: str
+    status: str
+    error_type: str | None
+    error_code: str | None
+    execution_id: str | None
+    approval_id: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class TaskStepsOut(BaseModel):
+    task_id: str
+    steps: list[TaskStepOut]
+
+
+class ToolExecutionOut(BaseModel):
+    id: str
+    task_id: str | None
+    step_no: int | None
+    conversation_id: str | None
+    tool_name: str
+    tool_version: str
+    actor_type: str
+    actor_id: str
+    input_hash: str | None
+    sanitized_input: dict[str, Any] | None
+    output_status: str
+    error_type: str | None
+    error_code: str | None
+    policy_decision: str | None
+    risk_level: str | None
+    started_at: datetime | None
+    completed_at: datetime | None
+    latency_ms: int | None
+    retry_count: int
+    approval_id: str | None
+    idempotency_key: str | None
+
+
+class ApprovalOut(BaseModel):
+    id: str
+    task_id: str
+    step_no: int
+    conversation_id: str | None
+    tool_name: str
+    tool_version: str
+    risk_level: str
+    reason: str
+    sanitized_input: dict[str, Any] | None
+    requested_by: str
+    status: str
+    expires_at: datetime
+    decided_by: str | None
+    decided_at: datetime | None
+    decision_note: str | None
+    created_at: datetime
+
+
+class ApprovalDecisionIn(StrictModel):
+    note: str | None = Field(default=None, max_length=500)
+
+
+class ApprovalDecisionOut(BaseModel):
+    approval: ApprovalOut
+    task_id: str
+    task_status: str
+    message: MessageOut | None = None
+    next_approval_id: str | None = None
+    error_code: str | None = None
+
+
+class CancelTaskOut(BaseModel):
+    task_id: str
+    status: str
+    cancel_requested: bool
 
 
 class HealthOut(BaseModel):

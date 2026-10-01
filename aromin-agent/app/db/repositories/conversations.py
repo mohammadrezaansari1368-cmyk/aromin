@@ -68,3 +68,19 @@ class MessageRepository:
             .limit(limit)
         )
         return list((await self._s.execute(stmt)).scalars())
+
+    async def before(self, conversation_id: str, before_seq: int, limit: int) -> list[Message]:
+        """Up to ``limit`` messages with seq < before_seq, returned oldest first."""
+        stmt = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id, Message.seq < before_seq)
+            .order_by(Message.seq.desc())
+            .limit(limit)
+        )
+        rows = list((await self._s.execute(stmt)).scalars())
+        rows.reverse()
+        return rows
+
+    async def by_task_user(self, task_id: str) -> Message | None:
+        stmt = select(Message).where(Message.task_id == task_id, Message.role == "user").limit(1)
+        return (await self._s.execute(stmt)).scalar_one_or_none()

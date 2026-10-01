@@ -40,6 +40,9 @@ Roles: `admin`, `sales_manager`, `salesperson`, `service`, `visitor` (see `app/s
 - **Logging:** use `get_logger(__name__)` and log ids, sizes, latencies and codes. Never log message text, prompts or model reasoning.
 - **Providers:** new adapters implement `_generate` and `_stream`, map every failure to a class in `app/providers/errors.py`, and drop reasoning fields.
 - **Tests:** each test gets its own migrated database. Use `MockProvider(script=[...], fail_with=..., delay_s=...)` to drive the runtime deterministically.
+  - Tool scenarios: script `MockReply(tool_calls=[{"name": ..., "arguments": {...}}])`.
+  - The `tool_env` fixture (in `tests/conftest.py`) gives a container with the built-in tools plus the test-only tools in `tests/tool_fixtures.py`, and service + manager keys.
+- **New tools:** define strict input/output models (`extra="forbid"`) and a `ToolSpec` with every metadata field. Read through `ctx.data`. Route any external call through `ctx.effects.perform(...)`. Mark credential inputs with `sensitive()`. Never add identity or scope fields to the input.
 
 ## Local PostgreSQL / Redis
 

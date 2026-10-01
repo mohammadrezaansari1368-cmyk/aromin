@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any, Generic, Literal, TypeVar
@@ -18,13 +19,36 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.providers.errors import ProviderResponseError, ProviderTimeoutError
 
-Role = Literal["system", "user", "assistant"]
+Role = Literal["system", "user", "assistant", "tool"]
 T = TypeVar("T", bound=BaseModel)
+
+
+def _call_id() -> str:
+    return f"call_{uuid.uuid4().hex[:24]}"
+
+
+class ToolCall(BaseModel):
+    """A tool request proposed by the model. ``arguments`` is untrusted input: it is only
+    ever passed to the ToolExecutor, which validates it before anything runs."""
+
+    id: str = Field(default_factory=_call_id)
+    name: str
+    arguments: dict[str, Any] | str = Field(default_factory=dict)
+
+
+class ToolDefinition(BaseModel):
+    """What the model is told about a tool: name, description and the input JSON schema."""
+
+    name: str
+    description: str
+    parameters: dict[str, Any]
 
 
 class ChatMessage(BaseModel):
     role: Role
     content: str
+    tool_calls: list[ToolCall] = Field(default_factory=list)  # assistant messages only
+    tool_call_id: str | None = None  # tool messages only
 
 
 class ResponseFormat(BaseModel):
@@ -41,6 +65,7 @@ class ChatRequest(BaseModel):
     temperature: float | None = None
     response_format: ResponseFormat | None = None
     timeout_s: float = 60.0
+    tools: list[ToolDefinition] = Field(default_factory=list)
 
 
 class Usage(BaseModel):
@@ -55,7 +80,7 @@ class ChatResponse(BaseModel):
     finish_reason: str = "stop"
     usage: Usage = Field(default_factory=Usage)
     latency_ms: int = 0
-    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    tool_calls: list[ToolCall] = Field(default_factory=list)
 
 
 class ChatDelta(BaseModel):
@@ -66,6 +91,7 @@ class ChatDelta(BaseModel):
     finish_reason: str | None = None
     usage: Usage | None = None
     model: str | None = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)  # final chunk only
 
 
 class StructuredResult(BaseModel, Generic[T]):

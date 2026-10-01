@@ -26,3 +26,7 @@ class TaskRepository:
     async def running_with_key(self, concurrency_key: str) -> Task | None:
         stmt = select(Task).where(Task.concurrency_key == concurrency_key, Task.status == "running").with_for_update()
         return (await self._s.execute(stmt)).scalar_one_or_none()
+
+    async def waiting_for_conversation(self, conversation_id: str) -> list[Task]:
+        stmt = select(Task).where(Task.conversation_id == conversation_id, Task.status == "waiting").with_for_update()
+        return list((await self._s.execute(stmt)).scalars())

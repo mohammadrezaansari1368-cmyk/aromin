@@ -75,6 +75,9 @@ class Task(Base):
     last_error: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
     progress: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    wait_kind: Mapped[str | None] = mapped_column(String(16))  # approval | human | time (Phase 2: approval)
+    wait_ref: Mapped[str | None] = mapped_column(String(80))  # e.g. "approval:<id>"
+    step_count: Mapped[int] = mapped_column(Integer, default=0)
     emit_events: Mapped[bool] = mapped_column(Boolean, default=True)
     created_by: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(TZDateTime, default=utcnow)

@@ -76,4 +76,11 @@ async def test_no_management_endpoints_exposed(client):
         "/v1/conversations/{conversation_id}",
         "/v1/chat",
         "/v1/tasks/{task_id}",
+        # Phase 2: task/step/tool-execution reads and approval decisions (all authenticated)
+        "/v1/tasks/{task_id}/steps",
+        "/v1/tasks/{task_id}/cancel",
+        "/v1/tool-executions/{execution_id}",
+        "/v1/approvals/{approval_id}",
+        "/v1/approvals/{approval_id}/approve",
+        "/v1/approvals/{approval_id}/reject",
     }
