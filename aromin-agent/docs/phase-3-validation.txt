@@ -1,0 +1,17 @@
+.....................................................................s.. [ 37%]
+.............ss......................................................... [ 74%]
+.................................................                        [100%]
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_health.py:45: set TEST_REDIS_URL to check readiness against a real Redis
+SKIPPED [1] tests/test_models.py:96: trigger exists on PostgreSQL only
+SKIPPED [1] tests/test_models.py:113: trigger exists on PostgreSQL only
+190 passed, 3 skipped in 7.77s
+
+Review context: 2026-10-02; baseline 3a2618a01f6b15e573ca9b5697220d0734ee8268.
+Python 3.12.14; fresh uv sync --frozen successful.
+First run: 178 passed, 12 failed, 3 skipped; HTTPX SOCKS optional dependency missing.
+Rerun above: disposable venv supplemented with socksio==1.0.0; lock/project unchanged.
+Ruff check: All checks passed!
+Ruff format --check: 109 files already formatted.
+PostgreSQL/Redis: no test URLs, local listeners, or service binaries on PATH; not run.
+No Phase 3 implementation, migration, multi-worker, chaos or benchmark verification claimed.
