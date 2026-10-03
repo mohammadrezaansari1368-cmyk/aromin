@@ -15,6 +15,7 @@ from app.core.ids import new_id
 from app.models.task import Task
 from app.models.tooling import LLMUsage, TaskStep
 from app.tasks.claim import Lease, LeaseStore
+from app.tasks.engine import _aware
 from app.tasks.replay import ReplayUnavailable, exact_json, journal_key, replay_input
 
 
@@ -39,7 +40,7 @@ class JournalStore:
         task = await session.get(Task, lease.task_id, populate_existing=True)
         if starting:
             now = (await session.execute(select(func.current_timestamp()))).scalar_one()
-            if cancelled or (task.deadline_at is not None and task.deadline_at <= now):
+            if cancelled or (task.deadline_at is not None and task.deadline_at <= _aware(now)):
                 raise BoundaryStopped(lease.task_id)
         return task
 

@@ -3,6 +3,7 @@
 import pytest
 from sqlalchemy import text
 
+from app.models.task import Task
 from app.tasks.claim import LeaseLost, LeaseStore
 from app.tasks.reaper import TaskReaper
 from tests.test_task_leases import claim, queued, require_pg
@@ -37,6 +38,15 @@ async def test_reaper_requeues_expired_owner_and_fences_old_token(container):
         with pytest.raises(LeaseLost):
             await LeaseStore().lock_owned(uow.session, old)
 
+    # Retry is deliberately delayed; explicitly advance the disposable test row to due.
+    from datetime import timedelta
+
+    from sqlalchemy import func, update
+
+    async with container.uow_factory() as uow:
+        await uow.session.execute(
+            update(Task).where(Task.id == task_id).values(run_at=func.statement_timestamp() - timedelta(seconds=1))
+        )
     new = await claim(container, "worker:new")
     assert new is not None
     assert new.task_id == task_id

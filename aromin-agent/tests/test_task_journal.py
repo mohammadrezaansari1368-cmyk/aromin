@@ -121,6 +121,15 @@ async def test_postgres_reclaimed_owner_cannot_complete_journal(container):
     await expire(container, task_id)
     async with container.uow_factory() as uow:
         await TaskReaper().reap_batch(uow.session)
+    # Retry is deliberately delayed; explicitly advance the disposable test row to due.
+    from datetime import timedelta
+
+    from sqlalchemy import func, update
+
+    async with container.uow_factory() as uow:
+        await uow.session.execute(
+            update(Task).where(Task.id == task_id).values(run_at=func.statement_timestamp() - timedelta(seconds=1))
+        )
     new = await claim(container, "worker:new")
     assert new.token > old.token
     with pytest.raises(LeaseLost):
