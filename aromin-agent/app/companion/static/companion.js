@@ -197,6 +197,49 @@
     const y = Math.max(-3, Math.min(3, (event.clientY - rect.top - rect.height / 2) / 80));
     root.style.setProperty('--eye-x', `${x}px`); root.style.setProperty('--eye-y', `${y}px`);
   });
+  // Topic cards organize starting prompts; all still use the same authenticated agent.
+  let category = 'all';
+  const normalize = text => text.replace(/ي/g, 'ی').replace(/ك/g, 'ک').toLocaleLowerCase('fa');
+  function filterTemplates() {
+    const query = normalize($('template-search').value.trim());
+    let count = 0;
+    document.querySelectorAll('.template-card').forEach(card => {
+      const visible = (category === 'all' || card.dataset.category === category) &&
+        normalize(card.textContent).includes(query);
+      card.hidden = !visible;
+      if (visible) count++;
+    });
+    $('catalog-count').textContent = `${count.toLocaleString('fa')} مسیر برای شروع گفتگو`;
+    $('catalog-empty').hidden = count !== 0;
+    document.querySelectorAll('[data-filter]').forEach(button => {
+      const selected = button.dataset.filter === category;
+      button.classList.toggle('active', selected);
+      button.setAttribute('aria-pressed', String(selected));
+    });
+  }
+  function menu(open) {
+    document.body.classList.toggle('nav-open', open);
+    $('sidebar-toggle').setAttribute('aria-expanded', String(open));
+    $('nav-backdrop').hidden = !open;
+    if (!open) $('sidebar-toggle').setAttribute('aria-label', 'باز کردن فهرست');
+    else $('sidebar-toggle').setAttribute('aria-label', 'بستن فهرست');
+  }
+  document.querySelectorAll('[data-filter]').forEach(button => button.addEventListener('click', () => {
+    category = button.dataset.filter;
+    filterTemplates();
+    if ($('welcome').hidden && !state.busy) $('new-chat').click();
+    if (matchMedia('(max-width: 760px)').matches) menu(false);
+  }));
+  $('template-search').addEventListener('input', filterTemplates);
+  $('sidebar-toggle').addEventListener('click', () => menu(!document.body.classList.contains('nav-open')));
+  $('nav-backdrop').addEventListener('click', () => menu(false));
+  $('new-chat').addEventListener('click', () => menu(false));
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && document.body.classList.contains('nav-open')) {
+      menu(false); $('sidebar-toggle').focus();
+    }
+  });
+  filterTemplates();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   let motion = !reduced.matches;
   function motionState() {

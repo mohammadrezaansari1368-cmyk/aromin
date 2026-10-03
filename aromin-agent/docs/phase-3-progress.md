@@ -119,3 +119,13 @@ licensing, session limits and verification. Nine companion API tests passed;
 Chromium offline/connected-MockProvider and desktop/mobile checks passed. No live
 LLM verification. Phase 3 remains INCOMPLETE and the seven-cycle result above
 remains unchanged; this separate feature adds no infrastructure acceptance proof.
+
+### Companion design revision
+
+User-requested catalog-style redesign references awesome-grokbot-templates at
+`9e2d3d6a4ea10093706f61937815ee6f8254d060`. Sidebar, six original starting-prompt
+cards, category/search interactions and compact persistent avatar replace the
+initial treatment. Cards reuse the existing agent; no Grok bots/configs were
+installed. Desktop/mobile/320px browser checks and connected mock-runtime flow
+passed; all 9 companion API tests passed. Phase 3 remains INCOMPLETE; no additional
+Phase 3 cycle, provider switch, deployment or legacy/MariaDB change occurred.

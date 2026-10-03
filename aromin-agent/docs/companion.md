@@ -105,3 +105,34 @@ artwork, animations, sounds or other reserved media were copied.
   passed. PostgreSQL/Redis integration/process acceptance remains unverified.
 - Playwright was installed only in the disposable validation environment; no
   dependency lock changes and no production services were started or changed.
+
+## Catalog-inspired redesign
+
+The user rejected the initial visual treatment and requested a redesign using
+[awesome-grokbot-templates](https://github.com/cs68614-hash/awesome-grokbot-templates).
+Reviewed source commit: `9e2d3d6a4ea10093706f61937815ee6f8254d060`.
+Its CC0-1.0 repository contains metadata/descriptions/share links for 2,744 bots,
+not a frontend UI kit or full bot prompts/configurations. The repository README
+also links its searchable public directory. No bots were installed, connected,
+or given access to accounts; no Grok provider or private bot prompts were imported.
+
+The interface now adapts the catalog's category/search/card organization into six
+original Persian conversation starters: AROMIN orientation, architecture,
+troubleshooting, next-step planning, technical rewriting and customer draft.
+Relevant reference entries include Architecture Diagram, Fixer and Copywriter.
+The cards only fill the message composer; sending still requires the user's
+normal submit action and uses the same AROMIN agent. They are not separate deployed
+specialists and grant no new tools, knowledge or permissions.
+
+Visual changes: dark sidebar and lime accents, larger readable headings, compact
+always-visible animated Aro, restrained white topic cards, topic filters with
+synchronized sidebar states, local Persian-normalized search and no-results state,
+fixed-height workspace with scrollable catalog/messages and accessible mobile
+menu. Motion, failure honesty and the server-side credential boundary are preserved.
+
+Redesign verification: Chromium 1280x920 and 390x844 plus 320px width; filters,
+search/empty state, prompt filling, offline retry, new chat, collapse, reduced
+motion, persistent avatar during chat, mobile menu/category selection/Escape,
+no horizontal overflow or JavaScript exceptions passed. Connected browser through
+the actual authenticated runtime/SQLite/MockProvider also passed. All 9 companion
+API tests passed again; no Python/runtime/lock changes were made in the redesign.
