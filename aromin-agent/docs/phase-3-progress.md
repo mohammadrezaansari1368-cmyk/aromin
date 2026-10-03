@@ -64,3 +64,9 @@ Added 0003 and matching ORM fields for task/journal/execution/approval/effect/us
 
 Validation: 193 passed, 10 skipped, one baseline warning; Ruff lint and format passed (119 files); git diff --check passed. SQLite migration proof only; populated PostgreSQL, triggers and separate-process locking remain blocked. This is an expand slice, not the full Phase 3 schema or runtime integration. Legacy initial_state stays empty because current state cannot safely reconstruct the initial checkpoint.
 Next: scope journal reads to current generation and introduce exact replay/key contract.
+
+### Cycle 2 — exact replay contract and generation-scoped reads
+
+StepRepository current-generation get/list/pending and ApprovalRepository step lookup now use the task generation; explicit historical reads remain possible. Added canonical JSON-position keys with no attempt component and exact JSON roundtrip/size refusal; sensitive tool schemas and unsupported legacy previews fail closed. Existing Phase 2 key function remains unchanged to avoid silently rekeying historical effects. Helpers do not bypass ToolExecutor authorization/policy and are not yet runtime-connected.
+Validation: 197 passed, 10 skipped, one baseline warning; Ruff lint/format and diff checks clean. Tests cover long Persian strings/lists without truncation, sensitive/legacy rejection, distinct generation keys and current/history read isolation.
+Next: fenced write-ahead journal transactions before shared runner integration. Real PostgreSQL/Redis verification still blocked; Phase 3 INCOMPLETE.
