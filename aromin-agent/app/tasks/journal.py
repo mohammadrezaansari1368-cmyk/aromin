@@ -40,7 +40,7 @@ class JournalStore:
         task = await session.get(Task, lease.task_id, populate_existing=True)
         if starting:
             now = (await session.execute(select(func.current_timestamp()))).scalar_one()
-            if cancelled or (task.deadline_at is not None and task.deadline_at <= _aware(now)):
+            if cancelled or (task.deadline_at is not None and _aware(task.deadline_at) <= _aware(now)):
                 raise BoundaryStopped(lease.task_id)
         return task
 
