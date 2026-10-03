@@ -243,3 +243,11 @@ select:not([multiple]):not([size]):disabled { opacity: .6; cursor: not-allowed; 
 :root, :root[data-theme='purple'] { --gauge-dial: var(--brand-purple); --gauge-ink: 0 0% 100%; --gauge-needle: var(--brand-gold); --gauge-hub: var(--brand-blue); }
 :root[data-theme='blue'] { --gauge-dial: var(--brand-blue); --gauge-ink: 0 0% 100%; --gauge-needle: var(--brand-gold); --gauge-hub: var(--brand-purple); }
 :root[data-theme='gold'] { --gauge-dial: var(--brand-gold); --gauge-ink: 222 45% 12%; --gauge-needle: var(--brand-purple); --gauge-hub: var(--brand-blue); }
+
+/* Shared chart tokens: brand base colors are defined only here. */
+:root { --aromin-blue: #004991; --aromin-purple: #910D6A; --aromin-yellow: #FCBF00;
+ --chart-1: var(--aromin-purple); --chart-2: var(--aromin-blue); --chart-3: var(--aromin-yellow);
+ --chart-outline: hsl(var(--text)); }
+:root[data-theme='blue'] { --chart-1: var(--aromin-blue); --chart-2: var(--aromin-purple); }
+:root[data-theme='gold'] { --chart-1: var(--aromin-yellow); --chart-2: var(--aromin-blue); }
+:root[data-mode='dark'] { --chart-1: hsl(var(--primary)); --chart-2: hsl(var(--secondary)); }

@@ -24,6 +24,8 @@ import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, FOCUS, INPUT } from '@/components/ui
 import { parseJ, todayJ } from '@/lib/jalali'
 import BulkApprove from '@/components/ledger/BulkApprove'
 import { motion } from 'motion/react'
+import Funnel from '@/components/ui/funnel-chart'
+import { funnelReach } from '@/components/ui/funnel-geometry'
 
 /* ---------- انواع ---------- */
 interface Row { key: string; pi: number; p: any; d: Deal; S: CommS; ref: Ref }
@@ -508,18 +510,8 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 					<p className="mt-2 text-[11.5px] leading-5 text-muted-foreground">سهمِ تکرارِ خرید از مبنا: {pct(T.eligible > 0 ? (T.rep / T.eligible) * 100 : 0)}</p>
 				</Tile>
 				<Tile key="c2" title="قیف" code="C2">
-					<ul className="space-y-1.5">
-						{FUNNEL.map((s) => {
-							const mx = Math.max(1, ...FUNNEL.map((x) => T.funnel[x.k].n))
-							return (
-								<li key={s.k} className="flex items-center gap-2 text-[12px]">
-									<span className="w-[62px] shrink-0 truncate text-muted-foreground">{s.t}</span>
-									<span className="h-2 flex-1 overflow-hidden rounded-full bg-muted"><span className={`block h-full rounded-full ${s.k === 'won' ? 'bg-success' : s.k === 'lost' ? 'bg-error/70' : 'bg-secondary/60'}`} style={{ width: `${(T.funnel[s.k].n / mx) * 100}%` }} /></span>
-									<span className="w-9 shrink-0 text-left tabular-nums">{fa(T.funnel[s.k].n)}</span>
-								</li>
-							)
-						})}
-					</ul>
+					<Funnel data={funnelReach(T.funnel).map(s => ({ ...s, label: FUNNEL.find(f => f.k === s.key)!.t }))} />
+					<p className="mt-2 text-xs text-muted-foreground">تعداد رسیده به هر مرحله · شکست: {fa(T.funnel.lost.n)}</p>
 				</Tile>
 				<Tile key="w7" title="وزنِ هفت مرحلهٔ پورسانت" code="C1" className="md:col-span-2 xl:col-span-4">
 					<StageWeights weights={wt} basis={T.byStage} />
