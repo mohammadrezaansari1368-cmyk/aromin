@@ -1,3 +1,4 @@
+import { isActivePerson } from '@/lib/people'
 'use client'
 
 /**
@@ -159,7 +160,7 @@ function Filters({ ds, f, set, show }: { ds: Dataset; f: Filter; set: (f: Filter
 				<Field label="کارمند">
 					<select className={inCls} value={f.person} onChange={(e) => set({ ...f, person: e.target.value })}>
 						<option value="">همه ({fa(ds.people.length)} نفر)</option>
-						{ds.people.map((p) => <option key={p.sheetName} value={p.sheetName}>{p.displayName}</option>)}
+						{ds.people.filter(isActivePerson).map((p) => <option key={p.sheetName} value={p.sheetName}>{p.displayName}</option>)}
 					</select>
 				</Field>
 			)}
@@ -822,7 +823,7 @@ function SummaryReport({ ds, f, set }: { ds: Dataset; f: Filter; set: (f: Filter
 					{ds.scopeAll && ds.people.length > 1 && (
 						<Field label="کارمند">
 							<select className={inCls} value={p.sheetName} onChange={(e) => setSel(e.target.value)}>
-								{ds.people.map((x) => <option key={x.sheetName} value={x.sheetName}>{x.displayName}</option>)}
+								{ds.people.filter(isActivePerson).map((x) => <option key={x.sheetName} value={x.sheetName}>{x.displayName}</option>)}
 							</select>
 						</Field>
 					)}

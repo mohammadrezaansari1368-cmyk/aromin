@@ -17,6 +17,7 @@ import { cleanName } from '@/engines/deal-import/index.ts'
 import { fetchFull } from '@/lib/forecastStore'
 import { approveBatch, approveDoc, closeDeals, flushLedger, LEDGER_FY, ledgerStatus, loadLayout, onLedgerStatus, queueOp, reopenDeal, requestReopenCode, saveLayout, submitDocs, withdrawDoc, type ApprovalInput, type Ref } from '@/lib/ledgerStore'
 import { canSeeAll } from '@/lib/performance'
+import { isActivePerson } from '@/lib/people'
 import { currentTenant } from '@/lib/data'
 import { isAdmin, type Session } from '@/lib/auth'
 import Sortable, { arrangeOrder, loadOrder, saveOrder } from '@/components/ui/sortable'
@@ -148,7 +149,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 	const [person, setPerson] = useState<string>(pref0.person || ALL)
 	const scope = seeAll ? person : selfIdx >= 0 ? String(selfIdx) : 'none'
 	const single = scope !== ALL && scope !== 'none' ? people[+scope] : null
-	useEffect(() => { if (seeAll && person !== ALL && !people[+person] && people.length) setPerson(ALL) }, [people, person, seeAll])
+	useEffect(() => { if (seeAll && person !== ALL && !isActivePerson(people[+person]) && people.length) setPerson(ALL) }, [people, person, seeAll])
 
 	const [gm, setGm] = useState<string>(pref0.gm ?? 'all')
 	const [viewFy, setViewFy] = useState<string>(LEDGER_FY)
@@ -340,15 +341,15 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 	/* ---- نام‌ها برای انتخاب‌گرها ---- */
 	const leadNames = useMemo(() => {
 		const set = new Set<string>()
-		people.forEach((p) => { const n = String(p.name || '').trim(); if (n) set.add(n) })
+		people.filter(isActivePerson).forEach((p) => { const n = String(p.name || '').trim(); if (n) set.add(n) })
 		people.forEach((p) => ledgerOf(p, full, LEDGER_FY).forEach((d: Deal) => { const n = String(d.leadGen || '').trim(); if (n) set.add(n) }))
-		return [...set]
+		return [...set].filter(n => !people.some(p => p.name === n && !isActivePerson(p)))
 	}, [people, full])
 	const finNames = useMemo(() => {
 		const out: string[] = []
-		people.forEach((p) => { if (p.role === 'finance') { const n = String(p.name || '').trim(); if (n && !out.includes(n)) out.push(n) } })
+		people.filter(isActivePerson).forEach((p) => { if (p.role === 'finance') { const n = String(p.name || '').trim(); if (n && !out.includes(n)) out.push(n) } })
 		people.forEach((p) => ledgerOf(p, full, LEDGER_FY).forEach((d: Deal) => { const n = String(d.finBy || '').trim(); if (n && !out.includes(n)) out.push(n) }))
-		return out
+		return out.filter(n => !people.some(p => p.name === n && !isActivePerson(p)))
 	}, [people, full])
 
 	/* ---- اعلانِ ایمپورتِ قبلی (ایمپورت از «مرکز ایمپورت») ---- */
@@ -1244,7 +1245,7 @@ function ControlStrip(P: {
 				{P.seeAll ? (
 					<select className={`${SEL} max-w-[240px]`} value={P.person} onChange={(e) => P.setPerson(e.target.value)} aria-label="کارشناس فعال">
 						<option value={ALL}>همهٔ کارشناسان</option>
-						{P.people.map((p, i) => <option key={i} value={String(i)}>{p.name || 'بی‌نام'}{p.inactive ? ' (قطعِ همکاری)' : ''}</option>)}
+						{P.people.map((p, i) => ({ p, i })).filter(({ p }) => isActivePerson(p)).map(({ p, i }) => <option key={i} value={String(i)}>{p.name || 'بی‌نام'}</option>)}
 					</select>
 				) : <b className="text-[13px]">{P.single?.name || '—'}</b>}
 			</label>

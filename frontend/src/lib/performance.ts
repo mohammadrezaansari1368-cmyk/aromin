@@ -1,3 +1,4 @@
+import { isActivePerson } from './people'
 /**
  * موتورِ «حضور و عملکرد» — Data → Analysis → Reconciliation → Permissions → Presentation → Export.
  *
@@ -274,6 +275,7 @@ export interface DayRow {
 	tasks: number | null; taskDone: number | null; recon: Recon; reconWhy: string
 }
 export interface PersonPerf {
+	inactive?: boolean
 	sheetName: string; displayName: string; person: string | null; personHow: LinkHow; ownerName: string; ownerHow: LinkHow; team: string
 	rows: DayRow[]; monthFrom: string; monthTo: string; hasStoreTasks: boolean; storeFirst: string; storeLast: string; hasRaw: boolean
 }
@@ -598,13 +600,13 @@ export function buildDataset(session: Session, full: { people?: StorePerson[] } 
 			const store = sp && (scopeAll || sp.name === self) ? storeTasksOf(sp) : null
 			const ownerTasks = link.owner ? allTasks.filter((t) => ownerKey({ name: t.person, pid: t.pid }) === link.owner || (!t.pid && !!link.ownerName && stripTitle(t.person) === stripTitle(link.ownerName))) : null
 			const p = processSheet(raw, name, R, link, store, taskFiles.length ? ownerTasks : null, overrides, sp?.role ? roleName(sp.role) : 'بدون تیم')
-			if (p && p.rows.length) { out.push(p); if (!p.person) unmatched++ }
+			if (p && p.rows.length) { p.inactive = !!sp?.inactive; out.push(p); if (!p.person) unmatched++ }
 		}
 	}
 	const teams = Array.from(new Set(out.map((p) => p.team)))
 	return {
 		people: out, unmatched, file: scopeAll ? file : file ? { fileName: file.fileName, loadedAt: file.loadedAt, sheets: {} } : null, R, settings, scopeAll, self,
-		taskFiles: scopeAll ? taskFiles : [], stats: scopeAll ? stats : { missingIds: 0, tasks: 0, employees: 0, outside: 0, owners: [] }, peopleNames: scopeAll ? peopleNames : [], teams,
+		taskFiles: scopeAll ? taskFiles : [], stats: scopeAll ? stats : { missingIds: 0, tasks: 0, employees: 0, outside: 0, owners: [] }, peopleNames: scopeAll ? allPeople.filter(isActivePerson).map(p => p.name) : [], teams,
 	}
 }
 
