@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>آرو — همراه هوشمند آرومین</title>
+<link rel="stylesheet" href="assets/companion.css">
+<script src="assets/companion.js" defer></script>
+</head>
+<body>
+<header class="brand-bar"><a class="brand" href="#" aria-label="آرومین"><span class="brand-symbol">A</span><span>AROMIN <small>همراه هوشمند</small></span></a><span class="edition">نسخهٔ توسعه <span class="tiny-dot"></span></span></header>
+<main>
+<div class="island-wrap"><button type="button" id="island-toggle" class="island" aria-expanded="true" aria-controls="workspace"><span class="island-dot"></span><span>آرو کنار شماست</span><span class="island-arrow" aria-hidden="true">⌃</span></button></div>
+<section id="workspace" class="workspace" aria-label="دستیار آرومین">
+<aside class="intro">
+<div class="eyebrow">YOUR AROMIN COMPANION</div>
+<h1>یک همراه.<br>هزار مسیر روشن.</h1>
+<p class="intro-copy">از یک سؤال شروع کن.<br>با هم دقیق‌تر می‌فهمیم،<br>و قدم بعد را پیدا می‌کنیم.</p>
+<button type="button" class="avatar-button" id="avatar-button" aria-label="سلام به آرو، شخصیت متحرک آرومین">
+<svg id="avatar" viewBox="0 0 240 230" role="img" aria-labelledby="avatar-title">
+<title id="avatar-title">آرو، یک همراه بلوری آبی با چشم‌های متحرک</title>
+<defs><linearGradient id="crystal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#69b8ff"/><stop offset=".45" stop-color="#4569ff"/><stop offset="1" stop-color="#2232a0"/></linearGradient><linearGradient id="edge" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#bceaff"/><stop offset="1" stop-color="#5976ff"/></linearGradient><radialGradient id="aura"><stop stop-color="#718eff" stop-opacity=".22"/><stop offset="1" stop-color="#718eff" stop-opacity="0"/></radialGradient></defs>
+<ellipse class="avatar-shadow" cx="120" cy="203" rx="47" ry="8" fill="#b6bad6" opacity=".35"/>
+<circle class="avatar-aura" cx="120" cy="114" r="107" fill="url(#aura)"/>
+<g class="orbit" fill="none" stroke="#6384e8" stroke-width="1.5" opacity=".3"><ellipse cx="120" cy="114" rx="91" ry="30" transform="rotate(-24 120 114)"/><circle cx="42" cy="145" r="4" fill="#6384e8"/></g>
+<g class="crystal-body"><path d="M120 42 174 72 184 139 120 182 57 139 66 72Z" fill="url(#crystal)" stroke="url(#edge)" stroke-width="2"/>
+<path d="m120 42 0 39-54-9Z" fill="#d6f1ff" opacity=".3"/><path d="m120 42 54 30-54 9Z" fill="#c5d8ff" opacity=".15"/><path d="m57 139 63 43 0-31Z" fill="#19267d" opacity=".3"/><path d="m184 139-64 43 0-31Z" fill="#a1b5ff" opacity=".12"/>
+<path d="M84 85 Q120 72 155 85 L159 126 Q121 147 80 126Z" fill="#172954" opacity=".9"/>
+<g class="eyes"><ellipse class="eye eye-left" cx="101" cy="106" rx="8" ry="10" fill="#d5fff2"/><ellipse class="eye eye-right" cx="140" cy="106" rx="8" ry="10" fill="#d5fff2"/></g>
+<path class="mouth" d="M112 127 Q120 134 128 127" fill="none" stroke="#b6eced" stroke-width="2.5" stroke-linecap="round"/>
+<path d="m120 55 6 8-6 8-6-8Z" fill="#e0f9ff" opacity=".8"/>
+<g class="hand"><path d="m178 118 17-5 11-22" fill="none" stroke="#6779d9" stroke-width="9" stroke-linecap="round"/><circle cx="209" cy="84" r="10" fill="#a4c2ff"/><path d="m206 74 1-7m6 10 4-6" stroke="#a4c2ff" stroke-width="5" stroke-linecap="round"/></g>
+<path d="m61 120-14 6-5 11" fill="none" stroke="#7a93e7" stroke-width="9" stroke-linecap="round"/>
+</g></svg>
+</button>
+<div class="avatar-caption"><span class="pulse-mark"></span><span id="mood-label" aria-live="polite">سلام، من آرو هستم</span></div>
+<div class="specialties"><span>راهنمایی دقیق</span><span>حل مسئله</span><span>آرومین</span></div>
+<div class="intro-footer">شخصیت مستقل آرومین<br><span>الهام از تعامل‌های Coucou</span></div>
+</aside>
+<div class="conversation-panel">
+<div class="panel-header"><div><div class="panel-title">گفتگو با آرو <span class="online-marker" id="online-marker"></span></div><div class="subtle" id="connection-label">در حال بررسی اتصال…</div></div><button id="new-chat" type="button" class="quiet-button" aria-label="شروع گفتگوی تازه">گفتگوی تازه <span aria-hidden="true">＋</span></button></div>
+<div class="chat-log" id="chat-log" role="log" aria-label="پیام‌های گفتگو" aria-live="polite" aria-relevant="additions">
+<div class="welcome" id="welcome"><div class="welcome-mark">✦</div><h2>امروز از کجا شروع کنیم؟</h2><p>سؤال فنی، یک ایده یا مسئله‌ای که ذهنت را مشغول کرده.<br>اینجا برای روشن‌تر کردن مسیر کنار تو هستم.</p><div class="suggestions"><button type="button" data-prompt="ایجنت آرومین چگونه کار می‌کند؟">ایجنت آرومین چطور کار می‌کند؟ <span>↗</span></button><button type="button" data-prompt="فرق موتور وظایف PostgreSQL با Redis در آرومین چیست؟">تفاوت PostgreSQL و Redis <span>↗</span></button><button type="button" data-prompt="برای حل یک مسئله فنی در آرومین از کجا شروع کنیم؟">یک مسئله را با هم حل کنیم <span>↗</span></button></div></div>
+</div>
+<div class="task-strip" id="task-strip" hidden><span class="task-light"></span><span id="task-label"></span></div>
+<div class="connection-notice" id="connection-notice" role="status" hidden></div>
+<form class="composer" id="composer"><label class="sr-only" for="message-input">پیام شما برای آرو</label><textarea id="message-input" rows="2" maxlength="4000" placeholder="هرچه در ذهن داری، اینجا بنویس…"></textarea><div class="composer-bottom"><span class="composer-note">Enter برای ارسال · Shift + Enter خط جدید</span><button type="submit" class="send-button" id="send-button" aria-label="ارسال پیام"><span>ارسال</span><span aria-hidden="true">↑</span></button></div></form>
+<div class="privacy-line"><span aria-hidden="true">◇</span> کلید سرویس در مرورگر ذخیره نمی‌شود. پاسخ‌ها از ایجنت آرومین دریافت می‌شوند.</div>
+</div>
+</section>
+<div class="below-panel"><span>AROMIN / COMPANION</span><span>طراحی برای تمرکز، ساخته‌شده برای همراهی</span><button id="motion-toggle" type="button" aria-pressed="true">حرکت روشن</button></div>
+</main>
+<footer class="page-footer">آرو پاسخ‌ها را از سرویس شما می‌گیرد. در حالت آزمایشی، پاسخ‌ها به‌وضوح برچسب می‌خورند.</footer>
+</body></html>

@@ -107,3 +107,15 @@ Exactly seven implementation cycles completed, each with a PR-head commit and pr
 Missing implementation, distinct from external verification blockers: full shared agent runtime/executor/ledger fencing and security, asynchronous atomic approval/wait/cancel/signal contract, scheduler/release sync, reaper audit/outbox/fallback/child cascade/quarantine, actual worker entry-point lifecycle/notifications/caps/registry/metrics, operator APIs and deliver gate. Current runner is intentionally only experimental internal/test pure work. Real PostgreSQL 16/Redis 7, populated PG migrations, actual separate-process crash matrix, required worker/scheduler/fairness stress, smoke and benchmarks remain unverified. See task-engine.md for exact commands, lock boundaries and safe drain/rollback/legacy recovery constraints.
 
 No merge to main, no deploy, no Phase 4/RAG and no Telegram publication.
+
+## Separately authorized companion follow-up (not an eighth Phase 3 cycle)
+
+After the seven cycles, the user selected an animated AROMIN interface connected
+to this agent. Added the optional local `app.companion` gateway, independent Aro
+SVG/CSS character, Persian specialist host and responsive RTL chat UI. Existing
+conversation/chat/task/auth/provider paths are reused; no Phase 4/RAG, deployment,
+Telegram publication or legacy/MariaDB changes. See `docs/companion.md` for launch,
+licensing, session limits and verification. Nine companion API tests passed;
+Chromium offline/connected-MockProvider and desktop/mobile checks passed. No live
+LLM verification. Phase 3 remains INCOMPLETE and the seven-cycle result above
+remains unchanged; this separate feature adds no infrastructure acceptance proof.
