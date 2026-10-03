@@ -233,6 +233,8 @@ export async function loadLayout(session: Session, list: string): Promise<string
 		return d && d.ok && Array.isArray(d.order) ? d.order.map(String) : null
 	} catch { return null }
 }
-export function saveLayout(session: Session, list: string, order: string[]) {
-	fetch('/api/ui-layout', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders(session) }, body: JSON.stringify({ tenant: currentTenant(), list, order }) }).catch(() => undefined)
+export async function saveLayout(session: Session, list: string, order: string[]): Promise<void> {
+	const r = await fetch('/api/ui-layout', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders(session) }, body: JSON.stringify({ tenant: currentTenant(), list, order }) })
+	const d = await r.json().catch(() => null)
+	if (!r.ok || !d?.ok) throw new Error(d?.error || 'ذخیرهٔ ترتیب ناموفق بود')
 }

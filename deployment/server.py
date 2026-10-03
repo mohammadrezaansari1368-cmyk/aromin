@@ -2094,7 +2094,7 @@ def ui_layout_get(request: Request, tenant: str = Query(default="team"), list: s
     ensure_ui_layout_table()
     rows = q("SELECT payload FROM ui_layout WHERE tenant=%s AND user=%s AND list_id=%s", (tenant, ident["user"], list))
     order = (parse(rows[0]["payload"]) or []) if rows else []
-    return {"ok": True, "order": [str(x)[:64] for x in order if isinstance(x, (str, int))][:50]}
+    return {"ok": True, "order": [str(x)[:64] for x in order if isinstance(x, (str, int))][:(10000 if list.startswith("ledger.rows.") else 50)]}
 
 
 @app.post("/api/ui-layout")
@@ -2107,7 +2107,7 @@ def ui_layout_post(request: Request, payload: dict = Body(default={})):
     order = (payload or {}).get("order")
     if not _LIST_RE.match(lid) or not isinstance(order, list):
         return _c1_deny("دادهٔ نامعتبر.", 400)
-    order = [str(x)[:64] for x in order if isinstance(x, (str, int))][:50]
+    order = [str(x)[:64] for x in order if isinstance(x, (str, int))][:(10000 if lid.startswith("ledger.rows.") else 50)]
     ensure_ui_layout_table()
     q("""INSERT INTO ui_layout (tenant, user, list_id, payload) VALUES (%s,%s,%s,%s)
          ON DUPLICATE KEY UPDATE payload=VALUES(payload)""", (tenant, ident["user"], lid, json.dumps(order, ensure_ascii=False)))

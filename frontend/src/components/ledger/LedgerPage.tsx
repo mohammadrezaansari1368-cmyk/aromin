@@ -24,10 +24,13 @@ import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, FOCUS, INPUT } from '@/components/ui
 import { parseJ, todayJ } from '@/lib/jalali'
 import BulkApprove from '@/components/ledger/BulkApprove'
 import { motion } from 'motion/react'
+import { RowOrderContext, RowGrip, useRowOrder } from '@/components/ui/use-row-order'
+import { orderRows } from '@/components/ui/row-order'
 import Funnel from '@/components/ui/funnel-chart'
 import { funnelReach } from '@/components/ui/funnel-geometry'
 
 /* ---------- انواع ---------- */
+const rowOrderKey = (r: Row) => String(r.p.id) + ':' + r.d.id
 interface Row { key: string; pi: number; p: any; d: Deal; S: CommS; ref: Ref }
 type ColK = 'name' | 'amount' | 'stage' | 'settle' | 'next' | 'owner' | 'leadGen' | 'role' | 'kind' | 'channel' | 'basis' | 'follow' | 'no' | 'month' | 'act'
 interface Col { k: ColK; t: string; w: number; edit?: 'text' | 'money' | 'select' | 'stage'; sort?: boolean; tier: 1 | 2 | 3 }
@@ -48,7 +51,6 @@ const COLS: Col[] = [
 	{ k: 'kind', t: 'نوع خرید', w: 118, edit: 'select', tier: 2 },
 	{ k: 'channel', t: 'حساب', w: 92, edit: 'select', tier: 2 },
 	{ k: 'basis', t: 'مبنای پورسانت', w: 138, sort: true, tier: 2 },
-	{ k: 'follow', t: 'پیگیری', w: 104, tier: 3 },
 	{ k: 'month', t: 'ماه', w: 92, edit: 'select', sort: true, tier: 3 },
 	{ k: 'act', t: '', w: 72, tier: 3 },
 ]
@@ -196,6 +198,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 	const kindFix = useCallback((r: Row) => { const k = kinds?.kinds.get(r.key); return k && k !== (r.d.kind || 'new') ? k : '' }, [kinds])
 
 	const monthRows = useMemo(() => (gm === 'all' ? allRows : allRows.filter((r) => monthOf(r.d) === +gm)), [allRows, gm])
+	const rowOrder = useRowOrder(session, 'ledger.rows.' + viewFy, allRows.map(rowOrderKey), !!f.sort)
 	const rows = useMemo(() => {
 		const q = qNorm(f.q)
 		let out = monthRows.filter((r) => {
@@ -219,8 +222,8 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 				f.sort === 'amount' ? num(r.d.amount) : f.sort === 'basis' ? rowBasis(r.d, r.S).basis : f.sort === 'month' ? monthOf(r.d) : f.sort === 'no' ? rawDigits(r.d.no).padStart(12, '0') + String(r.d.no || '') : norm(r.d.name)
 			out = out.map((r, i) => ({ r, v: g(r), i })).sort((a, b) => (a.v < b.v ? -1 : a.v > b.v ? 1 : a.i - b.i) * f.dir).map((x) => x.r)
 		}
-		return out
-	}, [monthRows, f, dup, kindFix])
+		return f.sort ? out : orderRows(out, rowOrder.order, rowOrderKey)
+	}, [monthRows, f, dup, kindFix, rowOrder.order])
 
 	/* ---- خلاصه‌ها (C2…C6): موتورِ پورسانت، هر کارشناس با تنظیماتِ خودش ---- */
 	const T = useMemo(() => {
@@ -492,7 +495,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 				</div>
 			)}
 
-			<NaCtx.Provider value={naOf}>
+			<RowOrderContext.Provider value={rowOrder}><span className="sr-only" aria-live="polite">{rowOrder.message}</span><NaCtx.Provider value={naOf}>
 			<Sortable id="ledger.tiles" className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4" itemClass={(c) => (((c.props as { className?: string }).className || '').match(/(md|xl):col-span-\d/g) || []).join(' ') + ' flex flex-col [&>*]:flex-1'}
 				server={layoutSrv} labelOf={(k) => TILE_LABEL[k.replace(/^\.\$/, '')] || k}>
 				<Tile key="c3" title="ترازنامه" code="C3">
@@ -593,7 +596,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 				)}
 			</section>
 			</Sortable>
-			</NaCtx.Provider>
+			</NaCtx.Provider></RowOrderContext.Provider>
 
 			{toast && (
 				<div role="status" className={`fixed bottom-5 left-1/2 z-50 flex max-w-[92vw] -translate-x-1/2 items-center gap-3 rounded-lg px-4 py-2.5 text-[13px] font-bold shadow-card ring-1 ring-inset ${toast.tone === 'err' ? 'bg-error text-primary-foreground ring-error' : 'bg-foreground text-background ring-foreground'}`}>
@@ -744,7 +747,7 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 		}
 		case 'next': {
 			const na = naOfRow(r)
-			if (!na) return <span className="text-[12px] text-muted-foreground">{isLocked(d) ? FIN_STATE_LABEL[finStateOf(d)] : 'بدون اقدام'}</span>
+			if (!na || ['approve', 'submit', 'close'].includes(na.k)) return <span className="text-[12px] text-muted-foreground">{isLocked(d) ? FIN_STATE_LABEL[finStateOf(d)] : 'بدون اقدام'}</span>
 			return <button type="button" tabIndex={-1} disabled={!canEdit} title={na.hint} onClick={(e) => { e.stopPropagation(); onNA(r, na) }} className={`${BTN} min-h-8 max-w-full truncate px-2.5 text-[12px] ring-1 ring-inset ${NA_TONE[na.tone]}`}>{na.t}</button>
 		}
 		case 'owner': return <span className="truncate text-[12.5px]">{r.p.name}</span>
@@ -930,7 +933,7 @@ const GridRow = memo(function GridRow({ r, ri, y, h, tpl, cols, curC, editCol, d
 	const sel = curC >= 0
 	const rowBg = editCol || staging ? 'bg-primary/[0.07]' : sel ? 'bg-primary/[0.04]' : ''
 	return (
-		<div role="row" aria-rowindex={ri + 2} aria-selected={sel} className={`group/row absolute inset-x-0 top-0 grid border-b border-border/70 [contain:layout_paint] ${rowBg} hover:bg-muted/50`} style={{ transform: `translateY(${y}px)`, height: h, gridTemplateColumns: tpl }}>
+		<div data-order-row={rowOrderKey(r)} role="row" aria-rowindex={ri + 2} aria-selected={sel} className={`group/row absolute inset-x-0 top-0 grid border-b border-border/70 [contain:layout_paint] ${rowBg} hover:bg-muted/50`} style={{ transform: `translateY(${y}px)`, height: h, gridTemplateColumns: tpl }}>
 			{cols.map((c, ci) => {
 				const s = stickyAt(ci)
 				const active = curC === ci
@@ -942,7 +945,7 @@ const GridRow = memo(function GridRow({ r, ri, y, h, tpl, cols, curC, editCol, d
 						onDoubleClick={() => P.startEdit(ri, ci)}
 						className={`relative flex min-w-0 items-center overflow-hidden px-2.5 ${s !== null ? 'sticky z-10 bg-card group-hover/row:bg-muted' : ''} ${ci === 0 && att ? 'border-r-[3px] ' + (att === 'check' ? 'border-r-warning' : att === 'fin' ? 'border-r-primary' : 'border-r-error') : ''} ${ci === 1 ? 'border-l border-border' : ''} ${active ? 'outline outline-2 -outline-offset-2 outline-primary/60' : ''} ${c.edit && canEdit ? 'cursor-text' : ''}`}
 						style={s !== null ? { right: s, ...(rowSel(sel, editCol, staging)) } : undefined}>
-						{editing ? (
+						{c.k === 'no' && <RowGrip rowKey={rowOrderKey(r)} />}{editing ? (
 							<CellEditor r={r} col={c.k} leadNames={P.leadNames} onCommit={(v) => { P.commit(r, c.k, v); P.endEdit() }} onCancel={P.endEdit} onStep={(v, dir) => { P.commit(r, c.k, v); P.step(ri, ci, dir) }} />
 						) : (
 							<>
@@ -1281,8 +1284,8 @@ function CardList({ rows, dup, kindFix, onEdit, onNA, edit, commit, cancel, lead
 			{rows.slice(0, n).map((r) => {
 				const na = naOfRow(r)
 				return (
-					<li key={r.key} className="rounded-md bg-card p-3 ring-1 ring-inset ring-border">
-						<div className="mb-1"><CellView r={r} col="no" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} /></div>
+					<li key={r.key} data-order-row={rowOrderKey(r)} className="rounded-md bg-card p-3 ring-1 ring-inset ring-border">
+						<div className="mb-1 flex items-center"><RowGrip rowKey={rowOrderKey(r)} /><CellView r={r} col="no" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} /></div>
 						<div className="flex items-start gap-2">
 							<div className="min-w-0 flex-1"><CellView r={r} col="name" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} /></div>
 							<CellView r={r} col="amount" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} />
@@ -1293,7 +1296,7 @@ function CardList({ rows, dup, kindFix, onEdit, onNA, edit, commit, cancel, lead
 						{scopeAll && <div className="flex min-h-9 items-center gap-2 border-t border-border/60 py-1.5 text-[12px]"><span className="w-[84px] shrink-0 text-[11.5px] text-muted-foreground">کارشناس</span>{r.p.name}</div>}
 						{field(r, 'leadGen', 'لیدساز')}
 						{field(r, 'basis', 'پورسانت')}
-						{na && <button type="button" disabled={!canEdit(r)} onClick={() => onNA(r, na)} className={`${BTN} mt-2 min-h-11 w-full ring-1 ring-inset ${NA_TONE[na.tone]}`}>{na.t}</button>}
+						{na && !['approve', 'submit', 'close'].includes(na.k) && <button type="button" disabled={!canEdit(r)} onClick={() => onNA(r, na)} className={`${BTN} mt-2 min-h-11 w-full ring-1 ring-inset ${NA_TONE[na.tone]}`}>{na.t}</button>}
 					</li>
 				)
 			})}

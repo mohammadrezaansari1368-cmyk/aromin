@@ -53,7 +53,7 @@ export function Grip({ label, onPointerDown, onKeyDown }: { label: string; onPoi
 /** server (اختیاری): ترتیب برای هر کاربر روی سرور هم خوانده/نوشته می‌شود؛ labelOf: نامِ کاشی برای دستگیره و اعلانِ صفحه‌خوان */
 export default function Sortable({ id, children, className = 'flex flex-col gap-4', itemClass, server, labelOf }: {
 	id: string; children: ReactNode; className?: string; itemClass?: (child: ReactElement) => string
-	server?: { load: () => Promise<string[] | null>; save: (keys: string[]) => void }; labelOf?: (key: string) => string
+	server?: { load: () => Promise<string[] | null>; save: (keys: string[]) => void | Promise<void> }; labelOf?: (key: string) => string
 }) {
 	const items = Children.toArray(children).filter(isValidElement) as ReactElement[]
 	const keys = items.map((c) => String(c.key))
@@ -73,8 +73,9 @@ export default function Sortable({ id, children, className = 'flex flex-col gap-
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [id])
 	const persist = (k: string, o: string[]) => {
+		const previous = arrange(keys, loadOrder(id))
 		saveOrder(id, o)
-		srv.current?.save(o)
+		Promise.resolve(srv.current?.save(o)).catch(() => { saveOrder(id, previous); setOrder(previous); setMsg('ذخیره نشد؛ ترتیب قبلی بازگردانده شد') })
 		setMsg(`«${labelOf ? labelOf(k) : k}» به جایگاهِ ${(o.indexOf(k) + 1).toLocaleString('fa-IR')} از ${o.length.toLocaleString('fa-IR')} رفت`)
 	}
 	const refs = useRef(new Map<string, HTMLDivElement>())
