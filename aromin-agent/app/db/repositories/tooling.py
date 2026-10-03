@@ -3,7 +3,12 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.task import Task
 from app.models.tooling import Approval, LLMUsage, SideEffectRecord, TaskStep, ToolExecution
+
+
+def current_generation(task_id: str):
+    return select(Task.generation).where(Task.id == task_id).scalar_subquery()
 
 
 class StepRepository:
@@ -16,18 +21,33 @@ class StepRepository:
     async def flush(self) -> None:
         await self._s.flush()
 
-    async def get(self, task_id: str, step_no: int) -> TaskStep | None:
-        stmt = select(TaskStep).where(TaskStep.task_id == task_id, TaskStep.step_no == step_no)
+    async def get(self, task_id: str, step_no: int, *, generation: int | None = None) -> TaskStep | None:
+        stmt = select(TaskStep).where(
+            TaskStep.task_id == task_id,
+            TaskStep.step_no == step_no,
+            TaskStep.generation == (current_generation(task_id) if generation is None else generation),
+        )
         return (await self._s.execute(stmt)).scalar_one_or_none()
 
-    async def for_task(self, task_id: str) -> list[TaskStep]:
-        stmt = select(TaskStep).where(TaskStep.task_id == task_id).order_by(TaskStep.step_no)
+    async def for_task(self, task_id: str, *, generation: int | None = None) -> list[TaskStep]:
+        stmt = (
+            select(TaskStep)
+            .where(
+                TaskStep.task_id == task_id,
+                TaskStep.generation == (current_generation(task_id) if generation is None else generation),
+            )
+            .order_by(TaskStep.step_no)
+        )
         return list((await self._s.execute(stmt)).scalars())
 
     async def waiting_for_task(self, task_id: str) -> list[TaskStep]:
         stmt = (
             select(TaskStep)
-            .where(TaskStep.task_id == task_id, TaskStep.status.in_(("waiting_approval", "pending", "running")))
+            .where(
+                TaskStep.task_id == task_id,
+                TaskStep.generation == current_generation(task_id),
+                TaskStep.status.in_(("waiting_approval", "pending", "running")),
+            )
             .order_by(TaskStep.step_no)
         )
         return list((await self._s.execute(stmt)).scalars())
@@ -74,10 +94,14 @@ class ApprovalRepository:
         stmt = select(Approval).where(Approval.id == approval_id).with_for_update()
         return (await self._s.execute(stmt)).scalar_one_or_none()
 
-    async def for_step(self, task_id: str, step_no: int) -> Approval | None:
+    async def for_step(self, task_id: str, step_no: int, *, generation: int | None = None) -> Approval | None:
         stmt = (
             select(Approval)
-            .where(Approval.task_id == task_id, Approval.step_no == step_no)
+            .where(
+                Approval.task_id == task_id,
+                Approval.step_no == step_no,
+                Approval.generation == (current_generation(task_id) if generation is None else generation),
+            )
             .order_by(Approval.created_at.desc())
             .limit(1)
         )

@@ -32,7 +32,14 @@ async def get_task(
                 code=task.last_error.get("code", "unknown"), error_class=task.last_error.get("error_class")
             )
         tin, tout, cost = await uow.usage.totals_for_task(task_id)
-        pending = task.wait_ref.split(":", 1)[1] if task.status == "waiting" and task.wait_ref else None
+        pending = (
+            task.wait_ref.split(":", 1)[1]
+            if task.status == "waiting"
+            and task.wait_kind == "approval"
+            and task.wait_ref
+            and task.wait_ref.startswith("approval:")
+            else None
+        )
         return TaskOut(
             id=task.id, kind=task.kind, status=task.status, mode=task.mode, lane=task.lane,
             conversation_id=task.conversation_id, created_at=task.created_at, started_at=task.started_at,
