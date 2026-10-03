@@ -1,0 +1,144 @@
+'use client'
+
+/**
+ * پیش‌نمایش و ثبتِ ایمپورتِ معاملات برای دفترِ سالِ مالیِ ۱۴۰۵ (مشترک بینِ «مرکز ایمپورت» و C1).
+ * خواندن در پس‌زمینه ← پیش‌نمایش روی نسخهٔ فعلیِ سرور: معتبر ۱۴۰۵ / سال‌های قبل / تکراری / نامعتبر ← ثبت روی نسخهٔ تازهٔ سرور (بک‌آپِ اجباری).
+ */
+import { useEffect, useMemo, useState } from 'react'
+import { fetchFull, saveState } from '@/lib/forecastStore'
+import { flushLedger } from '@/lib/ledgerStore'
+import { parseXlsx, type Parsed } from '@/lib/xlsxParse'
+import { applyDealImport, monthsLabel, planDealImport, previousYears, TARGET_FY, type Plan } from '@/engines/deal-import/index.ts'
+import { custbookFromDeals } from '@/engines/customer/index.ts'
+import { fa } from '@/engines/commission/index.ts'
+import { BTN_GHOST, BTN_PRIMARY, CARD } from '@/components/ui/tokens'
+
+export interface ImportDone { valid: number; previous: number; years: Record<string, number>; duplicate: number; invalid: number; repeatN: number; created: number; name: string }
+const RIAL_KEY = 'aromin.c1.rial'
+const readRial = () => { try { return localStorage.getItem(RIAL_KEY) !== '0' } catch { return true } }
+
+const Kpi = ({ n, t, tone }: { n: number; t: string; tone: string }) => (
+	<div className="rounded-md bg-muted/50 px-3 py-2.5 ring-1 ring-inset ring-border">
+		<div className={`text-[22px] font-extrabold leading-none tabular-nums ${tone}`}>{fa(n)}</div>
+		<div className="mt-1.5 text-[11.5px] leading-5 text-muted-foreground">{t}</div>
+	</div>
+)
+
+export default function DealImport({ file, onClose, onDone }: { file: { name: string; buf: ArrayBuffer }; onClose: () => void; onDone: (r: ImportDone) => void }) {
+	const [parsed, setParsed] = useState<Parsed | null>(null)
+	const [full, setFull] = useState<unknown>(null)
+	const [err, setErr] = useState('')
+	const [mode, setMode] = useState<'append' | 'replace'>('append')
+	const [rial, setRial] = useState(readRial)
+	const [busy, setBusy] = useState(false)
+	const [showRows, setShowRows] = useState(false)
+
+	useEffect(() => {
+		let alive = true
+		setParsed(null); setErr('')
+		Promise.all([parseXlsx(file.buf), flushLedger().catch(() => undefined).then(() => fetchFull())])
+			.then(([p, f]) => { if (!alive) return; setParsed(p); setFull(f) })
+			.catch((e) => { if (alive) setErr('خواندن نشد: ' + ((e as Error).message || e)) })
+		return () => { alive = false }
+	}, [file])
+
+	const plan: Plan | null = useMemo(() => (parsed && full ? planDealImport(parsed.rows, full, { mode, rial }) : null), [parsed, full, mode, rial])
+	const prevY = plan ? previousYears(plan) : []
+	const bad = plan ? plan.rows.filter((r) => r.st !== 'valid') : []
+
+	const commit = async () => {
+		if (!parsed || !plan || plan.error || !plan.total) return
+		setBusy(true); setErr('')
+		try {
+			try { localStorage.setItem(RIAL_KEY, rial ? '1' : '0') } catch { /* */ }
+			const cb = custbookFromDeals(parsed.sheets)
+			let res: ReturnType<typeof applyDealImport> | null = null
+			await saveState((f) => { res = applyDealImport(f, parsed.rows, { mode, rial, fileName: file.name, sig: parsed.det.sig, custbook: cb }) }, { forceBackup: true, tag: 'پیش از ایمپورتِ معاملاتِ ۱۴۰۵ (نسخهٔ جدید)' })
+			const r = res as unknown as ReturnType<typeof applyDealImport>
+			onDone({ valid: r.plan.cnt.valid, previous: r.plan.cnt.previous, years: r.plan.years, duplicate: r.plan.cnt.duplicate, invalid: r.plan.cnt.invalid, repeatN: r.repeatN, created: r.created, name: file.name })
+		} catch (e) {
+			const m = (e as Error).message
+			setErr(m === 'backup' ? 'بک‌آپِ سرور گرفته نشد؛ برای امنیت چیزی ثبت نشد.' : m === 'empty' ? 'دادهٔ سرور خالی است؛ چیزی ثبت نشد.' : m === 'save' ? 'ذخیره روی سرور انجام نشد.' : m)
+		} finally {
+			setBusy(false)
+		}
+	}
+
+	return (
+		<section className={`${CARD} p-4 sm:p-5`} dir="rtl" aria-label="پیش‌نمایشِ ایمپورتِ معاملات">
+			<header className="mb-3 flex flex-wrap items-center gap-2">
+				<h3 className="text-[14px] font-extrabold text-foreground">ایمپورتِ معاملات — سالِ مالیِ {fa(TARGET_FY)}</h3>
+				<span className="min-w-0 truncate text-[12px] text-muted-foreground" dir="ltr">{file.name}</span>
+			</header>
+			{!plan && !err && (
+				<div className="flex items-center gap-3 py-4 text-[13px] text-muted-foreground" role="status">
+					<span className="size-4 animate-spin rounded-full border-2 border-primary border-t-transparent motion-reduce:animate-none" aria-hidden />
+					در حال خواندنِ فایل در پس‌زمینه…
+				</div>
+			)}
+			{plan?.error && <p className="rounded-md bg-error/10 px-3 py-2 text-[13px] font-bold text-error">{plan.error}</p>}
+			{plan && !plan.error && (
+				<>
+					<div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+						<Kpi n={plan.cnt.valid} t={`معتبر ${fa(TARGET_FY)} — ثبت می‌شود`} tone="text-success" />
+						<Kpi n={plan.cnt.previous} t="سال‌های قبل — کنار گذاشته می‌شود" tone={plan.cnt.previous ? 'text-warning' : 'text-foreground'} />
+						<Kpi n={plan.cnt.duplicate} t="تکراری — رد می‌شود" tone="text-foreground" />
+						<Kpi n={plan.cnt.invalid} t="نامعتبر" tone={plan.cnt.invalid ? 'text-error' : 'text-foreground'} />
+					</div>
+					{prevY.length > 0 && (
+						<p className="mt-2 rounded-md bg-warning/10 px-3 py-2 text-[12.5px] leading-6 text-foreground ring-1 ring-inset ring-warning/30" role="note">
+							<b>{fa(plan.cnt.previous)}</b> ردیف از سال‌های قبل در فایل هست ({prevY.map((y) => `${fa(y)}: ${fa(plan.years[y])}`).join('، ')}) — وارد دفترِ {fa(TARGET_FY)} نمی‌شوند و دادهٔ آن سال‌ها هم تغییر نمی‌کند.
+						</p>
+					)}
+					<p className="mt-2 text-[12px] leading-6 text-muted-foreground">
+						سالِ مالی: {plan.fySource === 'column' ? <>از ستونِ «{plan.fyColumn}» فایل</> : <>فایل ستونِ «سال مالی» ندارد؛ از سالِ ستونِ تاریخ</>}
+						{Object.keys(plan.monthsInFile).length > 0 && <> · ماه‌های ۱۴۰۵ در فایل: {monthsLabel(plan)}</>}
+					</p>
+					<div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px]">
+						<fieldset className="flex flex-wrap items-center gap-x-4 gap-y-1">
+							<legend className="sr-only">روشِ ثبت</legend>
+							<label className="inline-flex items-center gap-2"><input type="radio" name="dimode" value="append" checked={mode === 'append'} onChange={() => setMode('append')} />افزودن (ردیفِ تکراری رد می‌شود)</label>
+							<label className="inline-flex items-center gap-2"><input type="radio" name="dimode" value="replace" checked={mode === 'replace'} onChange={() => setMode('replace')} />جایگزینیِ فقط ماه‌های فایل</label>
+						</fieldset>
+						<label className="inline-flex items-center gap-2"><input type="checkbox" checked={rial} onChange={(e) => setRial(e.target.checked)} />مبالغِ فایل ریال است (÷۱۰)</label>
+					</div>
+					{bad.length > 0 && (
+						<div className="mt-3">
+							<button type="button" className="text-[12.5px] font-bold text-primary-ink underline-offset-4 hover:underline" aria-expanded={showRows} onClick={() => setShowRows((v) => !v)}>
+								{showRows ? 'بستنِ' : 'دیدنِ'} {fa(bad.length)} ردیفِ کنارگذاشته
+							</button>
+							{showRows && (
+								<div className="mt-2 max-h-56 overflow-auto rounded-md ring-1 ring-inset ring-border">
+									<table className="w-full text-[12px]">
+										<thead className="sticky top-0 bg-muted text-muted-foreground"><tr><th className="px-2 py-1.5 text-right font-bold">ردیف</th><th className="px-2 py-1.5 text-right font-bold">شماره</th><th className="px-2 py-1.5 text-right font-bold">مشتری</th><th className="px-2 py-1.5 text-right font-bold">علت</th></tr></thead>
+										<tbody>
+											{bad.slice(0, 300).map((r) => (
+												<tr key={r.i} className="border-t border-border"><td className="px-2 py-1 tabular-nums">{fa(r.i)}</td><td className="px-2 py-1">{r.no || '—'}</td><td className="max-w-[220px] truncate px-2 py-1">{r.name}</td><td className="px-2 py-1 text-muted-foreground">{r.why}</td></tr>
+											))}
+										</tbody>
+									</table>
+								</div>
+							)}
+						</div>
+					)}
+				</>
+			)}
+			{err && <p className="mt-3 rounded-md bg-error/10 px-3 py-2 text-[13px] font-bold text-error" role="alert">{err}</p>}
+			<div className="mt-4 flex flex-wrap items-center gap-2">
+				<button type="button" className={BTN_PRIMARY} disabled={busy || !plan || !!plan.error || !plan.total} onClick={commit}>
+					{busy ? 'بک‌آپ و ثبت…' : plan && plan.total ? `ثبتِ ${fa(plan.total)} ردیفِ ${fa(TARGET_FY)}` : 'ردیفِ معتبری برای ثبت نیست'}
+				</button>
+				<button type="button" className={BTN_GHOST} disabled={busy} onClick={onClose}>انصراف</button>
+				<span className="text-[11.5px] text-muted-foreground">پیش از ثبت، بک‌آپِ سرور گرفته می‌شود.</span>
+			</div>
+		</section>
+	)
+}
+
+/** متنِ اعلانِ پس از ایمپورت (برای toast/وضعیت) */
+export function importSummary(r: ImportDone) {
+	const prev = Object.keys(r.years).filter((y) => y !== TARGET_FY).sort()
+	return `${fa(r.valid)} ردیفِ ۱۴۰۵ ثبت شد` + (r.repeatN ? ` (${fa(r.repeatN)} تکرار خرید)` : '') +
+		(r.previous ? ` · ${fa(r.previous)} ردیف از سال‌های قبل (${prev.map((y) => fa(y)).join('، ')}) کنار گذاشته شد` : '') +
+		(r.duplicate ? ` · ${fa(r.duplicate)} تکراری` : '') + (r.invalid ? ` · ${fa(r.invalid)} نامعتبر` : '')
+}
