@@ -84,3 +84,9 @@ async def test_reads_are_scoped_to_current_generation(container):
         assert (await uow.steps.get(task_id, 1, generation=0)).generation == 0
         assert [s.generation for s in await uow.steps.for_task(task_id)] == [1]
         assert [s.generation for s in await uow.steps.waiting_for_task(task_id)] == [1]
+
+
+@pytest.mark.parametrize("payload", [{1: "ambiguous"}, {"x": (1, 2)}, {"x": {2: "bad"}}])
+def test_non_json_shapes_rejected_without_conversion(payload):
+    with pytest.raises(ReplayUnavailable):
+        exact_json(payload)

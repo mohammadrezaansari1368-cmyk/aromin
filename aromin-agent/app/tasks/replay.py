@@ -8,6 +8,7 @@ import hashlib
 import json
 from typing import Any
 
+from app.core.logging import redact_mapping
 from app.models.tooling import TaskStep
 from app.tools.spec import ToolSpec
 
@@ -27,7 +28,21 @@ def exact_json(payload: dict[str, Any], *, max_bytes: int = 65536) -> dict[str, 
     """Copy JSON exactly or reject; never truncate or stringify arbitrary objects."""
     if not isinstance(payload, dict):
         raise ReplayUnavailable("replay input must be an object")
+
+    def validate(value):
+        if isinstance(value, dict):
+            if any(not isinstance(key, str) for key in value):
+                raise ReplayUnavailable("JSON object keys must be strings")
+            for item in value.values():
+                validate(item)
+        elif isinstance(value, list):
+            for item in value:
+                validate(item)
+        elif value is not None and type(value) not in (str, int, float, bool):
+            raise ReplayUnavailable("unsupported JSON value")
+
     try:
+        validate(payload)
         encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
         if len(encoded.encode("utf-8")) > max_bytes:
             raise ReplayUnavailable("replay payload exceeds storage limit")
@@ -38,7 +53,7 @@ def exact_json(payload: dict[str, Any], *, max_bytes: int = 65536) -> dict[str, 
 
 def tool_replay_input(spec: ToolSpec, args: dict[str, Any]) -> dict[str, Any]:
     # Encryption/scoped reference recovery is deferred; reject sensitive schemas.
-    if spec.sensitive_fields:
+    if spec.sensitive_fields or redact_mapping(args) != args:
         raise ReplayUnavailable("sensitive tool input requires protected reference recovery")
     if set(args) - set(spec.input_model.model_fields):
         raise ReplayUnavailable("unknown tool arguments")
