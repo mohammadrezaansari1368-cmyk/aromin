@@ -1,11 +1,8 @@
 """PostgreSQL recovery tests for expired leased tasks."""
 
-from datetime import timedelta
-
 import pytest
 from sqlalchemy import text
 
-from app.models.base import utcnow
 from app.tasks.claim import LeaseLost, LeaseStore
 from app.tasks.reaper import TaskReaper
 from tests.test_task_leases import claim, queued, require_pg

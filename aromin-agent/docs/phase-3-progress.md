@@ -52,3 +52,15 @@ Next implementation priorities:
 Cloud Assistant v3.9.38 remains a separate channel/adapter system. Its MariaDB/Telegram/Composio implementation is not copied into the standalone Task Engine. Future integration remains through the agent API / assistant provider boundary, and Telegram publication must continue through its existing approval gateway rather than direct agent calls.
 
 Phase 3 status remains: **INCOMPLETE**.
+
+## Seven-cycle continuation — 2026-10-03
+
+Source HEAD: d6f1e31a513f8a565d50b564ece6798dc897637d; PR #3, codex/phase-3-implementation.
+Locked installation: uv sync --frozen, Python 3.13.13. socksio==1.0.0 added only to disposable venv for environment proxy. Baseline: 191 passed, 10 skipped, one existing aiosqlite thread/event-loop warning. PostgreSQL/Redis binaries unavailable; no locking/process/Redis proof claimed. All edits restricted to aromin-agent/.
+
+### Cycle 1 — generation-aware expand migration
+
+Added 0003 and matching ORM fields for task/journal/execution/approval/effect/usage generations, persisted keys, exact replay storage and checkpoints. Retained legacy IDs, execution associations and effect keys. Historical previews deliberately remain non-executable (replay_input NULL). Added populated 0002 upgrade preservation, cross-generation step collision and guarded downgrade tests; empty upgrade/down/upgrade test. No applied migration rewritten. Cleaned existing unused imports in reaper tests.
+
+Validation: 193 passed, 10 skipped, one baseline warning; Ruff lint and format passed (119 files); git diff --check passed. SQLite migration proof only; populated PostgreSQL, triggers and separate-process locking remain blocked. This is an expand slice, not the full Phase 3 schema or runtime integration. Legacy initial_state stays empty because current state cannot safely reconstruct the initial checkpoint.
+Next: scope journal reads to current generation and introduce exact replay/key contract.
