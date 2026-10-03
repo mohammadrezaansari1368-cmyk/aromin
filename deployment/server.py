@@ -419,6 +419,52 @@ def get_state(tenant: str = Query(default="")):
     }
 
 
+def _import_key(entry):
+    return json.dumps([entry.get("ts"), entry.get("name"), entry.get("type"), entry.get("sig")], ensure_ascii=False)
+
+
+def _preserve_import_history(old, new):
+    deleted = set((old or {}).get("_importDeleted") or [])
+    entries = {}
+    for entry in ((old or {}).get("importLog") or []) + (new.get("importLog") or []):
+        if isinstance(entry, dict) and _import_key(entry) not in deleted:
+            entries.setdefault(_import_key(entry), entry)
+    new["importLog"] = sorted(entries.values(), key=lambda e: e.get("ts") or 0)[-200:]
+    new["_importDeleted"] = sorted(deleted)
+
+
+@app.post("/api/import-history/delete")
+def import_history_delete(request: Request, payload: dict = Body(default={})):
+    tenant = str(payload.get("tenant") or "team")
+    ident = kb_identity(request, tenant)
+    if not ident:
+        return _c1_deny("ورود معتبر نیست.", 401)
+    if ident["role"] not in KB_ADMIN_ROLES:
+        return _c1_deny("حذف تاریخچه فقط برای مدیر مجاز است.", 403)
+    entry = payload.get("entry")
+    if not isinstance(entry, dict):
+        return _c1_deny("ردیف نامعتبر.", 400)
+    key = _import_key(entry)
+    cx = db_conn()
+    cx.autocommit(False)
+    try:
+        with cx.cursor() as cur:
+            cur.execute("SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE", (tenant,))
+            row = cur.fetchone()
+            full = parse(row["payload"]) if row else None
+            if not full:
+                return _c1_deny("تاریخچه پیدا نشد.", 404)
+            deleted = set(full.get("_importDeleted") or [])
+            deleted.add(key)
+            full["_importDeleted"] = sorted(deleted)
+            full["importLog"] = [e for e in full.get("importLog", []) if _import_key(e) != key]
+            cur.execute("UPDATE tenant_state SET payload=%s WHERE tenant=%s", (j(full), tenant))
+        cx.commit()
+    finally:
+        cx.close()
+    return {"ok": True}
+
+
 # ---------------- ذخیرهٔ کل وضعیت ----------------
 @app.post("/api/state")
 def post_state(payload: dict = Body(default={}), tenant: str = Query(default="")):
@@ -426,15 +472,25 @@ def post_state(payload: dict = Body(default={}), tenant: str = Query(default="")
     tenant = (tenant or "").strip()
     if tenant:
         ensure_tenant_table()
-        # C1: فاکتورِ بستهٔ مالی در هیچ ذخیره‌ای (اپِ جدید یا قدیم، هر تب/مرورگر) تغییر/حذف/بازگشایی نمی‌شود
-        bad = _c1_lock_violation(_tenant_full(tenant), st)
-        if bad:
-            return JSONResponse({"ok": False, "error": bad, "locked": True}, status_code=409)
-        info = st.get("tenantInfo") or {}
-        q("""INSERT INTO tenant_state (tenant, industry, name, payload) VALUES (%s,%s,%s,%s)
-             ON DUPLICATE KEY UPDATE industry=COALESCE(VALUES(industry),industry),
-               name=COALESCE(VALUES(name),name), payload=VALUES(payload)""",
-          (tenant, info.get("industry"), info.get("name"), json.dumps(st, ensure_ascii=False)))
+        cx = db_conn()
+        cx.autocommit(False)
+        try:
+            with cx.cursor() as cur:
+                cur.execute("SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE", (tenant,))
+                row = cur.fetchone()
+                old = parse(row["payload"]) if row else None
+                _preserve_import_history(old, st)
+                bad = _c1_lock_violation(old, st)
+                if bad:
+                    return JSONResponse({"ok": False, "error": bad, "locked": True}, status_code=409)
+                info = st.get("tenantInfo") or {}
+                cur.execute("""INSERT INTO tenant_state (tenant, industry, name, payload) VALUES (%s,%s,%s,%s)
+                    ON DUPLICATE KEY UPDATE industry=COALESCE(VALUES(industry),industry),
+                    name=COALESCE(VALUES(name),name), payload=VALUES(payload)""",
+                    (tenant, info.get("industry"), info.get("name"), j(st)))
+            cx.commit()
+        finally:
+            cx.close()
         return {"ok": True, "savedAt": datetime.datetime.utcnow().isoformat() + "Z", "tenant": tenant}
 
     cx = db_conn()
@@ -1729,6 +1785,7 @@ def _c1_validate_approval(p):
 
 
 def _c1_save(tenant, full):
+    _preserve_import_history(_tenant_full(tenant), full)
     full["ts"] = int(time.time() * 1000)
     info = full.get("tenantInfo") or {}
     q("""INSERT INTO tenant_state (tenant, industry, name, payload) VALUES (%s,%s,%s,%s)

@@ -9,9 +9,9 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactElement, type ReactNode } from 'react'
 import * as XLSX from 'xlsx'
 import { Shell, Big, faNum } from '@/components/ui/kit'
-import { useAromin, dataTag, ensureTenant, type ImportLogItem } from '@/lib/data'
+import { useAromin, dataTag, ensureTenant, currentTenant, type ImportLogItem } from '@/lib/data'
 import { KINDS, kindOf, detectImportType, type ImportKind } from '@/lib/importTypes'
-import { isAdmin, type Session } from '@/lib/auth'
+import { authHeaders, isAdmin, type Session } from '@/lib/auth'
 import KnowledgeTile from '@/components/KnowledgeTile'
 import { canSeeAll, ingestAttendanceFile } from '@/lib/performance'
 import Sortable from '@/components/ui/sortable'
@@ -23,6 +23,9 @@ interface QItem {
 	id: string
 	name: string
 	size: number
+	sig?: string
+	hash?: string
+	duplicateContent?: boolean
 	buf: ArrayBuffer
 	type: ImportKind
 	rows: number
@@ -55,7 +58,7 @@ function Chip({ kind, small = false }: { kind: ImportKind; small?: boolean }) {
 	return (
 		<span
 			className={`inline-flex items-center gap-1.5 rounded-full font-bold ${small ? 'px-2 py-0.5 text-[10.5px]' : 'px-2.5 py-1 text-[11.5px]'}`}
-			style={{ background: k.color + '1A', color: k.color }}>
+			style={{ background: `color-mix(in srgb, ${k.color} 10%, transparent)`, color: k.color }}>
 			<span className="size-1.5 rounded-full" style={{ background: k.color }} />
 			{k.label}
 		</span>
@@ -87,6 +90,8 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 	const input = useRef<HTMLInputElement>(null)
 	const pending = useRef<{ id: string; resolve: (v: unknown) => void } | null>(null)
 
+	const queueRef = useRef<QItem[]>([])
+	queueRef.current = queue
 	const sigs = useMemo(() => new Set(m.importLog.map((r) => r.sig).filter(Boolean) as string[]), [m.importLog])
 
 	// پل با اپِ کامل
@@ -113,16 +118,19 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 			setResults(null)
 			setStatus(null)
 			const items: QItem[] = []
+			const seen = new Set(queueRef.current.map(q => q.hash).filter(Boolean))
 			for (const f of Array.from(files)) {
-				if (!/\.(xlsx|xls|csv)$/i.test(f.name)) {
-					items.push({ id: uid(), name: f.name, size: f.size, buf: new ArrayBuffer(0), type: 'unknown', rows: 0, hdr: [], dup: false, error: 'فقط اکسل (xlsx/xls/csv)' })
+				if (!/\.(xlsx|xls|csv)$/i.test(f.name) || f.size === 0 || f.size > 25 * 1024 * 1024) {
+					items.push({ id: uid(), name: f.name, size: f.size, buf: new ArrayBuffer(0), type: 'unknown', rows: 0, hdr: [], dup: false, error: 'فایل خالی، بیش از ۲۵ مگابایت یا قالب نامعتبر؛ فقط xlsx/xls/csv' })
 					continue
 				}
 				try {
 					const buf = await f.arrayBuffer()
 					const wb = XLSX.read(new Uint8Array(buf), { type: 'array' })
 					const d = detectImportType(wb)
-					items.push({ id: uid(), name: f.name, size: f.size, buf, type: d.type, rows: d.rows, hdr: d.hdr, dup: sigs.has(d.sig) })
+					const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buf)), b => b.toString(16).padStart(2, '0')).join('')
+					items.push({ id: uid(), name: f.name, size: f.size, buf, type: d.type, rows: d.rows, hdr: d.hdr, sig: d.sig, hash, duplicateContent: seen.has(hash), dup: sigs.has(d.sig) })
+					seen.add(hash)
 				} catch (e) {
 					items.push({ id: uid(), name: f.name, size: f.size, buf: new ArrayBuffer(0), type: 'unknown', rows: 0, hdr: [], dup: false, error: 'خواندن نشد: ' + (e as Error).message })
 				}
@@ -132,7 +140,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		[sigs],
 	)
 
-	const valid = queue.filter((q) => !q.error && q.type !== 'unknown')
+	const valid = queue.filter((q) => !q.error && !q.duplicateContent && q.type !== 'unknown')
 	// فایلِ معاملات: موتورِ بومیِ ایمپورت با پیش‌نمایشِ سالِ مالیِ ۱۴۰۵ (نه موتورِ قبلی)
 	const [dealQ, setDealQ] = useState<QItem[]>([])
 	const dealDone = (q: QItem, text: string, ok: boolean) => {
@@ -167,7 +175,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		if (!eng.length) {
 			const r = await importAttendance(att)
 			setResults(r)
-			setStatus(r.every((x) => x.routed) ? { tone: 'ok', text: `${faNum(r.length)} فایلِ حضور و غیاب برای «عملکرد» ثبت شد (در همین مرورگر).` } : { tone: 'err', text: 'انجام نشد: ' + r.filter((x) => !x.routed).map((x) => x.err).join('، ') })
+			setStatus(r.every((x) => x.routed) ? { tone: 'ok', text: `${faNum(r.length)} فایلِ حضور و غیاب برای «عملکرد» ثبت شد .` } : { tone: 'err', text: 'انجام نشد: ' + r.filter((x) => !x.routed).map((x) => x.err).join('، ') })
 			setQueue((q) => q.filter((x) => !att.includes(x) || !r.find((y) => y.name === x.name && y.routed)))
 			return
 		}
@@ -192,7 +200,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		setBusy(false)
 		setResults([...(res.results || []), ...attRes])
 		if (res.ok) {
-			setStatus({ tone: 'ok', text: `${faNum((res.results || []).length)} فایل وارد و در MariaDB ذخیره شد.` + (attRes.length ? ` ${faNum(attRes.filter((x) => x.routed).length)} فایلِ حضور برای «عملکرد» ثبت شد.` : '') })
+			setStatus({ tone: 'ok', text: `${faNum((res.results || []).length)} فایل وارد و ذخیره شد.` + (attRes.length ? ` ${faNum(attRes.filter((x) => x.routed).length)} فایلِ حضور برای «عملکرد» ثبت شد.` : '') })
 			setQueue((q) => q.filter((x) => !valid.includes(x)))
 			reload()
 		} else setStatus({ tone: 'err', text: 'انجام نشد: ' + (res.error || 'نامشخص') })
@@ -210,6 +218,16 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		for (const r of m.importLog) (g[kindOf(r.type)] ||= []).push(r)
 		return Object.entries(g) as [ImportKind, ImportLogItem[]][]
 	}, [m.importLog])
+
+	const deleteHistory = async (entry: ImportLogItem) => {
+		if (!session || !isAdmin(session.role) || !window.confirm('این مورد از تاریخچه حذف شود؟ داده‌های واردشده حفظ می‌شوند.')) return
+		try {
+			const r = await fetch('/api/import-history/delete', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders(session) }, body: JSON.stringify({ tenant: currentTenant(), entry }) })
+			const result = await r.json()
+			if (!r.ok || !result.ok) throw new Error(result.error || 'حذف انجام نشد')
+			reload()
+		} catch (e) { setStatus({ tone: 'err', text: (e as Error).message }) }
+	}
 
 	const bridgeLabel = bridge === 'ready' ? 'موتورِ ایمپورت آماده' : bridge === 'connecting' ? 'اتصال به موتورِ ایمپورت…' : 'موتور در دسترس نیست'
 	const bridgeColor = bridge === 'ready' ? 'hsl(var(--success))' : bridge === 'connecting' ? 'hsl(var(--warning))' : 'hsl(var(--error))'
@@ -264,8 +282,8 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 										<div className="min-w-0 flex-1">
 											<div className="flex flex-wrap items-center gap-2">
 												<span className="truncate text-[13px] font-bold text-foreground" dir="ltr">{q.name}</span>
-												<Chip kind={q.type} small />
-												{q.dup && <span className="rounded-full bg-error/10 px-2 py-0.5 text-[10.5px] font-bold text-error">🔁 قبلاً وارد شده</span>}
+												<Chip kind={q.type} small /><span className="rounded bg-muted px-2 py-0.5 text-xs" dir="ltr">{q.name.split('.').pop()?.toUpperCase()}</span>
+												{q.duplicateContent && <span className="text-xs text-error">فایل تکراری در صف — وارد نمی‌شود</span>}{q.dup && <span className="rounded-full bg-error/10 px-2 py-0.5 text-[10.5px] font-bold text-error">سابقهٔ فایل مشابه</span>}
 											</div>
 											<div className="mt-1 text-[11.5px] text-muted-foreground">
 												{q.error ? <span className="text-error">{q.error}</span> : <>{faNum(q.rows)} ردیف · {kb(q.size)} · مقصد: {k.dest}</>}
@@ -297,7 +315,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 					onDone={(r) => dealDone(dealQ[0], importSummary(r), true)} />
 			)}
 			{status && (
-				<div className={`rounded-2xl px-4 py-3 text-[13px] font-bold ring-1 ${status.tone === 'ok' ? 'bg-success/10 text-success ring-success/30' : status.tone === 'err' ? 'bg-error/10 text-error ring-error/30' : 'bg-sky-50 text-sky-700 ring-sky-200'}`}>
+				<div className={`rounded-2xl px-4 py-3 text-[13px] font-bold ring-1 ${status.tone === 'ok' ? 'bg-success/10 text-success ring-success/30' : status.tone === 'err' ? 'bg-error/10 text-error ring-error/30' : 'bg-secondary/10 text-secondary-ink ring-secondary/30'}`}>
 					{status.text}
 					{results && results.length > 0 && (
 						<ul className="mt-2 space-y-1 font-normal">
@@ -350,8 +368,8 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 												<span className="min-w-0 truncate" dir="ltr">{r.name}</span>
 												<span className="flex items-center gap-2 text-muted-foreground">
 													{faNum(r.rows)} ردیف · {faDate(r.ts)}
-													{r.dup ? <span className="font-bold text-error">🔁 تکراری</span> : <span className="font-bold text-success">✓ جدید</span>}
-													{r.routed === false && <span className="text-error">⚠</span>}
+													{r.routed === false ? <span className="font-bold text-error">ناموفق</span> : r.dup ? <span className="font-bold text-error">🔁 تکراری</span> : <span className="font-bold text-success">✓ جدید</span>}
+													{session && isAdmin(session.role) && <button type="button" aria-label={`حذف تاریخچهٔ ${r.name}`} onClick={() => deleteHistory(r)} className="rounded px-2 py-1 text-error focus-visible:ring-2 focus-visible:ring-ring">حذف</button>}
 												</span>
 											</li>
 										))}

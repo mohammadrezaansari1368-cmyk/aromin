@@ -27,18 +27,18 @@ export interface KindMeta {
 }
 
 export const KINDS: Record<ImportKind, KindMeta> = {
-	deal: { label: 'معاملات', color: '#004991', dest: 'دفتر فروش · قیف · پورسانت · پرتفوی', src: 'جولیو › Deal' },
-	contact: { label: 'اشخاص و شرکت‌ها', color: '#910D6A', dest: 'دفترچهٔ مخاطبین · موبایل · پرتفوی', src: 'جولیو › Contact' },
-	tasks: { label: 'وظایف', color: '#0E8A7E', dest: 'عملکرد · ردیابِ وظیفه · اهمال‌کاری', src: 'جولیو › Task' },
-	ticket: { label: 'تیکت‌ها', color: '#E0701A', dest: 'تیم پشتیبانی · SLA', src: 'جولیو › Ticket' },
-	calllog: { label: 'ریزِ تماس', color: '#5B3FC4', dest: 'مواجهه با مشتری · پیکِ ساعت', src: 'جولیو › گزارشِ ریزِ تماس' },
-	calls: { label: 'عملکردِ تماس', color: '#0284C7', dest: 'آمارِ تماسِ هر کارشناس', src: 'جولیو › عملکردِ تماس' },
-	volume: { label: 'حجمِ فروش', color: '#B7791F', dest: 'پیش‌بینی · رتبهٔ محصول', src: 'اکسلِ محصول/بستن' },
-	monthly: { label: 'فروشِ ماهانه', color: '#1E8E3E', dest: 'پیش‌بینیِ ماهانهٔ بودجه', src: 'اکسلِ فروردین…اسفند' },
-	pl: { label: 'سود و زیان', color: '#C0264B', dest: 'پیش‌بینی و بودجه', src: 'شیت‌های ماهانه' },
-	churn: { label: 'چان‌ریت', color: '#475569', dest: 'نرخِ ریزش و ماندگاری', src: 'اکسلِ چندساله' },
-	attendance: { label: 'حضور و غیاب', color: '#7C3AED', dest: 'عملکرد · حضور، دیرکرد، کسر و اضافه‌کار (فقط مدیران و مالی)', src: 'خروجیِ دستگاهِ حضور' },
-	unknown: { label: 'نامشخص', color: '#9CA3AF', dest: 'شناخته نشد — وارد نمی‌شود', src: '—' },
+	deal: { label: 'معاملات', color: 'hsl(var(--secondary-ink))', dest: 'دفتر فروش · قیف · پورسانت · پرتفوی', src: 'جولیو › Deal' },
+	contact: { label: 'اشخاص و شرکت‌ها', color: 'hsl(var(--primary-ink))', dest: 'دفترچهٔ مخاطبین · موبایل · پرتفوی', src: 'جولیو › Contact' },
+	tasks: { label: 'وظایف', color: 'hsl(var(--primary-ink))', dest: 'عملکرد · ردیابِ وظیفه · اهمال‌کاری', src: 'جولیو › Task' },
+	ticket: { label: 'تیکت‌ها', color: 'hsl(var(--primary-ink))', dest: 'تیم پشتیبانی · SLA', src: 'جولیو › Ticket' },
+	calllog: { label: 'ریزِ تماس', color: 'hsl(var(--primary-ink))', dest: 'مواجهه با مشتری · پیکِ ساعت', src: 'جولیو › گزارشِ ریزِ تماس' },
+	calls: { label: 'عملکردِ تماس', color: 'hsl(var(--primary-ink))', dest: 'آمارِ تماسِ هر کارشناس', src: 'جولیو › عملکردِ تماس' },
+	volume: { label: 'حجمِ فروش', color: 'hsl(var(--primary-ink))', dest: 'پیش‌بینی · رتبهٔ محصول', src: 'اکسلِ محصول/بستن' },
+	monthly: { label: 'فروشِ ماهانه', color: 'hsl(var(--primary-ink))', dest: 'پیش‌بینیِ ماهانهٔ بودجه', src: 'اکسلِ فروردین…اسفند' },
+	pl: { label: 'سود و زیان', color: 'hsl(var(--primary-ink))', dest: 'پیش‌بینی و بودجه', src: 'شیت‌های ماهانه' },
+	churn: { label: 'چان‌ریت', color: 'hsl(var(--primary-ink))', dest: 'نرخِ ریزش و ماندگاری', src: 'اکسلِ چندساله' },
+	attendance: { label: 'حضور و غیاب', color: 'hsl(var(--primary-ink))', dest: 'عملکرد · حضور، دیرکرد، کسر و اضافه‌کار (فقط مدیران و مالی)', src: 'خروجیِ دستگاهِ حضور' },
+	unknown: { label: 'نامشخص', color: 'hsl(var(--primary-ink))', dest: 'شناخته نشد — وارد نمی‌شود', src: '—' },
 }
 
 export const kindOf = (t: string): ImportKind => (t in KINDS ? (t as ImportKind) : 'unknown')
