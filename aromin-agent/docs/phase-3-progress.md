@@ -22,3 +22,33 @@ TEST_REDIS_URL=redis://localhost:6379/0 uv run pytest -q -ra
 ```
 
 The test fixture truncates the database: use a dedicated disposable test database only. Next step is executing the PostgreSQL tests before connecting the primitives to runtime execution.
+
+
+## Continuation checkpoint — 2026-10-03
+
+Added the next recovery slice on the existing implementation branch:
+
+- `app/tasks/reaper.py`: bounded PostgreSQL-only expired-lease reaper using `FOR UPDATE SKIP LOCKED`.
+- Cancellation takes precedence over retry.
+- Expired ownership is cleared durably; a subsequent claim increments the fencing token, so the old owner cannot heartbeat or perform fenced writes.
+- Consecutive expired-owner failures are counted and a configurable threshold moves crash-looping tasks to `dead`.
+- The reaper does not execute tasks and does not use Redis as durable state.
+- `tests/test_task_reaper.py` covers requeue/reclaim, stale-token fencing, cancellation precedence, crash-loop-to-dead, and live-lease exclusion.
+
+Commits:
+- `8b54e8cf41c5f8fa87ef79bb01f50e8272e8cb3c` — reaper implementation.
+- `60439853e2705883cb8a2ad3473eb9cce45fb72f` — recovery tests.
+
+Verification status: **BLOCKED on real PostgreSQL in this chat environment.** These tests intentionally skip outside PostgreSQL and must not be counted as proof until run against PostgreSQL 16. No test result is fabricated.
+
+Next implementation priorities:
+1. migration 0003 / generation-aware durable journal,
+2. shared fenced TaskRunner and worker lifecycle/heartbeat,
+3. change approval decision from inline `runtime.resume()` to atomic waiting→queued durable handoff,
+4. integrate fencing into journal/state/usage/reply/effect writes,
+5. retry classification and reaper audit/outbox integration,
+6. scheduler/lane fairness/process-level crash verification.
+
+Cloud Assistant v3.9.38 remains a separate channel/adapter system. Its MariaDB/Telegram/Composio implementation is not copied into the standalone Task Engine. Future integration remains through the agent API / assistant provider boundary, and Telegram publication must continue through its existing approval gateway rather than direct agent calls.
+
+Phase 3 status remains: **INCOMPLETE**.
