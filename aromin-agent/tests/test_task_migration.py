@@ -119,3 +119,27 @@ def test_empty_database_upgrade_down_upgrade(tmp_path):
     command.upgrade(cfg, "head")
     command.downgrade(cfg, "0002")
     command.upgrade(cfg, "head")
+
+
+def test_bigint_journal_token_cannot_be_narrowed(tmp_path):
+    path = tmp_path / "wide-token.db"
+    cfg = config(path)
+    command.upgrade(cfg, "head")
+    with sqlite3.connect(path) as conn:
+        seed(conn, "tasks", id="task_wide", kind="test.noop", lane=0, mode="background", status="queued")
+        seed(
+            conn,
+            "task_steps",
+            id="step_wide",
+            task_id="task_wide",
+            generation=0,
+            step_no=1,
+            type="tool_call",
+            name="test.noop",
+            status="running",
+            lease_token=2147483648,
+        )
+    with pytest.raises(RuntimeError, match="integer range"):
+        command.downgrade(cfg, "0003")
+    with sqlite3.connect(path) as conn:
+        assert conn.execute("SELECT lease_token FROM task_steps").fetchone()[0] == 2147483648

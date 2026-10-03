@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, text
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, JSONType, TZDateTime, utcnow
@@ -49,7 +49,7 @@ class TaskStep(Base):
     idempotency_key: Mapped[str | None] = mapped_column(String(64))
     replay_input: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
     state_after: Mapped[dict[str, Any] | None] = mapped_column(JSONType)
-    lease_token: Mapped[int | None] = mapped_column(Integer)
+    lease_token: Mapped[int | None] = mapped_column(BigInteger)
     parent_step_no: Mapped[int | None] = mapped_column(Integer)
     tool_call_id: Mapped[str | None] = mapped_column(String(80))
     input: Mapped[dict[str, Any] | None] = mapped_column(JSONType)  # sanitized, pinned tool args

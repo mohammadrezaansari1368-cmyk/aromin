@@ -94,3 +94,16 @@ Next: bounded shared pure-work runner with independent heartbeat dependency and 
 Added experimental TaskRunner for explicitly declared internal/test pure kinds only. It commits write-ahead start before compute, holds no DB transaction across compute, reuses persisted arguments on interrupted recovery, resumes completed checkpoints without regenerating work, enforces durable step budgets and supports safe-boundary shutdown. Independent heartbeat UoW is required; lost fence/uncertain DB commit aborts local work without an authoritative retry write. No built-in kinds, agent.run, business tools or external effects are enabled, and entry points remain disconnected until complete fencing/security/approval integration.
 Validation: 228 passed, 12 skipped, one baseline warning; lint/format/diff clean. Test-fence runner recovery, changed-producer input, heartbeat abort and clean shutdown tests ran. Real PostgreSQL runner completion with a separate heartbeat engine added but skipped here; process-death and pool-capacity proof remain blocked.
 Next: executable lane/reserve allocation, rollout safety checklist and final seven-cycle audit. Phase 3 INCOMPLETE.
+
+### Cycle 7 — lane reservation, schema consistency and final rollout audit
+
+Implemented local 4 interactive / 8 customer / 4 default slots and isolated 2 bulk slots. One process lock spans restricted eligibility, claim commit and occupancy, retaining two idle/inbound customer slots; low-priority/bulk work cannot borrow customer/interactive floors. Added concurrency/reserve and bulk-isolation tests with explicitly fake claims. Audit found journal token-width mismatch; added 0004 (without rewriting applied 0003) to widen journal fencing tokens to bigint with guarded narrowing rollback. Added operational contract/remaining-gate documentation in task-engine.md.
+Validation: 231 passed, 12 skipped, one baseline warning; Ruff lint/format clean (133 Python files); git diff --check clean. Fresh migrated SQLite schema versus ORM metadata: zero differences. Token narrowing guard tested. No PostgreSQL/Redis/process/concurrency benchmark numbers claimed. All accumulated changes are under aromin-agent/; Cloud Assistant/MariaDB and root architecture references untouched.
+
+## Seven-cycle conclusion
+
+Exactly seven implementation cycles completed, each with a PR-head commit and progress comment. Final commit SHA is in the cycle-7 and consolidated PR comments (a commit cannot contain its own SHA). Phase 3: **INCOMPLETE**.
+
+Missing implementation, distinct from external verification blockers: full shared agent runtime/executor/ledger fencing and security, asynchronous atomic approval/wait/cancel/signal contract, scheduler/release sync, reaper audit/outbox/fallback/child cascade/quarantine, actual worker entry-point lifecycle/notifications/caps/registry/metrics, operator APIs and deliver gate. Current runner is intentionally only experimental internal/test pure work. Real PostgreSQL 16/Redis 7, populated PG migrations, actual separate-process crash matrix, required worker/scheduler/fairness stress, smoke and benchmarks remain unverified. See task-engine.md for exact commands, lock boundaries and safe drain/rollback/legacy recovery constraints.
+
+No merge to main, no deploy, no Phase 4/RAG and no Telegram publication.
