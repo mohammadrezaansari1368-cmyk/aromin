@@ -4499,7 +4499,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     r.stages.forEach(function(k){ s+=(wts[k]||0); });
     return s;
   }
-  var SETTLE=[{v:"cash",t:"نقد ۷۰٪ به بالا"},{v:"check",t:"چک معتبر"},{v:"hold",t:"معلق یا تأییدنشده"}];
+  var SETTLE=[{v:"cash",t:"نقد ۷۰٪ به بالا"},{v:"check",t:"چک معتبر"},{v:"cash_after_check",t:"نقد پس از وصول چک"},{v:"hold",t:"معلق یا تأییدنشده"}];
   var FUNNEL=[
     {k:"start",   t:"آغاز"},
     {k:"qualify", t:"واجد شرایط"},
@@ -5188,7 +5188,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var na=t.dataset.na; if(!na) return;
     var d=c1Find(tr); if(!d) return;
     if(na==="check"){
-      var s=c1Edit(tr,"settle"), id=d.id; s.value="cash"; s.dispatchEvent(new Event("change",{bubbles:true}));
+      var s=c1Edit(tr,"settle"), id=d.id; s.value="cash_after_check"; s.dispatchEvent(new Event("change",{bubbles:true}));
       c1Toast("وصولِ چک ثبت شد — تسویه: نقد","بازگردانی",function(){
         var tr2=el("rows").querySelector('tr[data-id="'+id+'"]'), s2=tr2&&c1Edit(tr2,"settle");
         if(s2){ s2.value="check"; s2.dispatchEvent(new Event("change",{bubbles:true})); } else { d.settle="check"; soft(); }

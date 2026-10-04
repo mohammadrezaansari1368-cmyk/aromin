@@ -419,6 +419,19 @@ def get_state(tenant: str = Query(default="")):
     }
 
 
+_SETTLEMENTS = {"cash", "check", "hold", "cash_after_check"}
+
+
+def _settlements_valid(full):
+    for person in full.get("people") or []:
+        ledgers = [person.get("inv") or []] + list((person.get("invY") or {}).values())
+        for ledger in ledgers:
+            for deal in ledger or []:
+                if deal.get("settle") and deal["settle"] not in _SETTLEMENTS:
+                    return False
+    return True
+
+
 def _import_key(entry):
     return json.dumps([entry.get("ts"), entry.get("name"), entry.get("type"), entry.get("sig")], ensure_ascii=False)
 
@@ -469,6 +482,8 @@ def import_history_delete(request: Request, payload: dict = Body(default={})):
 @app.post("/api/state")
 def post_state(payload: dict = Body(default={}), tenant: str = Query(default="")):
     st = payload or {}
+    if not _settlements_valid(st):
+        return JSONResponse({"ok": False, "error": "وضعیت تسویه نامعتبر است."}, status_code=422)
     tenant = (tenant or "").strip()
     if tenant:
         ensure_tenant_table()
@@ -1785,12 +1800,21 @@ def _c1_validate_approval(p):
 
 
 def _c1_save(tenant, full):
-    _preserve_import_history(_tenant_full(tenant), full)
     full["ts"] = int(time.time() * 1000)
     info = full.get("tenantInfo") or {}
-    q("""INSERT INTO tenant_state (tenant, industry, name, payload) VALUES (%s,%s,%s,%s)
-         ON DUPLICATE KEY UPDATE payload=VALUES(payload)""",
-      (tenant, info.get("industry"), info.get("name"), json.dumps(full, ensure_ascii=False)))
+    cx = db_conn()
+    cx.autocommit(False)
+    try:
+        with cx.cursor() as cur:
+            cur.execute("SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE", (tenant,))
+            row = cur.fetchone()
+            _preserve_import_history(parse(row["payload"]) if row else None, full)
+            cur.execute("""INSERT INTO tenant_state (tenant, industry, name, payload) VALUES (%s,%s,%s,%s)
+                ON DUPLICATE KEY UPDATE payload=VALUES(payload)""",
+                (tenant, info.get("industry"), info.get("name"), j(full)))
+        cx.commit()
+    finally:
+        cx.close()
 
 
 def _c1_backup(tenant, full, tag):

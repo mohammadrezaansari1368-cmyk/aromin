@@ -9,7 +9,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as RKE, type ReactNode } from 'react'
 import {
-	ATT, CHANNEL, DEFAULT_WEIGHTS, FUNNEL, KIND, MONTHS, SETTLE, STAGES, STAGE_KEYS, attIs, attPrimary, commAmount, fa, faGroup, freshS, funLabel, funnelOf, label, mil,
+	ATT, CHANNEL, DEFAULT_WEIGHTS, FUNNEL, KIND, MONTHS, SETTLE, STAGES, STAGE_KEYS, settlementChoices, attIs, attPrimary, commAmount, fa, faGroup, freshS, funLabel, funnelOf, label, mil,
 	monthOf, num, pct, period, rawDigits, roleCount, rowBasis, sep, stagesOf, wDeal, invoiceKey, isInvoice, isLocked, finStateOf, FIN_STATE_LABEL, type Att, type CommS, type Deal, type FinState, type StageKey,
 } from '@/engines/commission/index.ts'
 import { classifyKinds, custNorm, ledgerOf } from '@/engines/customer/index.ts'
@@ -199,7 +199,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 	const kindFix = useCallback((r: Row) => { const k = kinds?.kinds.get(r.key); return k && k !== (r.d.kind || 'new') ? k : '' }, [kinds])
 
 	const monthRows = useMemo(() => (gm === 'all' ? allRows : allRows.filter((r) => monthOf(r.d) === +gm)), [allRows, gm])
-	const rowOrder = useRowOrder(session, 'ledger.rows.' + viewFy, allRows.map(rowOrderKey), !!f.sort)
+	const rowOrder = useRowOrder(session, 'ledger.rows.' + viewFy + '.' + (single?.id || 'all'), allRows.map(rowOrderKey), !!f.sort)
 	const rows = useMemo(() => {
 		const q = qNorm(f.q)
 		let out = monthRows.filter((r) => {
@@ -437,7 +437,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 	const runNA = (r: Row, na: NA) => {
 		if (!canEdit(r) && !isLocked(r.d) && na.k !== 'approve' && na.k !== 'submit') return
 		const ri = rows.indexOf(r)
-		if (na.k === 'check') patch(r, { settle: 'cash' }, 'وصولِ چک ثبت شد (تسویه: نقد)')
+		if (na.k === 'check') patch(r, { settle: 'cash_after_check' }, 'نقد پس از وصول چک ثبت شد')
 		else if (na.k === 'follow' || na.k === 'post') { const s = stagesOf(r.d); patch(r, { stages: ordStages([...s, na.k as StageKey]), close: undefined }, na.k === 'follow' ? 'مرحلهٔ «پیگیری» تیک خورد' : 'مرحلهٔ «پیگیری پس از فروش» تیک خورد') }
 		else if (na.k === 'fin' || na.k === 'close' || na.k === 'approve' || na.k === 'submit') { setCur((x) => ({ ...x, r: ri })); setStageFor(r.key) }
 		else if (na.k === 'hold') startEdit(ri, cols.findIndex((c) => c.k === 'settle'))
@@ -817,7 +817,7 @@ function CellEditor({ r, col, leadNames, onCommit, onCancel, onStep }: { r: Row;
 	const cls = `${INPUT} min-h-9 h-9 px-2 text-[13px]`
 	const ref = useCallback((el: HTMLInputElement | HTMLSelectElement | null) => { if (el) { el.focus({ preventScroll: true }); if (el instanceof HTMLInputElement) el.select() } }, [])
 	if (col === 'month' || col === 'settle' || col === 'kind' || col === 'channel' || col === 'leadGen') {
-		const opts = col === 'month' ? MONTHS.map((m, i) => ({ v: String(i), t: m })) : col === 'settle' ? SETTLE : col === 'kind' ? KIND : col === 'channel' ? CHANNEL : [{ v: '', t: '— خودِ کارشناس' }, ...leadNames.map((n) => ({ v: n, t: n })), ...(d.leadGen && !leadNames.includes(d.leadGen) ? [{ v: d.leadGen, t: d.leadGen }] : [])]
+		const opts = col === 'month' ? MONTHS.map((m, i) => ({ v: String(i), t: m })) : col === 'settle' ? settlementChoices(String(d.settle || 'cash')) : col === 'kind' ? KIND : col === 'channel' ? CHANNEL : [{ v: '', t: '— خودِ کارشناس' }, ...leadNames.map((n) => ({ v: n, t: n })), ...(d.leadGen && !leadNames.includes(d.leadGen) ? [{ v: d.leadGen, t: d.leadGen }] : [])]
 		// انتخاب با ماوس = ذخیرهٔ فوری (کمترین کلیک)؛ با کیبورد، Enter ذخیره می‌کند
 		return <select ref={ref} value={v} className={cls} aria-label={COLS.find((c) => c.k === col)?.t} onChange={(e) => setV(e.target.value)} onKeyDown={key} onBlur={blur} onClick={(e) => e.stopPropagation()}>{opts.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}</select>
 	}

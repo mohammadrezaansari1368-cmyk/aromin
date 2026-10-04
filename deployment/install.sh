@@ -8,6 +8,9 @@ SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
 if   [ -f "$APP_DIR/srv/server.py" ]; then SRV_DIR="$APP_DIR/srv"
 elif [ -f "$APP_DIR/server.py"     ]; then SRV_DIR="$APP_DIR"
 else echo "✗ server.py در $APP_DIR پیدا نشد. مسیر را بده:  APP_DIR=/path/به/dashboard bash install.sh"; exit 1; fi
+if [ -f "$SRV_DIR/migrations/004_check_collection.sql" ] && ! cmp -s "$HERE/migrations/004_check_collection.sql" "$SRV_DIR/migrations/004_check_collection.sql"; then
+  echo "Conflicting migration 004_check_collection.sql; no files changed." >&2; exit 1
+fi
 SPA_DIR="$(cd "$SRV_DIR/.." && pwd)/web"
 TS="$(date +%Y%m%d-%H%M%S)"
 BK="$APP_DIR/backups-install/$TS"; mkdir -p "$BK"
@@ -20,6 +23,10 @@ echo "$TS" > "$APP_DIR/backups-install/LAST"
 echo "› نصبِ فایل‌ها"
 rm -rf "$SPA_DIR"; cp -r "$HERE/web" "$SPA_DIR"
 cp "$HERE/server.py" "$SRV_DIR/server.py"
+if [ -f "$HERE/migrations/004_check_collection.sql" ]; then
+  mkdir -p "$SRV_DIR/migrations"
+  cp "$HERE/migrations/004_check_collection.sql" "$SRV_DIR/migrations/004_check_collection.sql"
+fi
 # اپِ قبلی (همهٔ ابزارها، روی /legacy) — فقط اگر در پکیج باشد
 if [ -f "$HERE/legacy.html" ]; then cp "$HERE/legacy.html" "$LEGACY"; echo "  + اپِ کامل (/legacy) به‌روز شد"; fi
 # به‌روزرسانِ خودکار (اگر نصب شده) — جایگزینیِ اتمیک تا اسکریپتِ در حالِ اجرا خراب نشود

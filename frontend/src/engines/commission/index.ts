@@ -11,7 +11,7 @@ export const VERSION = '1.0.0'
 export type StageKey = 'lead' | 'pre' | 'funnel' | 'follow' | 'close' | 'post' | 'fin'
 export type Weights = Record<StageKey, number>
 export type FunnelKey = 'start' | 'qualify' | 'advance' | 'won' | 'lost'
-export type Settle = 'cash' | 'check' | 'hold'
+export type Settle = 'cash' | 'check' | 'hold' | 'cash_after_check'
 
 export interface Deal {
 	id: number
@@ -79,7 +79,11 @@ export const CLOSE: { v: string; t: string; short: string; stages: StageKey[] }[
 	{ v: 'post', t: 'پیگیری پس از فروش و وفادارسازی', short: 'پس از فروش', stages: ['post'] },
 	{ v: 'fin', t: 'تأیید مالی و صحت داده', short: 'مالی', stages: ['fin'] },
 ]
-export const SETTLE: { v: Settle; t: string }[] = [{ v: 'cash', t: 'نقد ۷۰٪ به بالا' }, { v: 'check', t: 'چک معتبر' }, { v: 'hold', t: 'معلق یا تأییدنشده' }]
+export const SETTLE: { v: Settle; t: string }[] = [{ v: 'cash', t: 'نقد ۷۰٪ به بالا' }, { v: 'check', t: 'چک معتبر' }, { v: 'cash_after_check', t: 'نقد پس از وصول چک' }, { v: 'hold', t: 'معلق یا تأییدنشده' }]
+/** A cheque can remain pending or be collected; historical cash/hold records retain their meanings. */
+export function settlementChoices(current: string) {
+	return current === 'check' || current === 'cash_after_check' ? SETTLE.filter(s => s.v === 'check' || s.v === 'cash_after_check') : SETTLE
+}
 export const FUNNEL: { k: FunnelKey; t: string }[] = [
 	{ k: 'start', t: 'آغاز' }, { k: 'qualify', t: 'واجد شرایط' }, { k: 'advance', t: 'پیشبرد' }, { k: 'won', t: 'بستن' }, { k: 'lost', t: 'شکست' },
 ]
