@@ -89,11 +89,9 @@ export const CHANNEL = [{ v: 'official', t: 'رسمی' }, { v: 'unofficial', t: 
 /* ---------- قالب‌بندی (همان fa/sep/mil/pct/faGroup/num) ---------- */
 const FA = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹']
 export const fa = (s: unknown) => String(s).replace(/[0-9]/g, (d) => FA[+d])
+const moneyFormatter = new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 0, useGrouping: true })
 export function sep(n: number) {
-	n = Math.round(n || 0)
-	const g = n < 0
-	n = Math.abs(n)
-	return (g ? '−' : '') + fa(String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '٬'))
+	return moneyFormatter.format(Math.round(Number.isFinite(n) ? n : 0) || 0).replace(/\u200e/g, '')
 }
 export const mil = (n: number) => fa((Math.round((n || 0) / 1e5) / 10).toFixed(1)) + 'M'
 export const pct = (n: number) => fa((Math.round((n || 0) * 10) / 10).toString()) + '٪'

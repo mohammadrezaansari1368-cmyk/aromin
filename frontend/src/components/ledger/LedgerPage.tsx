@@ -626,7 +626,7 @@ function Tile({ title, code, children }: { title: string; code: string; classNam
 const Fig = ({ k, v, strong }: { k: string; v: string; strong?: boolean }) => (
 	<div className="flex items-baseline justify-between gap-2 border-b border-border/60 py-1.5 last:border-0">
 		<span className="text-[12px] text-muted-foreground">{k}</span>
-		<span className={`tabular-nums ${strong ? 'text-[16px] font-extrabold text-primary-ink' : 'text-[13px] font-bold'}`}>{v}</span>
+		<span dir="ltr" className={`tabular-nums ${strong ? 'text-[16px] font-extrabold text-primary-ink' : 'text-[13px] font-bold'}`}>{v}</span>
 	</div>
 )
 function Split({ parts, big }: { parts: { k: string; v: number; c: string }[]; big?: boolean }) {
