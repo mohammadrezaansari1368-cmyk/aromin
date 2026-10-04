@@ -54,7 +54,7 @@ const blob = (extra: Record<string, unknown> = {}) => {
 	;(p1.invY as Record<string, Deal[]>)['1404'] = [deal({ id: 5, no: 'OLD-1', name: 'کافه قدیمی', month: 5 })]
 	return { fy: '1405', gid: 20, years: { '1405': {} }, people: [p1, person(2, 'نیما')], importLog: [], ...extra } as any
 }
-const R = (o: Record<string, unknown>) => ({ 'معامله': '', 'شرکت': 'مشتری', 'ارزش': 5000000, 'تاریخ تغییر مرحله': '1405/02/10', 'کارشناس': 'سارا', 'مرحله': 'بستن', ...o })
+const R = (o: Record<string, unknown>) => ({ 'سال مالی': '1405', 'معامله': '', 'شرکت': 'مشتری', 'ارزش': 5000000, 'تاریخ تغییر مرحله': '1405/02/10', 'کارشناس': 'سارا', 'مرحله': 'بستن', ...o })
 
 describe('ایمپورت — فقط ۱۴۰۵', () => {
 	it('ستونِ «سال مالی» مرجع است (حتی اگر تاریخ چیز دیگری بگوید)', () => {
@@ -64,16 +64,14 @@ describe('ایمپورت — فقط ۱۴۰۵', () => {
 		expect(P.cnt).toEqual({ valid: 1, previous: 2, duplicate: 0, invalid: 1 })
 		expect(P.years).toEqual({ '1405': 1, '1404': 1, '1403': 1 })
 	})
-	it('بدونِ ستونِ سال مالی: سال از تاریخ (رفتارِ قبلی)', () => {
-		const rows = [R({ 'معامله': 'N1' }), R({ 'معامله': 'N2', 'تاریخ تغییر مرحله': '١٤٠٤/١١/٠٢' }), R({ 'معامله': 'N3', 'تاریخ تغییر مرحله': '' })]
-		const P = planDealImport(rows, blob(), { mode: 'append', rial: false })
-		expect(P.fySource).toBe('date')
-		expect(P.cnt).toEqual({ valid: 1, previous: 1, duplicate: 0, invalid: 1 })
+	it('بدون ستون سال مالی ثبت متوقف می‌شود، حتی با تاریخ ۱۴۰۵', () => {
+		const row = R({ 'معامله': 'N1' }); delete (row as Record<string, unknown>)['سال مالی']
+		expect(planDealImport([row], blob(), { mode: 'append', rial: false }).error).toContain('سال مالی')
 	})
 	it('ثبت: فقط ۱۴۰۵، inv و invY یکسان، دادهٔ سال‌های قبل دست‌نخورده، بار دوم هیچ (idempotent)', () => {
 		const full = blob()
 		const before1404 = JSON.stringify(full.people[0].invY['1404'])
-		const rows = [R({ 'معامله': 'N1' }), R({ 'معامله': 'N2', 'تاریخ تغییر مرحله': '1404/03/03' }), R({ 'معامله': 'N1' }), R({ 'معامله': 'A-1', 'تاریخ تغییر مرحله': '1405/01/01' })]
+		const rows = [R({ 'معامله': 'N1' }), R({ 'معامله': 'N2', 'سال مالی': '1404', 'تاریخ تغییر مرحله': '1404/03/03' }), R({ 'معامله': 'N1' }), R({ 'معامله': 'A-1', 'تاریخ تغییر مرحله': '1405/01/01' })]
 		const r = applyDealImport(full, rows, { mode: 'append', rial: false, fileName: 'f.xlsx', sig: 's', custbook: null })
 		expect(r.plan.cnt).toEqual({ valid: 1, previous: 1, duplicate: 2, invalid: 0 })
 		const sara = full.people[0]

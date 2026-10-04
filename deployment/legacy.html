@@ -7747,7 +7747,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   // گلوبال‌ها را از دادهٔ سالِ y پر می‌کند (اگر نبود، خالی)
   function fyApply(y){ var yd=YEARS[y]||{}; BUDGET=yd.budget||{}; TARGETS=yd.targets||{};
     (PEOPLE||[]).forEach(function(p){ if(!p.invY) p.invY={};
-      if(p.invY[y]===undefined) p.invY[y]=(p.inv&&p.inv.length)?p.inv:[];   // سالِ y برای این نفر نبود → از inv فعلی پر کن (وایپ نکن)
+      if(p.invY[y]===undefined) p.invY[y]=[];   // سالِ y برای این نفر نبود → از inv فعلی پر کن (وایپ نکن)
       p.inv=p.invY[y]; });
     var ap=activePerson(); if(ap) inv=ap.inv;   // اشارهٔ سراسریِ inv را به سالِ جدید تازه کن
   }
@@ -8641,6 +8641,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var cNo=pickCol(keys,["معامله","کدمرجع","شماره","کد"]);
     var cName=pickCol(keys,["شرکت","مخاطب","نام","مشتری"]);
     var cVal=pickCol(keys,["ارزش","مبلغ","قیمت"]);
+    var cFy=keys.find(function(k){ return ["سالمالی","fiscalyear","fy"].indexOf(c1K(k).toLowerCase())>=0; });
     var cDate=pickCol(keys,["تغییر مرحله","تاریخ","ورود"]);
     var cEntry=pickCol(keys,["ورود","تاریخ ثبت","تاریخ ایجاد","ثبت"]);   // تاریخِ واگذاریِ معامله به کارشناس — مبنای مهلتِ ۴۰ روزه
     var cRep=pickCol(keys,["کارشناس","مسئول","فروشنده"]);
@@ -8649,6 +8650,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var cFail=pickCol(keys,["دلیل شکست","دلیلشکست","علت شکست"]);
     var cSrc=pickCol(keys,["کانال تبلیغاتی","کانال","منبع","کمپین"]);
     if(!cVal) return {error:"ستون «ارزش» پیدا نشد. مطمئن شو گزارش جولیو ستون ارزش دارد."};
+    if(!cFy) return {error:"ستون سال مالی الزامی است؛ سال از تاریخ حدس زده نمی‌شود."};
     if(!cDate && !cEntry) return {error:"ستونِ تاریخ (تغییر مرحله/ورود) پیدا نشد؛ بدونِ تاریخ سالِ مالی قابل تشخیص نیست و چیزی ثبت نمی‌شود."};
     if(String(FY)!==C1_FY) return {error:"سالِ مالیِ فعال «"+fa(FY)+"» است؛ ایمپورتِ معاملات فقط برای سالِ مالیِ "+fa(C1_FY)+" مجاز است — ابتدا سالِ مالی را روی "+fa(C1_FY)+" بگذار."};
     var rial=el("rialToggle").checked;
@@ -8663,8 +8665,10 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
       var ds=cDate?c1DateOf(r[cDate]):null; if(!ds && cEntry) ds=c1DateOf(r[cEntry]);
       if(!ds) return bad("invalid","تاریخ ندارد؛ سالِ مالی نامشخص");
       if(!/^1[34]\d\d$/.test(ds.y) || ds.m<1 || ds.m>12) return bad("invalid","تاریخِ نامعتبر");
-      years[ds.y]=(years[ds.y]||0)+1;
-      if(ds.y!==C1_FY) return bad("rejected","سالِ مالیِ "+fa(ds.y)+" — فقط "+fa(C1_FY)+" پذیرفته می‌شود");
+      var fiscal=c1Norm(r[cFy]).trim();
+      if(!/^1[34]\d\d$/.test(fiscal)) return bad("invalid","سال مالی نامعتبر");
+      years[fiscal]=(years[fiscal]||0)+1;
+      if(fiscal!==C1_FY) return bad("rejected","سالِ مالیِ "+fa(fiscal)+" — فقط "+fa(C1_FY)+" پذیرفته می‌شود");
       fyRows++;
       var v=num(r[cVal]); if(rial) v=Math.round(v/10);
       var fk = cStage ? canonFunnel(r[cStage], cFail?r[cFail]:"") : "won";
@@ -8677,7 +8681,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
       var reg=cReg?cleanName(r[cReg]):"";
       var lead=(reg && reg!==rep) ? reg : "";
       cand.push({row:row, k:k, rep:rep, noRep:noRep, lead:lead, d:{
-        no:row.no, month:ds.m-1, name:row.name,
+        no:row.no, month:ds.m-1, name:row.name, fy:C1_FY,
         amount:String(v), close:(lead?"nolead":"all"), funnel:fk, settle:"cash", kind:"new", channel:"official", leadGen:lead,
         entry:(cEntry?String(r[cEntry]||"").trim():""),
         src:cSrc?String(r[cSrc]||"").trim():"", lossReason:(cFail?String(r[cFail]||"").trim():"")}});
