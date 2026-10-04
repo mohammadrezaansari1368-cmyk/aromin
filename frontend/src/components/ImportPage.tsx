@@ -80,7 +80,18 @@ ensureTenant()
 
 export default function ImportPage({ session }: { session?: Session } = {}) {
 	const { m, reload } = useAromin()
-	const [queue, setQueue] = useState<QItem[]>([])
+	const [queue, setQueueState] = useState<QItem[]>([])
+	const setQueue = useCallback((update: QItem[] | ((q: QItem[]) => QItem[])) => {
+		setQueueState(previous => {
+			const next = typeof update === 'function' ? update(previous) : update
+			const seen = new Set<string>()
+			return next.map(item => {
+				const duplicateContent = !!item.hash && seen.has(item.hash)
+				if (item.hash) seen.add(item.hash)
+				return duplicateContent === !!item.duplicateContent ? item : { ...item, duplicateContent }
+			})
+		})
+	}, [])
 	const [results, setResults] = useState<Result[] | null>(null)
 	const [status, setStatus] = useState<{ tone: 'ok' | 'err' | 'info'; text: string } | null>(null)
 	const [busy, setBusy] = useState(false)

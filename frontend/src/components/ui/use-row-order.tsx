@@ -7,6 +7,7 @@ import { moveRow } from './row-order'
 export function useRowOrder(session: Session, list: string, keys: string[], disabled: boolean) {
   const [saved, setSaved] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  const [ready, setReady] = useState(false)
   const busyRef = useRef(false)
   const [message, setMessage] = useState('')
   const [drag, setDrag] = useState<string | null>(null)
@@ -16,12 +17,12 @@ export function useRowOrder(session: Session, list: string, keys: string[], disa
   const generation = useRef(0)
   useEffect(() => {
     const gen = ++generation.current
-    setSaved([])
-    loadLayout(session, list).then(o => { if (generation.current === gen && o) setSaved(o) })
+    setSaved([]); setReady(false)
+    loadLayout(session, list).then(o => { if (generation.current === gen) { if (o) setSaved(o); setReady(true) } })
     return () => { generation.current++; cancel.current?.() }
   }, [session.user, list])
   const move = async (key: string, target: string) => {
-    if (busyRef.current || disabled) return
+    if (busyRef.current || disabled || !ready) return
     const previous = live.current, next = moveRow(previous, key, target)
     if (next === previous) return
     const gen = generation.current
@@ -34,7 +35,7 @@ export function useRowOrder(session: Session, list: string, keys: string[], disa
     } finally { busyRef.current = false; setBusy(false) }
   }
   const pointer = (key: string, e: React.PointerEvent) => {
-    if (e.button !== 0 || busyRef.current || disabled) return
+    if (e.button !== 0 || busyRef.current || disabled || !ready) return
     e.preventDefault(); e.stopPropagation(); cancel.current?.(); setDrag(key)
     const controller = new AbortController()
     const cleanup = () => { controller.abort(); setDrag(null); cancel.current = null }
@@ -54,7 +55,7 @@ export function useRowOrder(session: Session, list: string, keys: string[], disa
     const target = live.current[live.current.indexOf(key) + d]
     if (target) void move(key, target)
   }
-  return { order, disabled: disabled || busy, message, drag, pointer, keyboard }
+  return { order, disabled: disabled || busy || !ready, message, drag, pointer, keyboard }
 }
 export const RowOrderContext = createContext<ReturnType<typeof useRowOrder> | null>(null)
 export function RowGrip({ rowKey }: { rowKey: string }) {

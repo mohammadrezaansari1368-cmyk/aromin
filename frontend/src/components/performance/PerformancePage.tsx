@@ -1,5 +1,7 @@
-import { isActivePerson } from '@/lib/people'
 'use client'
+
+import { isActivePerson } from '@/lib/people'
+
 
 /**
  * «حضور و عملکرد» — تبِ بومی. همهٔ نماها از usePerformance (دیتاستِ محدود به دسترسی) می‌خوانند:
