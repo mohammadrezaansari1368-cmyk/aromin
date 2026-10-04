@@ -56,6 +56,6 @@ fi
 echo "✅ نصب شد. نسخهٔ بکاپ: $TS"
 if [ -n "$RS" ]; then echo "سرویسِ $RS ری‌استارت شد."; else echo "⚠ سرویس خودکار ری‌استارت نشد؛ دستی:  sudo systemctl restart $SERVICE"; fi
 # کلیدِ جدیدِ آروان (اگر در /var/tmp گذاشته شده) خودکار تنظیم می‌شود
-if ls /var/tmp/arvan-key* >/dev/null 2>&1 && [ -x /usr/local/bin/aromin-setup-arvan.sh ]; then sleep 4; bash /usr/local/bin/aromin-setup-arvan.sh || true
+if [ "${AROMIN_APPLY_ARVAN_KEY:-}" = "1" ] && ls /var/tmp/arvan-key* >/dev/null 2>&1 && [ -x /usr/local/bin/aromin-setup-arvan.sh ]; then sleep 4; bash /usr/local/bin/aromin-setup-arvan.sh || true
 elif [ -z "${AROMIN_NO_PURGE:-}" ] && [ -x /usr/local/bin/aromin-purge.sh ]; then sleep 4; /usr/local/bin/aromin-purge.sh || true; fi
 echo "رول‌بک:  bash \"$HERE/rollback.sh\""
