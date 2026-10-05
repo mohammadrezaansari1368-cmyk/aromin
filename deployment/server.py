@@ -495,6 +495,7 @@ def post_state(payload: dict = Body(default={}), tenant: str = Query(default="")
                 row = cur.fetchone()
                 old = parse(row["payload"]) if row else None
                 _preserve_import_history(old, st)
+                _preserve_compensation(old, st)
                 bad = _c1_lock_violation(old, st)
                 if bad:
                     return JSONResponse({"ok": False, "error": bad, "locked": True}, status_code=409)
@@ -734,7 +735,10 @@ def assistant_system(tenant, scope="dashboard", persona=None):
     return system
 
 
-def ai_chat(system, user, max_tokens=800, temperature=0.4, history=None):
+def ai_chat(system, user, max_tokens=800, temperature=0.4, history=None, tenant=None):
+    google = _google_ai_config(tenant) if tenant else {}
+    if google.get('enabled') and google.get('key'):
+        return _google_chat(google, system, user, history, max_tokens, temperature)
     if not AI_URL or not AI_KEY:
         return {"ok": False, "error": "دستیار پیکربندی نشده (AI_URL/AI_KEY در .env.main)."}
     msgs = [{"role": "system", "content": system}]
@@ -785,7 +789,7 @@ AGENT_TOOLS = {
 }
 
 
-def _agent_turn(payload, system):
+def _agent_turn(payload, system, tenant=None):
     role = str(payload.get("role") or "")
     tabs = payload.get("tabs") or []
     page = str(payload.get("page") or "")
@@ -818,7 +822,7 @@ def _agent_turn(payload, system):
         history.append({"role": r, "content": str(m.get("content") or "")[:4000]})
     if not history or history[-1]["role"] != "user":
         return {"ok": False, "error": "پیامِ کاربر خالی است."}
-    out = ai_chat(system, None, max_tokens=700, temperature=0.3, history=history)
+    out = ai_chat(system, None, max_tokens=700, temperature=0.3, history=history, tenant=tenant)
     if out.get("ok"):
         out["allowedTools"] = allowed
     return out
@@ -841,7 +845,8 @@ def api_ai(request: Request, payload: dict = Body(default={})):
     question = str(payload.get("question") or "")
     fields = payload.get("fields") or []
 
-    system = assistant_system(kb_tenant) if kb_identity(request, kb_tenant) else AI_PERSONA
+    authorized_tenant = kb_tenant if kb_identity(request, kb_tenant) else None
+    system = assistant_system(kb_tenant) if authorized_tenant else AI_PERSONA
     if business or industry:
         system += "\n\nکسب‌وکار: " + business + " | صنعت: " + industry
 
@@ -859,15 +864,15 @@ def api_ai(request: Request, payload: dict = Body(default={})):
             '[{"id":"fieldId","value":"مقدار","why":"دلیل"}] — فقط idهایی که در فهرستِ فیلدها آمده‌اند.'
         )
         user = "فیلدهای این صفحه:\n" + fld + "\n\nدادهٔ کسب‌وکار:\n" + context[:8000] + "\n\nسؤالِ کاربر: " + question
-        return ai_chat(system + assistant_grounding([question[:1000]]), user, max_tokens=900)
+        return ai_chat(system + assistant_grounding([question[:1000]]), user, max_tokens=900, tenant=authorized_tenant)
 
     if mode == "agent":
         asked = [str(m.get("content") or "")[:1000] for m in (payload.get("messages") or []) if isinstance(m, dict) and m.get("role") == "user"]
-        return _agent_turn(payload, system + assistant_grounding(asked[-2:]))
+        return _agent_turn(payload, system + assistant_grounding(asked[-2:]), tenant=authorized_tenant)
 
     label = {"analysis": "تحلیلِ هوشمندِ پیش‌بینی", "strategy": "پیشنهادِ استراتژی", "risk": "هشدارِ ریسک"}.get(mode, "تحلیل")
     user = "نوعِ درخواست: " + label + "\n\nخلاصهٔ اعدادِ پیش‌بینی:\n" + context[:8000]
-    return ai_chat(system, user, max_tokens=750)
+    return ai_chat(system, user, max_tokens=750, tenant=authorized_tenant)
 
 # ---------------- پایگاه دانشِ پویا (Import → Dynamic Knowledge Base) ----------------
 # هر کسب‌وکار دانشِ جدا در ArvanCloud Object Storage (S3-compatible): knowledge/{businessId}/{uuid}.json
@@ -1808,7 +1813,9 @@ def _c1_save(tenant, full):
         with cx.cursor() as cur:
             cur.execute("SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE", (tenant,))
             row = cur.fetchone()
-            _preserve_import_history(parse(row["payload"]) if row else None, full)
+            previous = parse(row["payload"]) if row else None
+            _preserve_import_history(previous, full)
+            _preserve_compensation(previous, full)
             cur.execute("""INSERT INTO tenant_state (tenant, industry, name, payload) VALUES (%s,%s,%s,%s)
                 ON DUPLICATE KEY UPDATE payload=VALUES(payload)""",
                 (tenant, info.get("industry"), info.get("name"), j(full)))
@@ -1836,6 +1843,11 @@ def _c1_owner(full, did):
             if any(isinstance(d, dict) and str(d.get("id")) == did for d in arr):
                 return str(p.get("name") or "")
     return ""
+
+
+def _fixed_invoice(full, did):
+    owner = _c1_owner(full, str(did))
+    return any(p.get('name') == owner and p.get('comp') == 'fixed' for p in full.get('people', []))
 
 
 def _c1_mobile(full, ident):
@@ -1940,10 +1952,11 @@ def c1_approve(request: Request, payload: dict = Body(default={})):
     for d in ds:
         _c1_norm_closed(d)
         d["finState"] = "approved"
-        d["finApproval"] = dict(rec)
-        _c1_audit(d, "approve", ident, full, cash=data["cash"], pending=data["pending"], regDateJ=data["regDateJ"], regDate=data["regDate"])
+        d["finApproval"] = dict(rec, **({"cash": 0, "pending": 0} if _fixed_invoice(full, did) else {}))
+        d["finBy"] = d.get("finBy") or rec["by"]
+        _c1_audit(d, "approve", ident, full, cash=d["finApproval"]["cash"], pending=d["finApproval"]["pending"], regDateJ=data["regDateJ"], regDate=data["regDate"])
     _c1_save(tenant, full)
-    return {"ok": True, "approval": rec}
+    return {"ok": True, "approval": ds[0]["finApproval"]}
 
 
 @app.post("/api/c1/approve-batch")
@@ -1983,8 +1996,9 @@ def c1_approve_batch(request: Request, payload: dict = Body(default={})):
             for d in ds:
                 _c1_norm_closed(d)
                 d["finState"] = "approved"
-                d["finApproval"] = dict(rec)
-                _c1_audit(d, "approve", ident, full, batch=batch, cash=data["cash"], pending=data["pending"], regDateJ=data["regDateJ"], regDate=data["regDate"])
+                d["finApproval"] = dict(rec, **({"cash": 0, "pending": 0} if _fixed_invoice(full, d.get("id")) else {}))
+                d["finBy"] = d.get("finBy") or rec["by"]
+                _c1_audit(d, "approve", ident, full, batch=batch, cash=d["finApproval"]["cash"], pending=d["finApproval"]["pending"], regDateJ=data["regDateJ"], regDate=data["regDate"])
         _c1_save(tenant, full)
     return {"ok": True, "approved": len(todo), "already": already, "skipped": skipped, "batch": batch if todo else None}
 
@@ -4611,6 +4625,143 @@ async def telegram_post_create(request: Request, payload: dict = Body(default={}
         return err
     res = await _in_pool(tg_create_post, tenant, str(payload.get("productUrl") or "").strip() or None, None)
     return JSONResponse(res, status_code=200 if res.get("ok") else 422)
+
+
+# Manager-only compensation changes; approvals cannot be forged by generic state saves.
+def _preserve_compensation(old, new):
+    previous = {str(p.get('id')): p for p in (old or {}).get('people', [])}
+    for p in new.get('people', []):
+        before = previous.get(str(p.get('id')), {})
+        p['comp'] = before.get('comp') or 'hybrid'
+        p['approvedBonuses'] = before.get('approvedBonuses', [])
+
+
+@app.post('/api/c1/compensation')
+def compensation_update(request: Request, payload: dict = Body(default={})):
+    tenant = str(payload.get('tenant') or 'team')
+    ident = kb_identity(request, tenant)
+    if not ident:
+        return _c1_deny('ورود معتبر نیست.', 401)
+    if ident['role'] not in KB_ADMIN_ROLES:
+        return _c1_deny('فقط مدیر می‌تواند مدل حقوق یا پاداش را تصویب کند.')
+    model = payload.get('comp')
+    if model not in ('fixed', 'hybrid', 'commission'):
+        return _c1_deny('مدل حقوق نامعتبر است.', 422)
+    bonus = payload.get('bonus')
+    if bonus is not None and (not isinstance(bonus, dict) or _c1_amount(bonus.get('amount')) is None or not isinstance(bonus.get('month'), int) or isinstance(bonus.get('month'), bool) or not 0 <= bonus['month'] < 12 or bonus.get('fy') != '1405' or len(str(bonus.get('reason') or '').strip()) < 3 or not re.fullmatch(r'[A-Za-z0-9-]{8,80}', str(bonus.get('id') or ''))):
+        return _c1_deny('مبلغ، ماه، سال مالی و دلیل پاداش معتبر لازم است.', 422)
+    cx = db_conn()
+    cx.autocommit(False)
+    try:
+        with cx.cursor() as cur:
+            cur.execute('SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE', (tenant,))
+            rec = cur.fetchone()
+            full = parse(rec['payload']) if rec else {}
+            person = next((p for p in full.get('people', []) if str(p.get('id')) == str(payload.get('pid'))), None)
+            if person is None:
+                return _c1_deny('کارشناس پیدا نشد.', 404)
+            person['comp'] = model
+            if bonus is not None:
+                approvals = person.setdefault('approvedBonuses', [])
+                existing = next((b for b in approvals if b.get('id') == bonus['id']), None)
+                if existing and any(existing.get(k) != v for k, v in {'amount': _c1_amount(bonus['amount']), 'month': bonus['month'], 'fy': bonus['fy'], 'reason': str(bonus['reason']).strip()[:500]}.items()):
+                    return _c1_deny('این شناسه قبلاً با پاداش دیگری ثبت شده است.', 409)
+                if not existing:
+                    approvals.append({'id': bonus['id'], 'amount': _c1_amount(bonus['amount']), 'month': bonus['month'], 'fy': bonus['fy'], 'reason': str(bonus['reason']).strip()[:500], 'by': ident['user'], 'ts': int(time.time() * 1000)})
+            full['ts'] = int(time.time() * 1000)
+            cur.execute('UPDATE tenant_state SET payload=%s WHERE tenant=%s', (j(full), tenant))
+        cx.commit()
+        return {'ok': True}
+    finally:
+        cx.close()
+
+
+# Google credentials are tenant-scoped, server-only, atomically written with mode 0600.
+GOOGLE_SECRET_DIR = os.environ.get('GOOGLE_SECRET_DIR') or os.path.join(HERE, '.assistant-secrets')
+GOOGLE_MODEL = os.environ.get('GOOGLE_AI_MODEL') or 'gemini-2.5-flash'
+
+def _google_ai_path(tenant):
+    import hashlib
+    return os.path.join(GOOGLE_SECRET_DIR, hashlib.sha256(tenant.encode()).hexdigest() + '.json')
+
+def _google_ai_config(tenant):
+    try:
+        with open(_google_ai_path(tenant), encoding='utf-8') as f:
+            cfg = json.load(f)
+        return cfg if isinstance(cfg, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+def _google_ai_public(cfg):
+    return {'ok': True, 'enabled': bool(cfg.get('enabled')), 'configured': bool(cfg.get('key')), 'model': GOOGLE_MODEL}
+
+@app.get('/api/ai/google/settings')
+def google_ai_get(request: Request, tenant: str = Query(default='team')):
+    ident, error = _kb_guard(request, tenant)
+    if error is not None:
+        return error
+    return _google_ai_public(_google_ai_config(tenant))
+
+@app.post('/api/ai/google/settings')
+def google_ai_save(request: Request, payload: dict = Body(default={})):
+    import tempfile
+    tenant = str(payload.get('tenant') or 'team')
+    ident, error = _kb_guard(request, tenant)
+    if error is not None:
+        return error
+    cfg = _google_ai_config(tenant)
+    key = str(payload.get('key') or '').strip()
+    if key and not re.fullmatch(r'[A-Za-z0-9_-]{20,200}', key):
+        return _c1_deny('ساختار کلید معتبر نیست.', 422)
+    if key:
+        cfg['key'] = key
+    cfg['enabled'] = payload.get('enabled') is True
+    if cfg['enabled'] and not cfg.get('key'):
+        return _c1_deny('ابتدا کلید Google را وارد کنید.', 422)
+    os.makedirs(GOOGLE_SECRET_DIR, mode=0o700, exist_ok=True)
+    fd, path = tempfile.mkstemp(dir=GOOGLE_SECRET_DIR)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f)
+        os.replace(path, _google_ai_path(tenant))
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+    return _google_ai_public(cfg)
+
+def _google_chat(cfg, system, user, history=None, max_tokens=800, temperature=0.4):
+    contents = [{'role': 'model' if m.get('role') == 'assistant' else 'user', 'parts': [{'text': str(m.get('content') or '')}]} for m in (history or []) if m.get('role') in ('user', 'assistant')]
+    if user:
+        contents.append({'role': 'user', 'parts': [{'text': user}]})
+    body = {'systemInstruction': {'parts': [{'text': system}]}, 'contents': contents, 'generationConfig': {'maxOutputTokens': max_tokens, 'temperature': temperature}}
+    url = 'https://generativelanguage.googleapis.com/v1beta/models/' + urllib.parse.quote(GOOGLE_MODEL, safe='') + ':generateContent'
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={'Content-Type': 'application/json', 'x-goog-api-key': cfg['key']}, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            data = json.loads(response.read())
+        text = ''.join(part.get('text', '') for c in data.get('candidates', []) for part in c.get('content', {}).get('parts', []) if not part.get('thought'))
+        return {'ok': bool(text.strip()), 'text': text.strip(), **({} if text.strip() else {'error': 'Google پاسخی برنگرداند.'})}
+    except urllib.error.HTTPError as e:
+        return {'ok': False, 'error': 'اتصال Google ناموفق بود (HTTP %s).' % e.code}
+    except Exception:
+        return {'ok': False, 'error': 'اتصال Google برقرار نشد؛ شبکه و تنظیمات کلید را بررسی کنید.'}
+
+@app.post('/api/ai/google/test')
+def google_ai_test(request: Request, payload: dict = Body(default={})):
+    tenant = str(payload.get('tenant') or 'team')
+    ident, error = _kb_guard(request, tenant)
+    if error is not None:
+        return error
+    cfg = _google_ai_config(tenant)
+    key = str(payload.get('key') or '').strip()
+    if key:
+        if not re.fullmatch(r'[A-Za-z0-9_-]{20,200}', key):
+            return _c1_deny('ساختار کلید معتبر نیست.', 422)
+        cfg['key'] = key
+    if not cfg.get('key'):
+        return _c1_deny('کلیدی ذخیره نشده است.', 422)
+    result = _google_chat(cfg, 'Connection test. Respond briefly.', 'Reply OK.', max_tokens=128)
+    return {'ok': result['ok'], **({} if result['ok'] else {'error': result['error']})}
 
 
 # ---------- فایل‌های ثابتِ public (آخر از همه مونت می‌شود) ----------

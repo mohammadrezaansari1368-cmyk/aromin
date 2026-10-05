@@ -26,7 +26,7 @@ export function parseJ(v: string): { j: string; iso: string } | null {
 }
 /** امروز به شمسی (YYYY/MM/DD با ارقامِ لاتین) */
 export function todayJ(now = new Date()): string {
-	const parts = new Intl.DateTimeFormat('en-US-u-ca-persian-nu-latn', { year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now)
+	const parts = new Intl.DateTimeFormat('en-US-u-ca-persian-nu-latn', { timeZone: 'Asia/Tehran', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now)
 	const g = (t: string) => (parts.find((p) => p.type === t)?.value || '').replace(/\D/g, '')
 	return `${g('year')}/${g('month')}/${g('day')}`
 }

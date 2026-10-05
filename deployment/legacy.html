@@ -4003,7 +4003,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     officialDeduct:10, months:{} }; }
 
   /* ---------- چند کارشناس ---------- */
-  var APP_VERSION = "3.9.39";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
+  var APP_VERSION = "3.9.40";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
   var DATA_VERSION=3;             // نسخه‌ی ساختار داده (برای مهاجرت خودکار)
   var PEOPLE=[], activePid=null, gid=1;
   var SALESCRISIS=false;   // شرایطِ بحرانی: مدیرِ فروش هم تارگت می‌گیرد و می‌فروشد
@@ -4198,7 +4198,8 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var full=baseSalary*(pct/100);
     var total=Math.round(full*ach);
     var sp=spifOf(p);
-    var sv=serviceOf(p);
+    var sv=compOf(p)==="fixed"?{total:0,n:0}:serviceOf(p);
+    if(compOf(p)==="fixed"){ total=0; full=0; sp={total:approvedBonusOf(p),count:0}; }
     return {tasks:t, callsIn:ci, callsOut:co, calls:c, svc:sv.total, svcN:sv.n,
             pct:pct, baseSalary:baseSalary, full:full, ach:ach, tAch:tAch, cAch:cAch,
             taskBonus:Math.round(full*tAch/2), callBonus:Math.round(full*cAch/2),
@@ -4219,6 +4220,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var p=activePerson(); return p?cleanName(p.name):null;
   }
   function inScope(name){ var s=scopeName(); return !s || cleanName(name)===s; }
+  function approvedBonusOf(p){return ((p&&p.approvedBonuses)||[]).filter(function(b){return b.fy===String(FY)&&(GM==="all"||b.month===+GM);}).reduce(function(sum,b){return sum+num(b.amount);},0);}
   function compOf(p){ return (p&&p.comp)||"hybrid"; }
   // ترکیب کل دریافتی بر اساس مدل جبران خدمات — پاداش حجمی حذف شده؛ فقط پاداش عملکرد
   function compParts(comp, T, perfTotal, lead, supp, fin){
@@ -4232,6 +4234,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var capAmt = (T.baseTotal||0) * (capPct/100);
     var perf   = (capPct>0 && capAmt>0) ? Math.min(perfRaw, capAmt) : perfRaw;
     var perfCut= Math.max(0, perfRaw-perf);
+    perf+=(T.approvedBonus||0);
     var ld         = (comp==="fixed")      ? 0 : (lead||0);
     var sp         = (comp==="fixed")      ? 0 : (supp||0);
     var fn         = (comp==="fixed")      ? 0 : (fin||0);
@@ -4472,11 +4475,12 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   ];
   function roleOf(v){ for(var i=0;i<CLOSE.length;i++) if(CLOSE[i].v===v) return CLOSE[i]; return CLOSE[0]; }
   // مراحلِ یک معامله: از d.stages، وگرنه مهاجرت از نقشِ قدیمی d.close
+  function financeOf(d){return String(d.finBy||(d.finApproval&&d.finApproval.by)||"").trim();}
   function stagesOf(d){
     var base = (d.stages && d.stages.slice) ? d.stages.slice() : roleOf(d.close||"all").stages.slice();
     if(d.leadGen) base = base.filter(function(s){return s!=="lead";});           // لید به شخص دیگر رفته
     if(d.supportGen && d.supportSla) base = base.filter(function(s){return s!=="post";}); // پیگیری پس از فروش به پشتیبانِ در مهلت رفته
-    if(d.finBy) base = base.filter(function(s){return s!=="fin";});                       // تأیید مالی و صحت داده به کارشناس مالی رفته
+    if(financeOf(d)) base = base.filter(function(s){return s!=="fin";});                       // تأیید مالی و صحت داده به کارشناس مالی رفته
     return base;
   }
   // وزن معامله بر حسب مراحلِ تیک‌خورده؛ مشارکت مدیر = نصف اعتبار بستن
@@ -4697,11 +4701,19 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var financeBonus={};  // پاداش مالی (وزن تأیید مالی و صحت داده) به تفکیک نام کارشناس مالی
     inv.forEach(function(d){
       var k=(d.month==null||d.month==="")?3:+d.month;
-      if(!months[k]||!months[k].active) return;
+      if((GM!=="all"&&k!==+GM)||!months[k]||!months[k].active) return;
       if(funnelOf(d)!=="won") return;                 // فقط بستن وارد پورسانت می‌شود
       var a=num(d.amount), ca=commAmount(d), w=wDeal(d,W)/100;
       var full=isFullDeal(d), b=full?byC.all:byC.partial;
       b.n++; b.gross+=a; if(a>b.max) b.max=a;
+      var financialOwner=financeOf(d);
+      if(financialOwner){
+        var cfgf=cfgOf(k), ef=months[k].eligible+(d.settle==="hold"?months[k].hold:0), fr=0;
+        if(ef>cfgf.threshold*1e6) for(var fi=0;fi<cfgf.tiers.length;fi++){if(ef<=cfgf.tiers[fi].cap*1e6||fi===cfgf.tiers.length-1){fr=cfgf.tiers[fi].rate/100;break;}}
+        var fb=ca*((wts.fin||0)/100), fc=fb*fr;
+        var f=financeBonus[financialOwner]||(financeBonus[financialOwner]={id:financialOwner,n:0,base:0,basis:0,cash:0,check:0,pending:0});
+        f.n++;f.basis+=fb;if(d.settle==="hold")f.pending+=fc;else{f.base+=fc;if(d.settle==="check")f.check+=fc;else f.cash+=fc;}
+      }
       if(d.settle!=="hold"){ b.basis+=ca*w;
         if(full) T.indep+=ca*w;
         if(d.kind==="repeat") T.rep+=ca*w;
@@ -4739,14 +4751,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
           supportBonus[d.supportGen].basis+=suppBasis;
           supportBonus[d.supportGen].base+=suppBasis*mRate;
         }
-        // پاداش مالی: سهمِ مرحله‌ی «تأیید مالی و صحت داده» برای کارشناس مالیِ تأییدکننده
-        if(d.finBy){
-          var finBasis = ca*((wts.fin||0)/100);
-          if(!financeBonus[d.finBy]) financeBonus[d.finBy]={id:d.finBy,n:0,base:0,basis:0};
-          financeBonus[d.finBy].n++;
-          financeBonus[d.finBy].basis+=finBasis;
-          financeBonus[d.finBy].base+=finBasis*mRate;
-        }
+
       }
     });
     T.byClose=byC;
@@ -7586,6 +7591,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     inv=person.inv; S=person.S;
     var T=period();
     inv=si; S=ss;
+    T.approvedBonus=approvedBonusOf(person);
     return T;
   }
   function ensureLeadPeople(){
@@ -7603,7 +7609,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     ensureLeadPeople();
     var rows=scopePeople().map(function(p){
       var T=periodFor(p); var pf=perfOf(p);
-      var suspended=(T.off.payCheck+T.off.payPend+T.uno.payCheck+T.uno.payPend);
+      var suspended=compOf(p)==="fixed"?0:(T.off.payCheck+T.off.payPend+T.uno.payCheck+T.uno.payPend);
       return {p:p,T:T,pf:pf,suspended:suspended};
     });
     // پاداش لیدسازی و پشتیبانی هر نفر: جمع سهمی که در همه‌ی دفترها به نام او خورده
@@ -9449,7 +9455,8 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var rows=names.map(function(nm){
       var p=null; for(var i=0;i<PEOPLE.length;i++){ if((PEOPLE[i].name||"").trim()===nm) p=PEOPLE[i]; }
       if(!p) p={name:nm, S:null};
-      var sv=serviceOf(p);
+      var sv=compOf(p)==="fixed"?{total:0,n:0}:serviceOf(p);
+    if(compOf(p)==="fixed"){ total=0; full=0; sp={total:approvedBonusOf(p),count:0}; }
       return {nm:nm, sv:sv};
     }).sort(function(a,b){ return b.sv.n-a.sv.n; });
     var tb=el("svcTable").querySelector("tbody");
@@ -12417,7 +12424,8 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   });
   el("setBase").addEventListener("input",function(){ cfgOf(setM).base=num(this.value); render(); });
   el("setComp").addEventListener("change",function(){
-    var p=activePerson(); if(!p) return; p.comp=this.value; syncSettings(); render();
+    var p=activePerson(); if(!p) return; var model=this.value;
+    fetch(API.base+"/api/c1/compensation",{method:"POST",headers:aiHeaders(),body:JSON.stringify({tenant:TENANT||"team",pid:p.id,comp:model})}).then(function(r){return r.json();}).then(function(r){if(!r.ok)throw new Error(r.error);p.comp=model;syncSettings();render();}).catch(function(e){syncSettings();alert(e.message||"ذخیره نشد");});
   });
   el("offDeduct").addEventListener("input",function(){ S.officialDeduct=Math.max(0,Math.min(100,num(this.value))); render(); });
   el("setThreshold").addEventListener("input",function(){ cfgOf(setM).threshold=num(this.value); refreshTierMax(); if(_tierRenderT) clearTimeout(_tierRenderT); _tierRenderT=setTimeout(function(){ render(); },250); });

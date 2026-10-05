@@ -61,6 +61,24 @@ class LocalIntegration(unittest.TestCase):
         self.assertEqual(code,200)
         self.assertEqual(doc['order'],order)
 
+    def test_compensation_http_and_stale_save_protection(self):
+        body={'tenant':self.tenant,'pid':1,'comp':'fixed','bonus':{'id':'bonus-test-123','amount':'500','month':6,'fy':'1405','reason':'عملکرد خوب'}}
+        self.assertEqual(self.request('/api/c1/compensation',body)[0],401)
+        self.assertEqual(self.request('/api/c1/compensation',body,'test_sales')[0],403)
+        self.assertEqual(self.request('/api/c1/compensation',body,'test_admin')[0],200)
+        self.assertEqual(self.request('/api/c1/compensation',body,'test_admin')[0],200)
+        self.assertEqual(self.request('/api/state?tenant='+self.tenant,self.full)[0],200)
+        stored=server._tenant_full(self.tenant)['people'][0]
+        self.assertEqual(stored['comp'],'fixed');self.assertEqual(len(stored['approvedBonuses']),1)
+        self.assertEqual(stored['approvedBonuses'][0]['amount'],500)
+
+    def test_google_routes_precede_static_mount_and_require_auth(self):
+        self.assertEqual(self.request('/api/ai/google/settings?tenant='+self.tenant)[0],401)
+        self.assertEqual(self.request('/api/ai/google/settings?tenant='+self.tenant,user='test_sales')[0],403)
+        status,data=self.request('/api/ai/google/settings?tenant='+self.tenant,user='test_admin')
+        self.assertEqual(status,200);self.assertNotIn('key',data)
+        self.assertEqual(self.request('/api/ai/google/test',{'tenant':self.tenant},'test_admin')[0],422)
+
     def tearDown(self):
         server.ensure_ui_layout_table()
         server.q('DELETE FROM ui_layout WHERE tenant=%s',(self.tenant,))

@@ -4,6 +4,8 @@ import hashlib
 import re
 import shutil
 import zipfile
+import tarfile
+import io
 
 root = Path(__file__).resolve().parents[1]
 deploy = root / 'deployment'
@@ -13,7 +15,7 @@ version = re.search(r'APP_VERSION\s*=\s*"([0-9.]+)"', (deploy / 'legacy.html').r
 # This is the generated deployment output, not a source or customer-data directory.
 shutil.rmtree(deploy / 'web')
 shutil.copytree(dist, deploy / 'web')
-files = [p for p in deploy.rglob('*') if p.is_file() and '__pycache__' not in p.parts and 'tests' not in p.relative_to(deploy).parts and not p.name.startswith('.')]
+files = [p for p in deploy.rglob('*') if p.is_file() and '__pycache__' not in p.parts and 'tests' not in p.relative_to(deploy).parts and not any(part.startswith('.') for part in p.relative_to(deploy).parts)]
 manifest = '\n'.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.relative_to(deploy).as_posix() for p in sorted(files)) + '\n'
 output = root / 'releases' / f'aromin-deploy-{version}.zip'
 output.parent.mkdir(exist_ok=True)
@@ -28,3 +30,18 @@ with zipfile.ZipFile(output) as z:
 output.with_suffix('.zip.sha256').write_text(hashlib.sha256(output.read_bytes()).hexdigest() + '  ' + output.name + '\n')
 print(str(output))
 print(f'{len(files)} files; {output.stat().st_size} bytes; ZIP CRC and SHA-256 entries verified')
+
+# Preserve the deployment format used by WinSCP/SSH installations.
+archive = output.with_suffix('.tgz')
+with zipfile.ZipFile(output) as z, tarfile.open(archive, 'w:gz') as t:
+    for name in z.namelist():
+        data = z.read(name)
+        info = tarfile.TarInfo(name)
+        info.size = len(data)
+        info.mode = 0o755 if name.endswith('.sh') else 0o644
+        t.addfile(info, io.BytesIO(data))
+with tarfile.open(archive, 'r:gz') as t, zipfile.ZipFile(output) as z:
+    for name in z.namelist():
+        assert t.extractfile(name).read() == z.read(name)
+print(str(archive))
+print('MD5: ' + hashlib.md5(archive.read_bytes()).hexdigest())

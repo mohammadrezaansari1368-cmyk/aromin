@@ -17,6 +17,7 @@ import ThemeSwitcher from '@/components/ThemeSwitcher'
 import { bindHost } from '@/lib/agent'
 import { listenTaskImports } from '@/lib/performance'
 import { setTileUser } from '@/components/ui/sortable'
+import GoogleSettings from '@/components/agent/GoogleSettings'
 import { KbConnectionCard } from '@/components/KnowledgeTile'
 import { flushLedger } from '@/lib/ledgerStore'
 
@@ -66,7 +67,7 @@ const TABS: Tab[] = [
 	{ id: 'p-report', label: 'گزارش و بک‌آپ', sub: 'Reports', icon: I('M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z|M14 2v6h6|M9 15h6'), view: (s, go) => <Suspense fallback={null}>{(isAdmin(s.role) || s.role === 'finance') && <LeadsCard session={s} />}<ReportsPerf session={s} go={go} initial={takePerfView(['summary', 'lawyer'] as const, 'summary')} /></Suspense>, panel: 'p-report' },
 	{ id: 'p-calc', label: 'ماشین‌حساب', sub: 'Calculator', icon: I('M5 2h14a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z|M8 6h8|M8 11h2M14 11h2M8 15h2M14 15h2M8 19h2M14 19h2'), panel: 'p-calc' },
 	{ id: 'p-hire', label: 'استخدام', sub: 'Hiring', icon: I('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2|M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M19 8v6|M22 11h-6'), panel: 'p-hire' },
-	{ id: 'p-set', label: 'تنظیمات', sub: 'Settings', icon: I('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'), view: (s) => <><Suspense fallback={null}><WidgetInstallCard session={s} />{isAdmin(s.role) && <SalesAgentCard session={s} />}</Suspense><KbConnectionCard session={s} /><Suspense fallback={null}><PerfSettingsCard session={s} /></Suspense></>, panel: 'p-set' },
+	{ id: 'p-set', label: 'تنظیمات', sub: 'Settings', icon: I('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'), view: (s) => <><Suspense fallback={null}><WidgetInstallCard session={s} />{isAdmin(s.role) && <SalesAgentCard session={s} />}</Suspense><GoogleSettings session={s} /><KbConnectionCard session={s} /><Suspense fallback={null}><PerfSettingsCard session={s} /></Suspense></>, panel: 'p-set' },
 ]
 
 export default function AppShell({ session, onLogout }: { session: Session; onLogout: () => void }) {

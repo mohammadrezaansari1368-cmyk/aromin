@@ -1,0 +1,6 @@
+# Local server-only assistant credentials.
+deployment/.assistant-secrets/
+# Release archives are added explicitly on delivery branches.
+releases/*.zip
+releases/*.sha256
+releases/*.tgz

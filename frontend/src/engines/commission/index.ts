@@ -120,11 +120,15 @@ export const label = (l: { v: string; t: string }[], v: unknown) => l.find((x) =
 /* ---------- مراحل و وزن ---------- */
 export const roleOf = (v: unknown) => CLOSE.find((c) => c.v === v) ?? CLOSE[0]
 /** مراحلِ یک معامله: از d.stages، وگرنه از نقشِ قدیمیِ d.close؛ لید/پس‌ازفروش/مالی اگر به شخصِ دیگری رفته باشد حذف می‌شود */
+export function financeOf(d: Deal): string {
+ const approval = d.finApproval as { by?: string } | undefined
+ return String(d.finBy || approval?.by || '').trim()
+}
 export function stagesOf(d: Deal): StageKey[] {
 	let base: StageKey[] = Array.isArray(d.stages) ? d.stages.slice() : roleOf(d.close || 'all').stages.slice()
 	if (d.leadGen) base = base.filter((s) => s !== 'lead')
 	if (d.supportGen && d.supportSla) base = base.filter((s) => s !== 'post')
-	if (d.finBy) base = base.filter((s) => s !== 'fin')
+	if (financeOf(d)) base = base.filter((s) => s !== 'fin')
 	return base
 }
 /** وزنِ معامله = جمعِ وزنِ مراحلِ تیک‌خورده؛ مشارکتِ مدیر = نصفِ اعتبارِ بستن */
@@ -199,7 +203,7 @@ export type Period = ReturnType<typeof period>
  * محاسبهٔ دوره — همان period()ِ اپِ کامل. GM = 'all' | 0..11 (فیلترِ سراسریِ ماه، فقط روی شمارشِ قیف و پولِ ماه‌ها).
  * W: وزن‌ها (پیش‌فرض S.weights) یا 'full'.
  */
-export function period(inv: Deal[], S: CommS, opts: { GM?: 'all' | number; W?: Weights | 'full' } = {}) {
+export function period(inv: Deal[], S: CommS, opts: { GM?: 'all' | number; W?: Weights | 'full'; comp?: string; approvedBonus?: number } = {}) {
 	const W = opts.W || S.weights || DEFAULT_WEIGHTS
 	const GM = opts.GM ?? 'all'
 	const inGM = (d: Deal) => GM === 'all' || (d.month == null || d.month === '' ? 3 : +d.month) === +GM
@@ -229,7 +233,7 @@ export function period(inv: Deal[], S: CommS, opts: { GM?: 'all' | number; W?: W
 		byClose: {} as Record<string, { v: string; t: string; n: number; gross: number; basis: number; max: number }>,
 		leadBonus: {} as Record<string, { id: string; n: number; base: number; basis: number }>,
 		supportBonus: {} as Record<string, { id: string; n: number; base: number; basis: number }>,
-		financeBonus: {} as Record<string, { id: string; n: number; base: number; basis: number }>,
+		financeBonus: {} as Record<string, { id: string; n: number; base: number; basis: number; cash: number; check: number; pending: number }>,
 		funnel, activeMonths: [] as any[], nMonths: 0, payout: 0, baseTotal: 0, total: 0, eff: 0, indRatio: 0, repRatio: 0, holdRatio: 0, offPayout: 0, unoPayout: 0,
 	}
 	const months: any[] = []
@@ -275,11 +279,22 @@ export function period(inv: Deal[], S: CommS, opts: { GM?: 'all' | number; W?: W
 	}
 	for (const d of inv) {
 		const k = d.month == null || d.month === '' ? 3 : +d.month
-		if (!months[k] || !months[k].active) continue
+		if (!inGM(d) || !months[k] || !months[k].active) continue
 		if (funnelOf(d) !== 'won') continue
 		const a = num(d.amount), ca = commAmount(d, S), w = wDeal(d, W) / 100
 		const full = isFullDeal(d), b = full ? T.byClose.all : T.byClose.partial
 		b.n++; b.gross += a; if (a > b.max) b.max = a
+		// Financial attribution is independent of the salesperson's compensation and settlement.
+		const financialOwner = financeOf(d)
+		if (financialOwner) {
+			const cfg = cfgOf(S, k).cfg, elig = months[k].eligible + (d.settle === 'hold' ? months[k].hold : 0)
+			const rate = elig > cfg.threshold * 1e6 ? (cfg.tiers.find(t => elig <= t.cap * 1e6) || cfg.tiers.at(-1))?.rate || 0 : 0
+			const basis = ca * ((wts.fin || 0) / 100), credit = basis * rate / 100
+			const f = T.financeBonus[financialOwner] ||= { id: financialOwner, n: 0, base: 0, basis: 0, cash: 0, check: 0, pending: 0 }
+			f.n++; f.basis += basis
+			if (d.settle === 'hold') f.pending += credit
+			else { f.base += credit; if (d.settle === 'check') f.check += credit; else f.cash += credit }
+		}
 		if (d.settle === 'hold') continue
 		b.basis += ca * w
 		if (full) T.indep += ca * w
@@ -304,7 +319,6 @@ export function period(inv: Deal[], S: CommS, opts: { GM?: 'all' | number; W?: W
 		})()
 		if (d.leadGen) bonus(T.leadBonus, d.leadGen, ca * ((wts.lead || 0) / 100), mRate)
 		if (d.supportGen && d.supportSla) bonus(T.supportBonus, d.supportGen, ca * ((wts.post || 0) / 100), mRate)
-		if (d.finBy) bonus(T.financeBonus, d.finBy, ca * ((wts.fin || 0) / 100), mRate)
 	}
 	T.months = months
 	T.activeMonths = months.filter((m) => m.active)
@@ -318,6 +332,17 @@ export function period(inv: Deal[], S: CommS, opts: { GM?: 'all' | number; W?: W
 	T.holdRatio = T.hold + T.eligible > 0 ? (T.hold / (T.hold + T.eligible)) * 100 : 0
 	T.offPayout = T.off.commission + T.off.mile
 	T.unoPayout = T.uno.commission + T.uno.mile
+	// Apply the recipient's salary model only AFTER calculating delegated stage credits.
+	if (opts.comp === 'fixed') {
+		for (const key of ['commission', 'mile', 'payout', 'payNow', 'payCheck', 'payPend', 'offPayout', 'unoPayout'] as const) T[key] = 0
+		for (const ch of [T.off, T.uno]) for (const key of ['commission', 'mile', 'payout', 'payNow', 'payCheck', 'payPend'] as const) ch[key] = 0
+		for (const m of T.months) { m.commission = m.payout = m.mile = m.eff = 0; m.total = m.active ? m.cfg.base : 0; for (const ch of [m.offc, m.unoc]) for (const key of ['commission', 'mile', 'payout', 'cashCom', 'checkCom', 'pendCom', 'pendMile', 'payNow', 'payCheck', 'payPend']) ch[key] = 0 }
+		T.eff = 0
+	} else if (opts.comp === 'commission') {
+		T.baseTotal = 0
+		for (const m of T.months) m.total = m.active ? m.payout : 0
+	}
+	T.total = T.baseTotal + T.payout + Math.max(0, opts.approvedBonus || 0)
 	return T
 }
 
@@ -335,7 +360,7 @@ export function attIs(d: Deal, k: Att, dup: Set<string>) {
 	if (k === 'dup') return isInvoice(d) && dup.has(invoiceKey(d.no))
 	if (k === 'hold') return d.settle === 'hold'
 	if (k === 'check') return d.settle === 'check'
-	if (k === 'fin') return funnelOf(d) === 'won' && !d.finBy
+	if (k === 'fin') return funnelOf(d) === 'won' && !financeOf(d)
 	return false
 }
 export const attPrimary = (d: Deal, dup: Set<string>): Att | '' => (['dup', 'hold', 'check', 'fin'] as Att[]).find((k) => attIs(d, k, dup)) || ''

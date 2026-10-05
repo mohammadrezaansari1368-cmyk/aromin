@@ -142,7 +142,7 @@ export function planDealImport(rowsJson: Record<string, unknown>[], full: any, o
 		const lead = reg && reg !== rep ? reg : ''
 		cand.push({ row, k, rep, noRep, lead, d: {
 			id: 0, no: row.no, month: ds.m - 1, name: row.name, amount: String(v), close: lead ? 'nolead' : 'all', funnel: fk, settle: 'cash', kind: 'new', channel: 'official', leadGen: lead,
-			entry: cEntry ? String(r[cEntry] ?? '').trim() : '', src: cSrc ? String(r[cSrc] ?? '').trim() : '', lossReason: cFail ? String(r[cFail] ?? '').trim() : '', fy: TARGET_FY,
+			stageChangedAt: cDate ? String(r[cDate] ?? '').trim() : '', entry: cEntry ? String(r[cEntry] ?? '').trim() : '', src: cSrc ? String(r[cSrc] ?? '').trim() : '', lossReason: cFail ? String(r[cFail] ?? '').trim() : '', fy: TARGET_FY,
 		} })
 	})
 	cand.forEach((c) => (P.monthsInFile[c.d.month as number] = 1))

@@ -9,8 +9,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as RKE, type ReactNode } from 'react'
 import {
-	ATT, CHANNEL, DEFAULT_WEIGHTS, FUNNEL, KIND, MONTHS, SETTLE, STAGES, STAGE_KEYS, settlementChoices, attIs, attPrimary, commAmount, fa, faGroup, freshS, funLabel, funnelOf, label, mil,
-	monthOf, num, pct, period, rawDigits, roleCount, rowBasis, sep, stagesOf, wDeal, invoiceKey, isInvoice, isLocked, finStateOf, FIN_STATE_LABEL, type Att, type CommS, type Deal, type FinState, type StageKey,
+	ATT, CHANNEL, DEFAULT_WEIGHTS, FUNNEL, KIND, MONTHS, SETTLE, STAGES, STAGE_KEYS, settlementChoices, attIs, attPrimary, commAmount, financeOf, fa, faGroup, freshS, funLabel, funnelOf, label, mil,
+	monthOf, num, period, rawDigits, roleCount, rowBasis, sep, stagesOf, wDeal, invoiceKey, isInvoice, isLocked, finStateOf, FIN_STATE_LABEL, type Att, type CommS, type Deal, type FinState, type StageKey,
 } from '@/engines/commission/index.ts'
 import { classifyKinds, custNorm, ledgerOf } from '@/engines/customer/index.ts'
 import { cleanName } from '@/engines/deal-import/index.ts'
@@ -27,15 +27,29 @@ import BulkApprove from '@/components/ledger/BulkApprove'
 import { motion } from 'motion/react'
 import { RowOrderContext, RowGrip, useRowOrder } from '@/components/ui/use-row-order'
 import { orderRows } from '@/components/ui/row-order'
+import CompensationSettings from './CompensationSettings'
+import SalesTrend from './SalesTrend'
+import { dealDate, funnelDays, isStagnant } from '@/lib/ledger-analysis'
 import Funnel from '@/components/ui/funnel-chart'
 import { funnelReach } from '@/components/ui/funnel-geometry'
 
 /* ---------- انواع ---------- */
 const rowOrderKey = (r: Row) => String(r.p.id) + ':' + r.d.id
 interface Row { key: string; pi: number; p: any; d: Deal; S: CommS; ref: Ref }
-type ColK = 'name' | 'amount' | 'stage' | 'settle' | 'next' | 'owner' | 'leadGen' | 'role' | 'kind' | 'channel' | 'basis' | 'follow' | 'no' | 'month' | 'act'
+const StagePatchCtx = createContext<{ patch: (r: Row, p: Partial<Deal>) => void; canEdit: (r: Row) => boolean; openDocument: (r: Row) => void }>({ patch: () => {}, canEdit: () => false, openDocument: () => {} })
+function InlineStages({ row }: { row: Row }) {
+ const { patch, canEdit } = useContext(StagePatchCtx)
+ const d = row.d, stages = stagesOf(d), weights = row.S.weights || DEFAULT_WEIGHTS
+ return <div className="flex flex-wrap gap-x-2 gap-y-1" onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+  {STAGES.map(s => <label key={s.k} title={s.t} className="flex items-center gap-1 text-[10px]">
+   <input type="checkbox" aria-label={`${s.t} ${weights[s.k]}٪`} checked={stages.includes(s.k)} disabled={!canEdit(row) || !!otherOf(d, s.k, financeOf(d))} onChange={e => patch(row, { stages: ordStages(e.target.checked ? [...stages, s.k] : stages.filter(k => k !== s.k)), close: undefined })} />{s.short} {fa(weights[s.k])}٪
+  </label>)}
+  <label className="flex items-center gap-1 text-[10px]"><input type="checkbox" checked={!!d.mgrShare} disabled={!canEdit(row)} onChange={e => patch(row, { mgrShare: e.target.checked })} />مشارکت مدیر</label>
+ </div>
+}
+type ColK = 'name' | 'amount' | 'stage' | 'settle' | 'next' | 'owner' | 'leadGen' | 'date' | 'change' | 'kind' | 'channel' | 'basis' | 'follow' | 'no' | 'month' | 'act'
 interface Col { k: ColK; t: string; w: number; edit?: 'text' | 'money' | 'select' | 'stage'; sort?: boolean; tier: 1 | 2 | 3 }
-interface Filters { no: string; q: string; funnel: string; settle: string; kind: string; channel: string; leadGen: string; fin: string; att: Att | 'kindfix' | 'follow' | ''; sort: string; dir: 1 | -1 }
+interface Filters { no: string; q: string; funnel: string; settle: string; kind: string; channel: string; leadGen: string; fin: string; att: Att | 'kindfix' | 'follow' | 'stagnant' | ''; sort: string; dir: 1 | -1 }
 const NOF: Filters = { no: '', q: '', funnel: '', settle: '', kind: '', channel: '', leadGen: '', fin: '', att: '', sort: '', dir: 1 }
 
 const ALL = '__all__'
@@ -48,7 +62,8 @@ const COLS: Col[] = [
 	{ k: 'next', t: 'اقدام بعدی', w: 138, tier: 1 },
 	{ k: 'owner', t: 'کارشناس', w: 118, tier: 2 },
 	{ k: 'leadGen', t: 'لیدساز', w: 124, edit: 'select', tier: 2 },
-	{ k: 'role', t: 'نقش در معامله', w: 120, edit: 'stage', tier: 2 },
+	{ k: 'date', t: 'تاریخ', w: 122, edit: 'text', sort: true, tier: 1 },
+	{ k: 'change', t: 'تغییر مرحله', w: 135, edit: 'select', tier: 1 },
 	{ k: 'kind', t: 'نوع خرید', w: 118, edit: 'select', tier: 2 },
 	{ k: 'channel', t: 'حساب', w: 92, edit: 'select', tier: 2 },
 	{ k: 'basis', t: 'مبنای پورسانت', w: 138, sort: true, tier: 2 },
@@ -64,7 +79,7 @@ const BADGE = 'inline-flex max-w-full items-center gap-1 truncate rounded-full p
 const norm = (v: unknown) => custNorm(v)
 const hayCache = new WeakMap<Deal, { s: string; n: string }>()
 function hay(d: Deal, owner: string) {
-	const src = [d.no, d.name, d.leadGen, d.src, d.finBy, owner].join(' ')
+	const src = [d.no, d.name, d.leadGen, d.src, financeOf(d), owner].join(' ')
 	const c = hayCache.get(d)
 	if (c && c.s === src) return c.n
 	const n = String(src).replace(/[۰-۹]/g, (x) => String(x.charCodeAt(0) - 0x06f0)).replace(/[يیۍ]/g, 'ی').replace(/[كک]/g, 'ک').replace(/‌/g, ' ').toLowerCase()
@@ -210,17 +225,18 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 			if (f.kind && (d.kind || 'new') !== f.kind) return false
 			if (f.channel && (d.channel || 'official') !== f.channel) return false
 			if (f.leadGen && (d.leadGen || '') !== f.leadGen) return false
-			if (f.fin === 'yes' && !d.finBy) return false
-			if (f.fin === 'no' && d.finBy) return false
+			if (f.fin === 'yes' && !financeOf(d)) return false
+			if (f.fin === 'no' && financeOf(d)) return false
 			if (f.att === 'kindfix') { if (!kindFix(r)) return false }
 			else if (f.att === 'follow') { if (!followNeed(d)) return false }
+			else if (f.att === 'stagnant') { if (!isStagnant(d)) return false }
 			else if (f.att && !attIs(d, f.att, dup)) return false
 			if (q && hay(d, r.p.name).indexOf(q) < 0) return false
 			return true
 		})
 		if (f.sort) {
 			const g = (r: Row): number | string =>
-				f.sort === 'amount' ? num(r.d.amount) : f.sort === 'basis' ? rowBasis(r.d, r.S).basis : f.sort === 'month' ? monthOf(r.d) : f.sort === 'no' ? rawDigits(r.d.no).padStart(12, '0') + String(r.d.no || '') : norm(r.d.name)
+				f.sort === 'date' ? dealDate(r.d.entry) : f.sort === 'amount' ? num(r.d.amount) : f.sort === 'basis' ? rowBasis(r.d, r.S).basis : f.sort === 'month' ? monthOf(r.d) : f.sort === 'no' ? rawDigits(r.d.no).padStart(12, '0') + String(r.d.no || '') : norm(r.d.name)
 			out = out.map((r, i) => ({ r, v: g(r), i })).sort((a, b) => (a.v < b.v ? -1 : a.v > b.v ? 1 : a.i - b.i) * f.dir).map((x) => x.r)
 		}
 		return f.sort ? out : orderRows(out, rowOrder.order, rowOrderKey)
@@ -230,7 +246,17 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 	const T = useMemo(() => {
 		void ver
 		const list = people.map((p, pi) => ({ p, pi })).filter(({ pi }) => scope === ALL || String(pi) === scope)
-		const Ts = list.map(({ p }) => period(ledgerOf(p, full, viewFy), p.S && p.S.weights ? p.S : freshS(), { GM: gm === 'all' ? 'all' : +gm }))
+		const periods = people.map(p => period(ledgerOf(p, full, viewFy), p.S && p.S.weights ? p.S : freshS(), { GM: gm === 'all' ? 'all' : +gm, comp: p.comp }))
+		const Ts = list.map(({ p, pi }) => {
+			const t = periods[pi]
+			const bonus = (p.approvedBonuses || []).filter((b: any) => b.fy === viewFy && (gm === 'all' || b.month === +gm)).reduce((sum: number, b: any) => sum + num(b.amount), 0)
+			const credits = periods.map(source => source.financeBonus[p.name]).filter(Boolean)
+			const basis = credits.reduce((sum, c) => sum + c.basis, 0)
+			const cash = p.comp === 'fixed' ? 0 : credits.reduce((sum, c) => sum + c.cash, 0)
+			const check = p.comp === 'fixed' ? 0 : credits.reduce((sum, c) => sum + c.check, 0)
+			const pending = p.comp === 'fixed' ? 0 : credits.reduce((sum, c) => sum + c.pending, 0)
+			return { ...t, financeBasis: basis, approvedBonus: bonus, payout: t.payout + cash + check, total: t.total + cash + check + bonus, payNow: t.payNow + cash, payCheck: t.payCheck + check, payPend: t.payPend + pending }
+		})
 		const sum = (g: (t: (typeof Ts)[number]) => number) => Ts.reduce((s, t) => s + g(t), 0)
 		const byStage: Record<string, number> = {}
 		STAGES.forEach((s) => (byStage[s.k] = sum((t) => t.byStage[s.k].basis)))
@@ -239,7 +265,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 		const ws = list.map(({ p }) => JSON.stringify((p.S && p.S.weights) || DEFAULT_WEIGHTS))
 		const weights = ws.length && ws.every((w) => w === ws[0]) ? (JSON.parse(ws[0]) as CommS['weights']) : null
 		return {
-			gross: sum((t) => t.gross), eligible: sum((t) => t.eligible), payout: sum((t) => t.payout), total: sum((t) => t.total), base: sum((t) => t.baseTotal), hold: sum((t) => t.hold),
+			approvedBonus: sum(t => t.approvedBonus), financeBasis: sum(t => t.financeBasis), gross: sum((t) => t.gross), eligible: sum((t) => t.eligible), payout: sum((t) => t.payout), total: sum((t) => t.total), base: sum((t) => t.baseTotal), hold: sum((t) => t.hold),
 			payNow: sum((t) => t.payNow), payCheck: sum((t) => t.payCheck), payPend: sum((t) => t.payPend), off: sum((t) => t.offPayout), uno: sum((t) => t.unoPayout),
 			rep: sum((t) => t.rep), nInv: sum((t) => t.nInv), byStage, funnel, weights,
 		}
@@ -248,10 +274,11 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 	const attCounts = useMemo(() => {
 		const c: Record<string, { n: number; v: number }> = {}
 		for (const a of ATT) c[a.k] = { n: 0, v: 0 }
-		c.kindfix = { n: 0, v: 0 }; c.follow = { n: 0, v: 0 }
+		c.stagnant = { n: 0, v: 0 }; c.kindfix = { n: 0, v: 0 }; c.follow = { n: 0, v: 0 }
 		for (const r of monthRows) {
 			for (const a of ATT) if (attIs(r.d, a.k, dup)) { c[a.k].n++; c[a.k].v += num(r.d.amount) }
 			if (kindFix(r)) { c.kindfix.n++; c.kindfix.v += num(r.d.amount) }
+			if (isStagnant(r.d)) { c.stagnant.n++; c.stagnant.v += num(r.d.amount) }
 			if (followNeed(r.d)) { c.follow.n++; c.follow.v += num(r.d.amount) }
 		}
 		return c
@@ -266,6 +293,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 
 	const patch = useCallback((r: Row, p: Partial<Deal>, msg?: string) => {
 		if (!canEdit(r)) return
+		if ('funnel' in p && p.funnel !== funnelOf(r.d)) p = { ...p, stageChangedAt: todayJ() }
 		const prev: Partial<Deal> = {}
 		if (isLocked(r.d)) return
 		for (const k of Object.keys(p)) (prev as any)[k] = (r.d as any)[k]
@@ -348,7 +376,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 	const finNames = useMemo(() => {
 		const out: string[] = []
 		people.filter(isActivePerson).forEach((p) => { if (p.role === 'finance') { const n = String(p.name || '').trim(); if (n && !out.includes(n)) out.push(n) } })
-		people.forEach((p) => ledgerOf(p, full, LEDGER_FY).forEach((d: Deal) => { const n = String(d.finBy || '').trim(); if (n && !out.includes(n)) out.push(n) }))
+		people.forEach((p) => ledgerOf(p, full, LEDGER_FY).forEach((d: Deal) => { const n = financeOf(d).trim(); if (n && !out.includes(n)) out.push(n) }))
 		return out.filter(n => !people.some(p => p.name === n && !isActivePerson(p)))
 	}, [people, full])
 
@@ -366,17 +394,18 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 	const [colOrder, setColOrder] = useState<string[]>(() => arrangeOrder(ALLK, loadOrder('ledger.cols')))
 	useEffect(() => { let a = true; loadLayout(session, 'ledger.cols').then((o) => { if (a && o && o.length) { const n = arrangeOrder(ALLK, o); setColOrder(n); saveOrder('ledger.cols', n) } }); return () => { a = false } }, [session, ALLK])
 	const [colMsg, setColMsg] = useState('')
+	const columnSaving = useRef(false)
 	const moveCol = useCallback((k: string, target: string, after: boolean) => {
-		setColOrder((o) => {
-			if (k === target) return o
-			const n = o.filter((x) => x !== k)
-			n.splice(n.indexOf(target) + (after ? 1 : 0), 0, k)
-			saveOrder('ledger.cols', n); saveLayout(session, 'ledger.cols', n)
-			const vis = n.filter((x) => COLS.some((c) => c.k === x && (c.k !== 'owner' || scope === ALL) && (wide || c.tier === 1 || c.k === 'act')))
-			setColMsg(`ستونِ «${COLS.find((c) => c.k === k)?.t || 'اقدام‌ها'}» به جایگاهِ ${fa(vis.indexOf(k) + 1)} از ${fa(vis.length)} رفت`)
-			return n
-		})
-	}, [session, scope, wide])
+		if (k === target || columnSaving.current) return
+		const previous = colOrder, next = previous.filter(x => x !== k)
+		next.splice(next.indexOf(target) + (after ? 1 : 0), 0, k)
+		columnSaving.current = true
+		setColOrder(next)
+		saveLayout(session, 'ledger.cols', next).then(() => {
+			saveOrder('ledger.cols', next)
+			setColMsg('ترتیب ستون‌ها ذخیره شد')
+		}).catch(() => { setColOrder(previous); setColMsg('ذخیره ناموفق بود؛ ترتیب ستون‌ها بازگردانده شد') }).finally(() => { columnSaving.current = false })
+	}, [session, colOrder])
 	const cols = useMemo(() => colOrder.map((k) => COLS.find((c) => c.k === k)!).filter((c) => c && (c.k !== 'owner' || scope === ALL) && (wide || c.tier === 1 || c.k === 'act')), [colOrder, scope, wide])
 	const [cur, setCur] = useState<{ r: number; c: number }>({ r: 0, c: 0 })
 	const [edit, setEdit] = useState<{ key: string; col: ColK } | null>(null)
@@ -423,6 +452,8 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 		const d = r.d
 		if (col === 'name' && v !== (d.name || '')) patch(r, { name: v })
 		else if (col === 'amount') { const raw = rawDigits(v); if (raw !== rawDigits(d.amount)) patch(r, { amount: raw }) }
+		else if (col === 'date') { const date = parseJ(v); if (date) patch(r, { entry: date.j, month: +date.j.slice(5, 7) - 1 }); else setToast({ t: 'تاریخ شمسی معتبر وارد کنید', tone: 'err' }) }
+		else if (col === 'change' && v !== funnelOf(d)) patch(r, { funnel: v })
 		else if (col === 'month' && +v !== monthOf(d)) patch(r, { month: +v })
 		else if (col === 'settle' && v !== (d.settle || 'cash')) patch(r, { settle: v })
 		else if (col === 'kind' && v !== (d.kind || 'new')) patch(r, { kind: v })
@@ -496,22 +527,21 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 				</div>
 			)}
 
-			<RowOrderContext.Provider value={rowOrder}><span className="sr-only" aria-live="polite">{rowOrder.message}</span><NaCtx.Provider value={naOf}>
+			<RowOrderContext.Provider value={rowOrder}><span className="sr-only" aria-live="polite">{rowOrder.message}</span><StagePatchCtx.Provider value={{ patch, canEdit, openDocument: r => setStageFor(r.key) }}><NaCtx.Provider value={naOf}>
 			<Sortable id="ledger.tiles" className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4" itemClass={(c) => (((c.props as { className?: string }).className || '').match(/(md|xl):col-span-\d/g) || []).join(' ') + ' flex flex-col [&>*]:flex-1'}
 				server={layoutSrv} labelOf={(k) => TILE_LABEL[k.replace(/^\.\$/, '')] || k}>
 				<Tile key="c3" title="ترازنامه" code="C3">
 					<Fig k="فروشِ ناخالص" v={sep(T.gross)} />
 					<Fig k="مبنای پورسانت" v={sep(T.eligible)} />
-					<Fig k="پورسانت" v={sep(T.payout)} strong />
+					<Fig k="پورسانت" v={sep(T.payout)} strong /><Fig k="مبنای سهم مالی (همهٔ کارشناسان)" v={sep(T.financeBasis)} /><Fig k="پاداش تصویب‌شدهٔ مدیر" v={sep(T.approvedBonus)} />
 				</Tile>
 				<Tile key="c5" title="دستورِ پرداخت و معلق" code="C5·C6">
 					<p className="text-[26px] font-extrabold leading-none text-success tabular-nums">{sep(T.payNow)}</p>
 					<p className="mt-1 text-[11.5px] text-muted-foreground">قابلِ پرداختِ همین حالا (نقد)</p>
 					<Split parts={[{ k: 'نقد', v: T.payNow, c: 'bg-success' }, { k: 'چک (پس از وصول)', v: T.payCheck, c: 'bg-warning' }, { k: 'معلق', v: T.payPend, c: 'bg-error' }]} />
 				</Tile>
-				<Tile key="c4" title="پورسانتِ هر حساب" code="C4">
-					<Split parts={[{ k: 'رسمی', v: T.off, c: 'bg-secondary' }, { k: 'غیررسمی', v: T.uno, c: 'bg-primary' }]} big />
-					<p className="mt-2 text-[11.5px] leading-5 text-muted-foreground">سهمِ تکرارِ خرید از مبنا: {pct(T.eligible > 0 ? (T.rep / T.eligible) * 100 : 0)}</p>
+				<Tile key="c4" title="فروش روزانهٔ ماه جاری" code="C4" className="md:col-span-2">
+					<SalesTrend deals={allRows.map(r => r.d)} />
 				</Tile>
 				<Tile key="c2" title="قیف" code="C2">
 					<Funnel data={funnelReach(T.funnel).map(s => ({ ...s, label: FUNNEL.find(f => f.k === s.key)!.t }))} />
@@ -520,7 +550,12 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 				<Tile key="w7" title="وزنِ هفت مرحلهٔ پورسانت" code="C1" className="md:col-span-2 xl:col-span-4">
 					<StageWeights weights={wt} basis={T.byStage} />
 				</Tile>
-			{/* C1 — میزِ کار (نوارِ کنترلِ سال/ماه/کارشناس در خودِ دفتر ادغام شده) — خودش هم کاشیِ قابلِ جابه‌جایی است */}
+			{single && isAdmin(session.role) && <Tile key="compensation" title="مدل حقوق و تصویب پاداش" code="C1"><CompensationSettings key={String(single.id) + ':' + single.comp} person={single} session={session} refresh={load} /></Tile>}
+<Tile key="recommendations" title="نقاط قوت و پیشنهاد بهبود فروش" code="C1" className="md:col-span-2 xl:col-span-4">
+ <p className="text-sm leading-7">نقطهٔ قوت: {fa(T.funnel.won.n)} معاملهٔ بسته‌شده. فرصت بهبود: {fa(attCounts.stagnant.n)} معامله با توقف بیش از ۴۰ روز و {fa(attCounts.follow.n)} پیگیری تکمیل‌نشده.</p>
+ <p className="text-xs text-muted-foreground">ابتدا معاملات متوقف و پیگیری‌های تکمیل‌نشده را بررسی کنید؛ تاریخ‌های نامشخص در محاسبهٔ توقف وارد نمی‌شوند.</p>
+ </Tile>
+{/* C1 — میزِ کار (نوارِ کنترلِ سال/ماه/کارشناس در خودِ دفتر ادغام شده) — خودش هم کاشیِ قابلِ جابه‌جایی است */}
 			<section key="c1" className={`${CARD} relative md:col-span-2 xl:col-span-4`} aria-label="C1 دفترِ فاکتورها">
 				<header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 pt-4">
 					<div className="flex min-w-0 items-baseline gap-3">
@@ -566,6 +601,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 						</span>
 					)}
 					{!ATT.some((a) => attCounts[a.k].n) && !attCounts.follow.n && !attCounts.kindfix.n && <span className="text-[12px] text-success">همه‌چیز مرتب است — موردی برای پیگیری نیست.</span>}
+					<button type="button" aria-pressed={f.att === 'stagnant'} className={BTN_GHOST} onClick={() => setF(x => ({ ...x, att: x.att === 'stagnant' ? '' : 'stagnant' }))}>توقف بیش از ۴۰ روز ({fa(attCounts.stagnant.n)})</button>
 					<span className="mr-auto text-[12px] text-muted-foreground tabular-nums" aria-live="polite">{fa(rows.length)} ردیف{rows.length < allRows.length ? ` از ${fa(allRows.length)}` : ''}</span>
 					{single && viewFy === LEDGER_FY && <button type="button" className={`${BTN_PRIMARY} min-h-8`} onClick={addDeal}>+ فاکتور</button>}
 				</div>
@@ -588,7 +624,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 					</div>
 				)}
 				{stageRow && (
-					<StageEditor
+					<DocumentEditor
 						key={stageRow.key} row={stageRow} finNames={finNames} role={session.role} canEdit={canEdit(stageRow)} readOnlyYear={viewFy !== LEDGER_FY}
 						mine={canDup || stageRow.pi === selfIdx} ops={docOps(stageRow)}
 						onSave={(p) => { patch(stageRow, p); setStageFor(null); requestAnimationFrame(() => grid.current?.focus({ preventScroll: true })) }}
@@ -597,7 +633,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 				)}
 			</section>
 			</Sortable>
-			</NaCtx.Provider></RowOrderContext.Provider>
+			</NaCtx.Provider></StagePatchCtx.Provider></RowOrderContext.Provider>
 
 			{toast && (
 				<div role="status" className={`fixed bottom-5 left-1/2 z-50 flex max-w-[92vw] -translate-x-1/2 items-center gap-3 rounded-lg px-4 py-2.5 text-[13px] font-bold shadow-card ring-1 ring-inset ${toast.tone === 'err' ? 'bg-error text-primary-foreground ring-error' : 'bg-foreground text-background ring-foreground'}`}>
@@ -691,7 +727,7 @@ function StageBar({ d, S }: { d: Deal; S: CommS }) {
 		<span className="flex h-2.5 w-full gap-[2px]" aria-hidden>
 			{STAGES.map((s) => {
 				const mine = st.includes(s.k)
-				const other = (s.k === 'lead' && d.leadGen) || (s.k === 'post' && d.supportGen && d.supportSla) || (s.k === 'fin' && d.finBy)
+				const other = (s.k === 'lead' && d.leadGen) || (s.k === 'post' && d.supportGen && d.supportSla) || (s.k === 'fin' && financeOf(d))
 				const half = s.k === 'close' && mine && d.mgrShare
 				return <span key={s.k} className={`rounded-[2px] ${mine ? (half ? 'bg-gradient-to-l from-primary from-50% to-primary/25 to-50%' : 'bg-primary') : other ? 'bg-secondary/55' : 'bg-muted-foreground/15'}`} style={{ flexGrow: W[s.k] || 0.5, flexBasis: 0 }} />
 			})}
@@ -700,17 +736,12 @@ function StageBar({ d, S }: { d: Deal; S: CommS }) {
 }
 function stageTitle(d: Deal, S: CommS) {
 	const st = stagesOf(d), W = S.weights || DEFAULT_WEIGHTS
-	return STAGES.map((s) => `${st.includes(s.k) ? '✓' : (s.k === 'lead' && d.leadGen) ? '→ ' + d.leadGen : (s.k === 'fin' && d.finBy) ? '→ ' + d.finBy : (s.k === 'post' && d.supportGen && d.supportSla) ? '→ ' + d.supportGen : '✗'} ${s.t} (${fa(W[s.k])}٪)`).join('\n')
+	return STAGES.map((s) => `${st.includes(s.k) ? '✓' : (s.k === 'lead' && d.leadGen) ? '→ ' + d.leadGen : (s.k === 'fin' && financeOf(d)) ? '→ ' + financeOf(d) : (s.k === 'post' && d.supportGen && d.supportSla) ? '→ ' + d.supportGen : '✗'} ${s.t} (${fa(W[s.k])}٪)`).join('\n')
 }
-function roleShort(d: Deal) {
-	const st = stagesOf(d).join(',')
-	const exact = [{ k: 'lead,pre,funnel,follow,close,post,fin', t: 'چرخهٔ کامل' }, { k: 'pre,funnel,follow,close,post,fin', t: 'به‌جز لید' }, { k: 'pre,funnel,follow,close', t: 'میانه تا بستن' }, { k: 'follow,close', t: 'مشارکت در بستن' }, { k: 'close', t: 'بستن قرارداد' }, { k: 'lead', t: 'ایجاد لید' }, { k: 'lead,pre', t: 'لید و پیش‌فاکتور' }].find((x) => x.k === st)
-	return exact ? exact.t : 'ترکیبی'
-}
-
 function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col: ColK; dup: Set<string>; kindFix: (r: Row) => string; onNA: (r: Row, n: NA) => void; canEdit: boolean; onDel: (r: Row) => void }) {
 	const d = r.d
 	const naOfRow = useContext(NaCtx)
+	const { openDocument } = useContext(StagePatchCtx)
 	switch (col) {
 		case 'name': {
 			const st = finStateOf(d)
@@ -718,7 +749,7 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 				<span className="flex min-w-0 flex-col gap-0.5">
 					<span className={`truncate text-[13px] font-bold ${d.name ? 'text-foreground' : 'text-muted-foreground'}`} title={d.name}>{d.name || 'نام مشتری'}</span>
 					<span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
-						<span className="truncate">{MONTHS[monthOf(d)]}</span>
+						<span className="truncate">{r.p.comp === 'fixed' ? 'حقوق ثابت · بدون پورسانت' : MONTHS[monthOf(d)]}</span>
 						{st !== 'draft' && <StateBadge st={st} />}
 					</span>
 				</span>
@@ -737,8 +768,8 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 						<span className={`text-[12.5px] font-extrabold tabular-nums ${won ? 'text-primary-ink' : 'text-muted-foreground'}`}>{won ? fa(Math.round(wDeal(d, r.S.weights || DEFAULT_WEIGHTS))) + '٪' : 'بدون پورسانت'}</span>
 						<span className="mr-auto shrink-0 text-[11px] text-muted-foreground tabular-nums">نقش {fa(roleCount(d))}/{fa(STAGES.length)}{d.mgrShare ? ' · مدیر' : ''}</span>
 					</span>
-					<StageBar d={d} S={r.S} />
-					<span className={`flex min-w-0 items-center gap-1 truncate text-[11px] ${d.finBy ? 'text-success' : won ? 'text-warning' : 'text-muted-foreground'}`}>{d.finBy ? '✓ تأیید مالی: ' + d.finBy : won ? 'بدونِ تأیید مالی' : '—'}</span>
+					<StageBar d={d} S={r.S} /><InlineStages row={r} />
+					<button type="button" aria-label="سند مالی" onClick={e => { e.stopPropagation(); openDocument(r) }} className={`flex min-w-0 items-center gap-1 truncate text-[11px] ${financeOf(d) ? 'text-success' : won ? 'text-warning' : 'text-muted-foreground'}`}>{financeOf(d) ? '✓ تأیید مالی: ' + financeOf(d) : won ? 'بدونِ تأیید مالی' : '—'}</button>
 				</span>
 			)
 		}
@@ -753,7 +784,8 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 		}
 		case 'owner': return <span className="truncate text-[12.5px]">{r.p.name}</span>
 		case 'leadGen': return <span className="flex min-w-0 flex-col gap-0.5"><span className={`truncate text-[12.5px] ${d.leadGen ? 'font-bold' : 'text-muted-foreground'}`}>{d.leadGen || '— خودِ کارشناس'}</span>{d.leadGen && <span className="text-[11px] text-muted-foreground">سهمِ لید {fa((r.S.weights || DEFAULT_WEIGHTS).lead)}٪</span>}</span>
-		case 'role': return <span className="flex flex-col gap-0.5"><span className="truncate text-[12.5px] font-bold">{roleShort(d)}</span><span className="text-[11px] text-muted-foreground tabular-nums">{fa(roleCount(d))} از {fa(STAGES.length)} مرحله</span></span>
+		case 'date': return <span dir="ltr" className="tabular-nums">{dealDate(d.entry) || '—'}</span>
+		case 'change': return <span className="text-xs"><b>{funLabel(funnelOf(d))}</b><span dir="ltr" className="block">{dealDate(d.stageChangedAt) || '—'}</span>{isStagnant(d) && <span className="text-warning">توقف {fa(funnelDays(d))} روز</span>}</span>
 		case 'kind': {
 			const k = (d.kind as string) || 'new', fix = kindFix(r)
 			return (
@@ -804,7 +836,7 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 /* ---------- ویرایشگرِ خانه: Enter ذخیره · Esc انصراف · Tab/Shift+Tab بعدی/قبلی ---------- */
 function CellEditor({ r, col, leadNames, onCommit, onCancel, onStep }: { r: Row; col: ColK; leadNames: string[]; onCommit: (v: string) => void; onCancel: () => void; onStep: (v: string, dir: 1 | -1) => void }) {
 	const d = r.d
-	const init = col === 'amount' ? faGroup(d.amount) : col === 'month' ? String(monthOf(d)) : col === 'settle' ? String(d.settle || 'cash') : col === 'kind' ? String(d.kind || 'new') : col === 'channel' ? String(d.channel || 'official') : String((d as any)[col] ?? '')
+	const init = col === 'date' ? dealDate(d.entry) : col === 'change' ? funnelOf(d) : col === 'amount' ? faGroup(d.amount) : col === 'month' ? String(monthOf(d)) : col === 'settle' ? String(d.settle || 'cash') : col === 'kind' ? String(d.kind || 'new') : col === 'channel' ? String(d.channel || 'official') : String((d as any)[col] ?? '')
 	const [v, setV] = useState(init)
 	const done = useRef(false)
 	const key = (e: React.KeyboardEvent) => {
@@ -816,13 +848,13 @@ function CellEditor({ r, col, leadNames, onCommit, onCancel, onStep }: { r: Row;
 	const blur = () => { if (!done.current) { done.current = true; onCommit(v) } }
 	const cls = `${INPUT} min-h-9 h-9 px-2 text-[13px]`
 	const ref = useCallback((el: HTMLInputElement | HTMLSelectElement | null) => { if (el) { el.focus({ preventScroll: true }); if (el instanceof HTMLInputElement) el.select() } }, [])
-	if (col === 'month' || col === 'settle' || col === 'kind' || col === 'channel' || col === 'leadGen') {
-		const opts = col === 'month' ? MONTHS.map((m, i) => ({ v: String(i), t: m })) : col === 'settle' ? settlementChoices(String(d.settle || 'cash')) : col === 'kind' ? KIND : col === 'channel' ? CHANNEL : [{ v: '', t: '— خودِ کارشناس' }, ...leadNames.map((n) => ({ v: n, t: n })), ...(d.leadGen && !leadNames.includes(d.leadGen) ? [{ v: d.leadGen, t: d.leadGen }] : [])]
+	if (col === 'change' || col === 'month' || col === 'settle' || col === 'kind' || col === 'channel' || col === 'leadGen') {
+		const opts = col === 'change' ? FUNNEL.map(f => ({ v: f.k, t: f.t })) : col === 'month' ? MONTHS.map((m, i) => ({ v: String(i), t: m })) : col === 'settle' ? settlementChoices(String(d.settle || 'cash')) : col === 'kind' ? KIND : col === 'channel' ? CHANNEL : [{ v: '', t: '— خودِ کارشناس' }, ...leadNames.map((n) => ({ v: n, t: n })), ...(d.leadGen && !leadNames.includes(d.leadGen) ? [{ v: d.leadGen, t: d.leadGen }] : [])]
 		// انتخاب با ماوس = ذخیرهٔ فوری (کمترین کلیک)؛ با کیبورد، Enter ذخیره می‌کند
 		return <select ref={ref} value={v} className={cls} aria-label={COLS.find((c) => c.k === col)?.t} onChange={(e) => setV(e.target.value)} onKeyDown={key} onBlur={blur} onClick={(e) => e.stopPropagation()}>{opts.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}</select>
 	}
 	return (
-		<input ref={ref} value={v} dir={col === 'amount' || col === 'no' ? 'ltr' : undefined} inputMode={col === 'amount' ? 'numeric' : undefined} aria-label={COLS.find((c) => c.k === col)?.t} className={`${cls} ${col === 'amount' ? 'text-left tabular-nums' : ''}`}
+		<input ref={ref} value={v} dir={col === 'date' || col === 'amount' || col === 'no' ? 'ltr' : undefined} inputMode={col === 'amount' ? 'numeric' : undefined} aria-label={COLS.find((c) => c.k === col)?.t} className={`${cls} ${col === 'amount' ? 'text-left tabular-nums' : ''}`}
 			onChange={(e) => setV(col === 'amount' ? faGroup(e.target.value) : e.target.value)} onKeyDown={key} onBlur={blur} onClick={(e) => e.stopPropagation()} />
 	)
 }
@@ -851,8 +883,9 @@ function Grid(P: GridProps) {
 			setDragCol(cur)
 		}
 		const mv = (ev: PointerEvent) => pick(ev.clientX, ev.clientY)
-		const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); if (cur.over !== k) P.moveCol(k, cur.over, cur.after); setDragCol(null) }
-		window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up)
+		const up = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel); if (cur.over !== k) P.moveCol(k, cur.over, cur.after); setDragCol(null) }
+		const cancel = () => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', cancel); setDragCol(null) }
+		window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', cancel)
 	}
 	const colKey = (i: number) => (e: React.KeyboardEvent) => {
 		const d = e.key === 'ArrowLeft' ? 1 : e.key === 'ArrowRight' ? -1 : 0 // RTL
@@ -861,7 +894,7 @@ function Grid(P: GridProps) {
 		const t = cols[i + d]
 		if (t) { P.moveCol(cols[i].k, t.k, d > 0); requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-colgrip="${cols[i].k}"]`)?.focus()) }
 	}
-	const rh = dens === 'compact' ? 50 : 70, hh = 44
+	const rh = dens === 'compact' ? 112 : 128, hh = 44
 	// فقط وقتی پنجرهٔ ردیف‌های دیده‌شده عوض شود دوباره رندر می‌شود (نه در هر فریمِ اسکرول)
 	const [first, setFirst] = useState(0)
 	const [vh, setVh] = useState(640)
@@ -932,7 +965,7 @@ const GridRow = memo(function GridRow({ r, ri, y, h, tpl, cols, curC, editCol, d
 }) {
 	const att = attPrimary(r.d, dup)
 	const sel = curC >= 0
-	const rowBg = editCol || staging ? 'bg-primary/[0.07]' : sel ? 'bg-primary/[0.04]' : ''
+	const rowBg = isStagnant(r.d) ? 'bg-warning/10' : editCol || staging ? 'bg-primary/[0.07]' : sel ? 'bg-primary/[0.04]' : ''
 	return (
 		<div data-order-row={rowOrderKey(r)} role="row" aria-rowindex={ri + 2} aria-selected={sel} className={`group/row absolute inset-x-0 top-0 grid border-b border-border/70 [contain:layout_paint] ${rowBg} hover:bg-muted/50`} style={{ transform: `translateY(${y}px)`, height: h, gridTemplateColumns: tpl }}>
 			{cols.map((c, ci) => {
@@ -964,97 +997,12 @@ const GridRow = memo(function GridRow({ r, ri, y, h, tpl, cols, curC, editCol, d
 const rowSel = (sel: boolean, edit: ColK | null, staging: boolean) => (edit || staging ? { backgroundImage: 'linear-gradient(hsl(var(--primary) / .07), hsl(var(--primary) / .07))' } : sel ? { backgroundImage: 'linear-gradient(hsl(var(--primary) / .04), hsl(var(--primary) / .04))' } : {})
 
 /* ---------- نقش‌ها (الگوی Checkbox Todo List) + بستنِ مالی (الگوی Checkbox11) — پنلِ چسبیده به پایینِ جدول؛ Enter ذخیره، Esc انصراف ---------- */
-function StageEditor({ row, finNames, role, canEdit, readOnlyYear, mine, ops, onSave, onClose }: {
-	row: Row; finNames: string[]; role: string; canEdit: boolean; readOnlyYear: boolean; mine: boolean; ops: DocOps; onSave: (p: Partial<Deal>) => void; onClose: () => void
-}) {
-	const d = row.d, W = row.S.weights || DEFAULT_WEIGHTS
-	const locked = isLocked(d)
-	const [funnel, setFunnel] = useState<string>(funnelOf(d))
-	const [st, setSt] = useState<StageKey[]>(stagesOf(d))
-	const [mgr, setMgr] = useState(!!d.mgrShare)
-	const [finBy, setFinBy] = useState(String(d.finBy || ''))
-	const finLocked = !!d.finBy && role === 'finance'
-	const draft: Deal = { ...d, funnel, stages: st, mgrShare: mgr, finBy: finBy || undefined }
-	const w = wDeal(draft, W)
-	const b = rowBasis(draft, row.S)
-	const done = STAGES.filter((s) => st.includes(s.k) && !otherOf(d, s.k, finBy)).length
-	const box = useRef<HTMLDivElement>(null)
-	useEffect(() => { box.current?.querySelector<HTMLElement>('select:not(:disabled),input:not(:disabled),button')?.focus({ preventScroll: true }); box.current?.scrollIntoView({ block: 'nearest' }) }, [])
-	const save = () => {
-		const p: Partial<Deal> = {}
-		if (funnel !== funnelOf(d)) p.funnel = funnel
-		if (ordStages(st).join() !== ordStages(stagesOf(d)).join() || d.close) { p.stages = ordStages(st); p.close = undefined }
-		if (mgr !== !!d.mgrShare) p.mgrShare = mgr
-		if (finBy !== String(d.finBy || '')) p.finBy = finBy
-		if (Object.keys(p).length) onSave(p); else onClose()
-	}
-	const key = (e: React.KeyboardEvent) => {
-		if (e.key === 'Escape') { e.preventDefault(); onClose() }
-		else if (e.key === 'Enter' && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLInputElement && e.target.type !== 'checkbox')) { e.preventDefault(); if (canEdit) save() }
-	}
-	return (
-		<div ref={box} role="dialog" aria-modal="false" aria-label={`نقش‌ها و بستنِ مالیِ «${d.name || d.no || ''}»`} onKeyDown={key} className="sticky bottom-0 z-30 border-t border-border bg-card p-4 shadow-card sm:p-5">
-			<div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-				<b className="min-w-0 truncate text-[14px]">{d.name || 'بی‌نام'}</b>
-				<span className="text-[12px] text-muted-foreground tabular-nums">{d.no ? '#' + d.no : ''} · {faGroup(d.amount) || '۰'} تومان</span>
-				<span className="mr-auto text-[13px] font-extrabold text-primary-ink tabular-nums" aria-live="polite">{funnel === 'won' ? `وزن ${fa(Math.round(w))}٪ · مبنا ${sep(b.basis)}` : 'باز — بدون پورسانت'}</span>
-			</div>
-			<div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-				{/* نقش‌ها — هفت مرحله با وزن (چک‌لیست) */}
-				<section aria-label="نقش‌ها در این معامله" className="min-w-0 rounded-md border border-border p-4">
-					<div className="flex items-center justify-between gap-2">
-						<h4 className="text-[13.5px] font-bold text-foreground">نقش‌ها در این معامله</h4>
-						<span className="rounded-full bg-muted px-2.5 py-0.5 text-[12px] font-bold tabular-nums text-foreground">{fa(done)}/{fa(STAGES.length)}</span>
-					</div>
-					<div className="mt-3">
-						<div className="flex items-center justify-between text-[11.5px] text-muted-foreground"><span>سهمِ این کارشناس از وزن</span><span className="tabular-nums">{fa(Math.round(w))}٪</span></div>
-						<div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(w)} aria-label="وزنِ معامله">
-							<motion.div className="h-full rounded-full bg-primary" initial={false} animate={{ width: `${Math.min(100, w)}%` }} transition={{ duration: 0.25, ease: 'easeInOut' }} />
-						</div>
-					</div>
-					<ul className="mt-3 space-y-1.5">
-						{STAGES.map((s) => {
-							const other = otherOf(d, s.k, finBy)
-							const on = st.includes(s.k) && !other
-							const id = `stg-${d.id}-${s.k}`
-							const dis = !canEdit || !!other
-							return (
-								<li key={s.k} className={`flex min-h-11 items-center gap-3 rounded-md border px-3 py-2 transition-colors ${on ? 'border-primary/35 bg-primary/[0.06]' : 'border-border bg-card hover:bg-muted/60'} ${dis ? 'opacity-80' : ''}`}>
-									<input id={id} type="checkbox" className="size-4 shrink-0" checked={on} disabled={dis} onChange={(e) => setSt((x) => (e.target.checked ? ordStages([...x, s.k]) : x.filter((k) => k !== s.k)))} />
-									<label htmlFor={id} className={`flex min-w-0 flex-1 items-baseline justify-between gap-2 text-[13px] ${dis ? 'cursor-not-allowed' : 'cursor-pointer'} ${on ? 'font-bold text-foreground' : 'text-foreground'}`}>
-										<span className="min-w-0 break-words">{s.t}{other && <span className="block text-[11.5px] font-normal text-muted-foreground">سهمِ این مرحله با «{other}»</span>}</span>
-										<span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">{fa(W[s.k])}٪</span>
-									</label>
-								</li>
-							)
-						})}
-					</ul>
-					<label className="mt-3 inline-flex items-center gap-2 text-[12.5px]"><input type="checkbox" className="size-4" checked={mgr} disabled={!canEdit} onChange={(e) => setMgr(e.target.checked)} />مشارکتِ مدیر در بستن (نصفِ وزنِ بستن)</label>
-				</section>
-
-				<div className="flex min-w-0 flex-col gap-4">
-					<label className="flex flex-col gap-1.5 text-[12px] font-bold text-muted-foreground">مرحلهٔ قیف
-						<select className={`${INPUT} min-h-10`} value={funnel} disabled={!canEdit} onChange={(e) => setFunnel(e.target.value)}>{FUNNEL.map((s) => <option key={s.k} value={s.k}>{s.t}</option>)}</select>
-					</label>
-					<label className="flex flex-col gap-1.5 text-[12px] font-bold text-muted-foreground">تأیید مالی و صحتِ داده
-						<select className={`${INPUT} min-h-10`} value={finBy} disabled={!canEdit || finLocked} title={finLocked ? 'تأیید مالی ثبت شده — فقط مدیر تغییر می‌دهد' : undefined} onChange={(e) => setFinBy(e.target.value)}>
-							<option value="">— بدون تأیید مالی</option>
-							{finNames.map((n) => <option key={n} value={n}>{n}</option>)}
-							{d.finBy && !finNames.includes(d.finBy) && <option value={d.finBy}>{d.finBy}</option>}
-						</select>
-					</label>
-					<DocPanel d={d} role={role} mine={mine} readOnlyYear={readOnlyYear} ops={ops} basis={rowBasis(d, row.S).basis} />
-				</div>
-			</div>
-			<div className="mt-4 flex flex-wrap items-center gap-2">
-				{canEdit && <button type="button" className={BTN_PRIMARY} onClick={save}>ذخیره (Enter)</button>}
-				<button type="button" className={BTN_GHOST} onClick={onClose}>{canEdit ? 'انصراف (Esc)' : 'بستن (Esc)'}</button>
-				{!canEdit && <span className="text-[12px] text-muted-foreground">{locked ? `سند «${FIN_STATE_LABEL[finStateOf(d)]}» است و فقط‌خواندنی است.` : readOnlyYear ? 'دفترِ سال‌های دیگر فقط خواندنی است.' : ''}</span>}
-			</div>
-		</div>
-	)
+function DocumentEditor({ row, role, readOnlyYear, mine, ops, onClose }: { row: Row; finNames: string[]; role: string; canEdit: boolean; readOnlyYear: boolean; mine: boolean; ops: DocOps; onSave: (p: Partial<Deal>) => void; onClose: () => void }) {
+ return <section className="border-t border-border bg-card p-4" aria-label="تصویب سند">
+  <div className="flex justify-between"><b>{row.d.name || row.d.no}</b><button type="button" className={BTN_GHOST} onClick={onClose}>بستن</button></div>
+  <DocPanel fixed={row.p.comp === 'fixed'} d={row.d} role={role} readOnlyYear={readOnlyYear} mine={mine} ops={ops} basis={rowBasis(row.d, row.S).basis} />
+ </section>
 }
-/** سهمِ مرحله با شخصِ دیگر (لیدساز / پشتیبانِ در مهلت / کارشناسِ مالی) */
 function otherOf(d: Deal, k: StageKey, finBy: string) {
 	return k === 'lead' && d.leadGen ? String(d.leadGen) : k === 'post' && d.supportGen && d.supportSla ? String(d.supportGen) : k === 'fin' && finBy ? finBy : ''
 }
@@ -1064,7 +1012,7 @@ const ST_TONE: Record<FinState, string> = { draft: '', submitted: 'bg-warning/10
 function StateBadge({ st }: { st: FinState }) {
 	return <span className={`${BADGE} ${ST_TONE[st]}`}>{st !== 'submitted' && <LockIcon className="size-3" />}{FIN_STATE_LABEL[st]}</span>
 }
-const TILE_LABEL: Record<string, string> = { c3: 'ترازنامه', c5: 'دستورِ پرداخت و معلق', c4: 'پورسانتِ هر حساب', c2: 'قیف', w7: 'وزنِ هفت مرحله', c1: 'دفتر فاکتورها' }
+const TILE_LABEL: Record<string, string> = { c3: 'ترازنامه', c5: 'دستورِ پرداخت و معلق', c4: 'فروش ماه جاری', c2: 'قیف', w7: 'وزنِ هفت مرحله', c1: 'دفتر فاکتورها' }
 type DocOps = { submit: () => Promise<void>; withdraw: () => Promise<void>; approve: (v: ApprovalInput) => Promise<void>; close: () => Promise<void>; code: () => Promise<{ to?: string }>; reopen: (reason: string, code?: string) => Promise<void> }
 /** عددِ صحیحِ نامنفی (ارقامِ فارسی/لاتین و جداکنندهٔ هزارگان مجاز؛ هر نویسهٔ دیگری نامعتبر) */
 const amountOk = (v: string) => !/[^\d۰-۹٬,\s]/.test(v) && /^\d{1,15}$/.test(rawDigits(v))
@@ -1073,7 +1021,7 @@ const amountOk = (v: string) => !/[^\d۰-۹٬,\s]/.test(v) && /^\d{1,15}$/.test(
  * سندِ مالی: پیش‌نویس ← در انتظار تصویب ← تصویب‌شده ← بسته‌شده.
  * «تصویب سند» فقط کارشناسِ مالی (سرور هم می‌سنجد)؛ فرم به الگوی چک‌لیست: ۵ شرط، شمارهٔ شرط‌های کامل و نوارِ پیشرفت.
  */
-function DocPanel({ d, role, mine, readOnlyYear, ops, basis }: { d: Deal; role: string; mine: boolean; readOnlyYear: boolean; ops: DocOps; basis: number }) {
+function DocPanel({ d, role, mine, readOnlyYear, ops, basis, fixed }: { fixed: boolean; d: Deal; role: string; mine: boolean; readOnlyYear: boolean; ops: DocOps; basis: number }) {
 	const st = finStateOf(d)
 	const finance = role === 'finance', admin = isAdmin(role)
 	const [busy, setBusy] = useState(false)
@@ -1105,7 +1053,7 @@ function DocPanel({ d, role, mine, readOnlyYear, ops, basis }: { d: Deal; role: 
 			{st === 'submitted' && (mine || finance) && (
 				<button type="button" className={`${BTN_GHOST} self-start`} disabled={busy} onClick={() => run(ops.withdraw)}>برگرداندن به پیش‌نویس</button>
 			)}
-			{(finance || admin) && funnelOf(d) === 'won' && (st === 'draft' || st === 'submitted') && <ApproveForm basis={basis} busy={busy} onSubmit={(v) => run(() => ops.approve(v))} />}
+			{(finance || admin) && funnelOf(d) === 'won' && (st === 'draft' || st === 'submitted') && <ApproveForm fixed={fixed} basis={basis} busy={busy} onSubmit={(v) => run(() => ops.approve(v))} />}
 			{finance && st === 'approved' && (
 				<button type="button" className={`${BTN_GHOST} self-start`} disabled={busy} onClick={() => run(ops.close)}>بستن مالی</button>
 			)}
@@ -1115,14 +1063,16 @@ function DocPanel({ d, role, mine, readOnlyYear, ops, basis }: { d: Deal; role: 
 	)
 }
 
-function ApproveForm({ basis, busy, onSubmit }: { basis: number; busy: boolean; onSubmit: (v: ApprovalInput) => void }) {
-	const [cash, setCash] = useState('')
-	const [pending, setPending] = useState('')
+function ApproveForm({ basis, busy, onSubmit, fixed }: { fixed: boolean; basis: number; busy: boolean; onSubmit: (v: ApprovalInput) => void }) {
+	const [cash, setCash] = useState('0')
+	const [cashConfirmed, setCashConfirmed] = useState(false)
+	const [pending, setPending] = useState('0')
+	const [pendingConfirmed, setPendingConfirmed] = useState(false)
 	const [date, setDate] = useState(() => fa(todayJ()))
 	const [c1, setC1] = useState(false)
 	const [c2, setC2] = useState(false)
 	const [touched, setTouched] = useState(false)
-	const okCash = amountOk(cash), okPend = amountOk(pending), dj = parseJ(date)
+	const okCash = cashConfirmed && amountOk(cash), okPend = pendingConfirmed && amountOk(pending), dj = parseJ(date)
 	const items = [okCash, okPend, !!dj, c1, c2]
 	const done = items.filter(Boolean).length, total = items.length, pctDone = Math.round((done / total) * 100)
 	const ready = done === total
@@ -1140,7 +1090,7 @@ function ApproveForm({ basis, busy, onSubmit }: { basis: number; busy: boolean; 
 			<div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
 				<Tick on={ok} />
 				<label htmlFor={id} className="min-w-0 flex-1 text-[13px] font-bold text-foreground">{label}</label>
-				<input id={id} value={v} onChange={(x) => set(faGroup(x.target.value))} onBlur={() => setTouched(true)} placeholder="۰" dir="ltr" inputMode="numeric" autoComplete="off"
+				<input id={id} value={v} readOnly={fixed} onChange={(x) => set(faGroup(x.target.value))} onBlur={() => { setTouched(true); set(v) }} placeholder="۰" dir="ltr" inputMode="numeric" autoComplete="off"
 					aria-invalid={touched && !ok} aria-describedby={id + '-e'} className={`${INPUT} min-h-9 w-full min-w-0 flex-1 text-left tabular-nums sm:w-36 sm:flex-none`} />
 				<span className="w-10 shrink-0 text-[11px] text-muted-foreground">تومان</span>
 			</div>
@@ -1170,8 +1120,8 @@ function ApproveForm({ basis, busy, onSubmit }: { basis: number; busy: boolean; 
 			</div>
 			<p className="mt-2 text-[11.5px] text-muted-foreground">مبنای پورسانتِ این سند: <span className="tabular-nums">{sep(basis)}</span> تومان</p>
 			<ul className="mt-3 space-y-1.5">
-				{amountRow('ap-cash', 'مقدار پورسانت نقد', cash, setCash, okCash)}
-				{amountRow('ap-pend', 'مقدار پورسانت معلق', pending, setPending, okPend)}
+				{amountRow('ap-cash', 'مقدار پورسانت نقد', cash, v => { setCash(v); setCashConfirmed(true) }, okCash)}
+				{amountRow('ap-pend', 'مقدار پورسانت معلق', pending, v => { setPending(v); setPendingConfirmed(true) }, okPend)}
 				{row(!!dj, (
 					<>
 						<div className="flex flex-wrap items-center gap-3">
@@ -1181,7 +1131,7 @@ function ApproveForm({ basis, busy, onSubmit }: { basis: number; busy: boolean; 
 								aria-invalid={touched && !dj} aria-describedby="ap-date-h" className={`${INPUT} min-h-9 w-full min-w-0 flex-1 text-left tabular-nums sm:w-36 sm:flex-none`} />
 							<button type="button" onClick={() => setDate(fa(todayJ()))} className={`${BTN} min-h-9 w-10 shrink-0 px-0 text-[12px] text-primary-ink ring-1 ring-inset ring-border hover:bg-muted`}>امروز</button>
 						</div>
-						<p id="ap-date-h" role={touched && !dj ? 'alert' : undefined} className={`mt-1.5 pr-7 text-[11.5px] ${dj ? 'text-muted-foreground' : touched ? 'font-bold text-error' : 'text-muted-foreground'}`}>{dj ? dateLong : 'تاریخِ شمسیِ معتبر، مثلِ ۱۴۰۵/۰۷/۰۹'}</p>
+						<p id="ap-date-h" role={touched && !dj ? 'alert' : undefined} className={`mt-1.5 pr-7 text-[11.5px] ${dj ? 'text-muted-foreground' : touched ? 'font-bold text-error' : 'text-muted-foreground'}`}>{dj ? 'امروز: ' + new Intl.DateTimeFormat('fa-IR-u-ca-persian', { timeZone: 'Asia/Tehran', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date()) + ' · تاریخ انتخاب‌شده: ' + dateLong : 'تاریخِ شمسیِ معتبر، مثلِ ۱۴۰۵/۰۷/۰۹'}</p>
 					</>
 				))}
 				{confirmRow('ap-c1', 'با علم و آگاهی کامل صحت اطلاعات را تأیید می‌کنم', c1, setC1)}
@@ -1291,8 +1241,8 @@ function CardList({ rows, dup, kindFix, onEdit, onNA, edit, commit, cancel, lead
 							<div className="min-w-0 flex-1"><CellView r={r} col="name" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} /></div>
 							<CellView r={r} col="amount" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} />
 						</div>
-						<button type="button" disabled={!canEdit(r) && !isLocked(r.d) && funnelOf(r.d) !== 'won'} onClick={() => onEdit(r, 'stage')} className="mt-2 block w-full text-right"><CellView r={r} col="stage" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} /></button>
-						{field(r, 'settle', 'تسویه')}
+						<div className="mt-2 block w-full text-right"><CellView r={r} col="stage" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} /><button className={BTN_GHOST} onClick={() => onEdit(r, 'stage')}>تصویب سند</button></div>
+						{field(r, 'date', 'تاریخ')}{field(r, 'change', 'تغییر مرحله')}{field(r, 'settle', 'تسویه')}
 						{field(r, 'kind', 'نوع خرید')}
 						{scopeAll && <div className="flex min-h-9 items-center gap-2 border-t border-border/60 py-1.5 text-[12px]"><span className="w-[84px] shrink-0 text-[11.5px] text-muted-foreground">کارشناس</span>{r.p.name}</div>}
 						{field(r, 'leadGen', 'لیدساز')}
