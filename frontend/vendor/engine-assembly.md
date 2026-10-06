@@ -22,7 +22,11 @@ Intro/reset **001–018** is excluded from business-stage playback. Frame 018 al
 
 The local C4 invoice selector reads the existing LedgerPage `allRows` scope; completion comes from `stagesOf(deal)` in the commission engine — the same owner-adjusted stage source as the ledger checkboxes, including delegated-stage exclusions and legacy close-role fallback. No aggregate financial basis or funnel state is used as a completion proxy. Names and authoritative 5/10/20/15/35/10/5 weights reuse `STAGES` and `DEFAULT_WEIGHTS`; existing financial calculations and custom historical weights are not changed.
 
-For each completed prefix stage: play forward → activate permanent number → fade Persian name in (300ms) → hold 2000ms → fade out (300ms) → next stage. Image loading gates advancement. Failure pauses with retry. Tab hiding pauses playback. A new invoice or changed stage signature resets the playback component immediately; a complete engine from an old record cannot leak into an incomplete one. Reduced motion displays the allowed final still without autoplay. Pause/replay never writes data. Numbers 01–07 remain present even when names fade. The existing C4 daily sales chart remains in a disclosure, with no changes to other tiles or page layout.
+For each completed prefix stage: advance only through that stage's supplied frames → subtle anchor glow (150ms) → activate its English number → fade the Persian overlay name in (300ms) → hold 2000ms → fade out (300ms). Once the real completed prefix ends, hold the final valid image for a further 2000ms, fade out for 300ms, reset to frame 018 while invisible, wait for image load, fade in for 300ms and repeat. There is no reverse frame playback. At zero completion the image remains 018 without a loop. Reduced motion renders the valid final still, with no animated label, autoplay or loop.
+
+`ENGINE_STAGES` is the single resolved configuration for number, key, label, business weight, source frame start/end and percentage x/y anchor. Keys/names/weights reuse existing commission constants. Numbers are responsive HTML overlays over the engine, not a separate grid/progress bar. Each transient Persian name shares its number's anchor, uses an edge-aware alignment and wraps inside the scene. WebPs are unmodified. Overlay decoration is aria-hidden; the stable image alt and semantic completion status expose the real prefix/weight without announcing animation frames repeatedly.
+
+Image loading gates advancement. Failure pauses with retry. Tab hiding and the local pause control suspend the timer; resumption cannot advance past the valid prefix. A new invoice or changed stage signature remounts playback immediately. Controls never write business data or intercept scrolling/global input. The existing daily chart disclosure and every other tile remain untouched.
 
 ## Assets
 
@@ -37,6 +41,8 @@ Only 104 runtime WebPs (018–121) are in `public/assets/engine-assembly`. Each 
 | 85% | 01–05 | 070 | Body compacted, rear rotor remains detached. |
 | 100% | 01–07 | 121 | Complete compact engine and settled glow; seven active numbers. |
 
-Validation: exhaustive unit coverage of all 128 checkbox combinations; browser checks for the four states, a nonconsecutive completion set, forward-only playback, 2-second holds/fades, no data writes, persistent numbers, reduced motion and mobile overflow. Screenshots generated in the review workspace, not copied into production assets.
+Validation: exhaustive unit coverage of all 128 checkbox combinations across repeated loops; independent weight/range assertions; static reduced-motion endpoints; glow/activation/label/final-hold ordering. Browser checks cover two cycles each at 50%, 85%, 100% and a gapped completion set, zero completion, pause and tab visibility, reduced motion, zero API writes, and responsive overlay/label containment at desktop/tablet/mobile widths. Screenshots are review artifacts only, not production assets.
 
-Final checks: TypeScript and both Vite production builds passed; 76 unit tests passed (one optional private workbook test skipped); focused lint returned no warnings/errors; dedicated engine browser and existing ledger/approval/Google panel browser tests passed. No production deployment was performed.
+PR #4 remains on `feature/c4-engine-assembly`. Repository baseline/history cleanup is outside this C4 change. No merge or deployment.
+
+Finalization checks: TypeScript and both production builds passed; six focused tests passed (including all 128 stage combinations across repeated loops); dedicated C4 browser test and existing feature browser check passed; focused lint passed. SHA-256 verification confirmed all 104 production WebPs are byte-for-byte unchanged.
