@@ -1,0 +1,278 @@
+@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * سیستمِ تمِ آرومین — ۳ تم × روشن/تیره = ۶ حالت. پالت فقط از رنگ‌های برند:
+ *   آبی #004991 (Pantone P 104-16 U) · بنفش #910D6A (P 84-8 U) · طلایی #FCBF00 (P 10-8 U)
+ * تم = کدام رنگِ برند «اصلی» باشد: purple (پیش‌فرض) · blue · gold. حالت = light | dark.
+ * روی <html>: data-theme و data-mode (lib/theme.ts). مقادیر = سه‌تاییِ HSL تا Tailwind شفافیت بدهد.
+ * رنگِ غیرِبرند فقط برای معنا/دسترس‌پذیری: success/warning/error و نسخهٔ روشن‌ترِ برند در حالتِ تیره
+ * (بنفش و آبیِ اصلی روی زمینهٔ تیره کنتراستِ کافی ندارند). *-ink = رنگِ متنِ همان نقش روی کارت (AA).
+ */
+:root,
+:root[data-theme='purple'] {
+  --bg: 318 30% 97%;
+  --surface: 0 0% 100%;
+  --card: 0 0% 100%;
+  --text: 318 30% 12%;
+  --muted: 318 28% 95%;
+  --muted-foreground: 318 9% 42%;
+  --border: 318 22% 89%;
+  --primary: 317 84% 31%;
+  --primary-foreground: 0 0% 100%;
+  --primary-ink: 317 84% 31%;
+  --secondary: 210 100% 28%;
+  --secondary-foreground: 0 0% 100%;
+  --secondary-ink: 210 100% 28%;
+  --accent: 45 100% 49%;
+  --accent-foreground: 40 100% 9%;
+  --accent-ink: 40 100% 25%;
+  --hover: 317 84% 26%;
+  --active: 317 84% 21%;
+  --focus: 317 84% 31%;
+  --overlay: 318 40% 8%;
+  --shadow: 318 45% 18%;
+  --success: 142 70% 28%;
+  --warning: 38 100% 30%;
+  --error: 350 84% 40%;
+}
+:root[data-theme='purple'][data-mode='dark'] {
+  --bg: 318 22% 7%;
+  --surface: 318 20% 9%;
+  --card: 318 18% 11%;
+  --text: 318 20% 94%;
+  --muted: 318 15% 16%;
+  --muted-foreground: 318 10% 68%;
+  --border: 318 14% 21%;
+  --primary: 317 62% 70%;
+  --primary-foreground: 318 45% 9%;
+  --primary-ink: 317 62% 74%;
+  --secondary: 210 75% 66%;
+  --secondary-foreground: 210 60% 9%;
+  --secondary-ink: 210 75% 72%;
+  --accent: 45 100% 55%;
+  --accent-foreground: 40 100% 8%;
+  --accent-ink: 45 100% 62%;
+  --hover: 317 62% 76%;
+  --active: 317 55% 62%;
+  --focus: 317 70% 72%;
+  --overlay: 318 40% 3%;
+  --shadow: 0 0% 0%;
+  --success: 142 55% 55%;
+  --warning: 45 95% 60%;
+  --error: 350 85% 68%;
+}
+
+:root[data-theme='blue'] {
+  --bg: 212 35% 97%;
+  --surface: 0 0% 100%;
+  --card: 0 0% 100%;
+  --text: 214 45% 12%;
+  --muted: 212 32% 95%;
+  --muted-foreground: 212 12% 41%;
+  --border: 212 26% 89%;
+  --primary: 210 100% 28%;
+  --primary-foreground: 0 0% 100%;
+  --primary-ink: 210 100% 28%;
+  --secondary: 317 84% 31%;
+  --secondary-foreground: 0 0% 100%;
+  --secondary-ink: 317 84% 31%;
+  --accent: 45 100% 49%;
+  --accent-foreground: 40 100% 9%;
+  --accent-ink: 40 100% 25%;
+  --hover: 210 100% 23%;
+  --active: 210 100% 19%;
+  --focus: 210 100% 34%;
+  --overlay: 214 45% 8%;
+  --shadow: 214 50% 18%;
+  --success: 142 70% 28%;
+  --warning: 38 100% 30%;
+  --error: 350 84% 40%;
+}
+:root[data-theme='blue'][data-mode='dark'] {
+  --bg: 214 30% 7%;
+  --surface: 214 28% 9%;
+  --card: 214 25% 11%;
+  --text: 214 25% 94%;
+  --muted: 214 20% 16%;
+  --muted-foreground: 214 12% 68%;
+  --border: 214 18% 21%;
+  --primary: 210 80% 66%;
+  --primary-foreground: 214 60% 9%;
+  --primary-ink: 210 80% 72%;
+  --secondary: 317 62% 70%;
+  --secondary-foreground: 318 45% 9%;
+  --secondary-ink: 317 62% 74%;
+  --accent: 45 100% 55%;
+  --accent-foreground: 40 100% 8%;
+  --accent-ink: 45 100% 62%;
+  --hover: 210 80% 72%;
+  --active: 210 70% 58%;
+  --focus: 210 90% 70%;
+  --overlay: 214 45% 3%;
+  --shadow: 0 0% 0%;
+  --success: 142 55% 55%;
+  --warning: 45 95% 60%;
+  --error: 350 85% 68%;
+}
+
+:root[data-theme='gold'] {
+  --bg: 45 40% 96%;
+  --surface: 0 0% 100%;
+  --card: 0 0% 100%;
+  --text: 40 35% 11%;
+  --muted: 45 38% 93%;
+  --muted-foreground: 40 14% 37%;
+  --border: 45 30% 86%;
+  --primary: 45 100% 49%;
+  --primary-foreground: 40 100% 9%;
+  --primary-ink: 38 100% 27%;
+  --secondary: 210 100% 28%;
+  --secondary-foreground: 0 0% 100%;
+  --secondary-ink: 210 100% 28%;
+  --accent: 317 84% 31%;
+  --accent-foreground: 0 0% 100%;
+  --accent-ink: 317 84% 31%;
+  --hover: 45 100% 44%;
+  --active: 43 100% 40%;
+  --focus: 38 100% 36%;
+  --overlay: 40 35% 8%;
+  --shadow: 40 50% 20%;
+  --success: 142 70% 28%;
+  --warning: 30 100% 32%;
+  --error: 350 84% 40%;
+}
+:root[data-theme='gold'][data-mode='dark'] {
+  --bg: 40 20% 7%;
+  --surface: 40 18% 9%;
+  --card: 40 16% 11%;
+  --text: 45 25% 93%;
+  --muted: 40 14% 16%;
+  --muted-foreground: 40 10% 68%;
+  --border: 40 14% 21%;
+  --primary: 45 100% 52%;
+  --primary-foreground: 40 100% 8%;
+  --primary-ink: 45 100% 60%;
+  --secondary: 210 80% 66%;
+  --secondary-foreground: 214 60% 9%;
+  --secondary-ink: 210 80% 72%;
+  --accent: 317 62% 70%;
+  --accent-foreground: 318 45% 9%;
+  --accent-ink: 317 62% 74%;
+  --hover: 45 100% 60%;
+  --active: 43 100% 45%;
+  --focus: 45 100% 60%;
+  --overlay: 40 35% 3%;
+  --shadow: 0 0% 0%;
+  --success: 142 55% 55%;
+  --warning: 30 95% 62%;
+  --error: 350 85% 68%;
+}
+
+/* رنگ‌های ثابتِ هرمِ برند (طبقه‌های G) — مستقل از تم؛ فقط نسخهٔ متنی در حالتِ تیره روشن‌تر می‌شود */
+:root { --brand-blue: 210 100% 28%; --brand-purple: 317 84% 31%; --brand-gold: 45 100% 49%;
+  --brand-blue-ink: 210 100% 28%; --brand-purple-ink: 317 84% 31%; --brand-gold-ink: 40 100% 25%; }
+:root[data-mode='dark'] { --brand-blue-ink: 210 80% 72%; --brand-purple-ink: 317 62% 74%; --brand-gold-ink: 45 100% 60%; }
+
+/* نام‌های قدیمیِ shadcn → همان توکن‌ها (کدِ موجود بدونِ تغییر کار کند) */
+:root {
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card-foreground: var(--text);
+  --ring: var(--focus);
+  --radius: 1rem;
+  --gold: var(--warning);
+  --moss: var(--success);
+  --rose: var(--error);
+  color-scheme: light;
+}
+:root[data-mode='dark'] { color-scheme: dark; }
+
+::selection { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
+input[type='range'], input[type='checkbox'] { accent-color: hsl(var(--primary)); }
+:focus-visible { outline-color: hsl(var(--focus)); }
+
+* { border-color: hsl(var(--border)); }
+html, body { margin: 0; min-height: 100%; }
+body {
+  background: hsl(var(--bg));
+  color: hsl(var(--text));
+  font-family: 'Peyda', 'PeydaWeb', 'Vazirmatn', system-ui, sans-serif;
+  transition: background-color .2s ease, color .2s ease;
+}
+select option { background: hsl(var(--card)); color: hsl(var(--text)); }
+/* انتخاب‌گرهای فارسی (ماه، نوع خرید، تسویه، …): ریشهٔ بریدگی/هم‌پوشانی = فلشِ بومیِ مرورگر روی متن در RTL + ارتفاع/خط‌کشیِ ناهمسان.
+   فلش با currentColor کشیده می‌شود (بدونِ رنگِ ثابت، در هر ۶ تم)، جایش در سمتِ پایانِ خط (چپ در RTL) رزرو می‌شود و متنِ بلند با … کوتاه می‌شود. */
+select:not([multiple]):not([size]) {
+  -webkit-appearance: none; appearance: none;
+  box-sizing: border-box; min-width: 0; max-width: 100%;
+  line-height: 1.5; font-size: inherit; text-align: start; direction: inherit;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding-inline-end: 1.9rem !important;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+  background-position: left 0.7rem center, left calc(0.7rem + 5px) center;
+}
+[dir='ltr'] select:not([multiple]):not([size]) { background-position: right calc(0.7rem + 5px) center, right 0.7rem center; }
+select:not([multiple]):not([size]):disabled { opacity: .6; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) { body { transition: none; } }
+
+/* چاپ / PDF بخشِ «حضور و عملکرد»: فقط بخشِ علامت‌خورده (data-print) چاپ می‌شود */
+@media print {
+  body.printing * { visibility: hidden !important; }
+  body.printing [data-print], body.printing [data-print] * { visibility: visible !important; }
+  body.printing [data-print] { position: absolute; inset: 0 0 auto 0; width: 100%; margin: 0; }
+  body.printing [data-print] .no-print { display: none !important; }
+  body.printing [data-print] section { box-shadow: none !important; break-inside: auto; }
+  body.printing [data-print] .overflow-x-auto { overflow: visible !important; }
+  body.printing [data-print] td, body.printing [data-print] th { white-space: normal !important; font-size: 10px !important; padding: 4px 6px !important; }
+  body.printing { background: #fff !important; }
+  :root[data-mode='dark'] body.printing [data-print] * { color: #111 !important; background-color: transparent !important; border-color: #ccc !important; }
+  @page { size: A4 landscape; margin: 10mm; }
+}
+
+/* کاشی‌های نئونی: در حالتِ تیره لبهٔ درخشانِ رنگِ برند، در روشن فقط عمقِ ملایم */
+.neon-tile { border-radius: inherit; }
+:root[data-mode='dark'] .neon-tile { box-shadow: inset 0 0 0 1px hsl(var(--primary) / .38), inset 0 0 32px hsl(var(--primary) / .10), 0 0 22px -6px hsl(var(--primary) / .35); }
+
+/* گیج‌های آنالوگ (داشبورد): صفحه همیشه رنگِ عمیقِ برندِ همان تم است (مثلِ یک ابزارِ فیزیکی، در روشن و تیره یکسان)؛
+   عقربه و توپی دو رنگِ دیگرِ برند. فقط از --brand-* ساخته می‌شوند. */
+:root, :root[data-theme='purple'] { --gauge-dial: var(--brand-purple); --gauge-ink: 0 0% 100%; --gauge-needle: var(--brand-gold); --gauge-hub: var(--brand-blue); }
+:root[data-theme='blue'] { --gauge-dial: var(--brand-blue); --gauge-ink: 0 0% 100%; --gauge-needle: var(--brand-gold); --gauge-hub: var(--brand-purple); }
+:root[data-theme='gold'] { --gauge-dial: var(--brand-gold); --gauge-ink: 222 45% 12%; --gauge-needle: var(--brand-purple); --gauge-hub: var(--brand-blue); }
+
+/* Shared chart tokens: brand base colors are defined only here. */
+:root { --aromin-blue: #004991; --aromin-purple: #910D6A; --aromin-yellow: #FCBF00;
+ --chart-1: var(--aromin-purple); --chart-2: var(--aromin-blue); --chart-3: var(--aromin-yellow);
+ --chart-outline: hsl(var(--text)); }
+:root[data-theme='blue'] { --chart-1: var(--aromin-blue); --chart-2: var(--aromin-purple); }
+:root[data-theme='gold'] { --chart-1: var(--aromin-yellow); --chart-2: var(--aromin-blue); }
+:root[data-mode='dark'] { --chart-1: hsl(var(--primary)); --chart-2: hsl(var(--secondary)); }
+
+/* Bklit chart tokens inherit the existing three-brand light/dark design system. */
+:root {
+  --chart-background: hsl(var(--card));
+  --chart-foreground: hsl(var(--text));
+  --chart-foreground-muted: hsl(var(--muted-foreground));
+  --chart-label: hsl(var(--muted-foreground));
+  --chart-line-primary: var(--chart-1);
+  --chart-line-secondary: var(--chart-2);
+  --chart-crosshair: var(--chart-1);
+  --chart-grid: hsl(var(--border));
+  --chart-indicator-color: var(--chart-1);
+  --chart-indicator-secondary-color: var(--chart-2);
+  --chart-marker-background: hsl(var(--muted));
+  --chart-marker-border: hsl(var(--border));
+  --chart-marker-foreground: hsl(var(--text));
+  --chart-marker-badge-background: hsl(var(--primary));
+  --chart-marker-badge-foreground: hsl(var(--primary-foreground));
+  --chart-segment-background: hsl(var(--primary) / 0.12);
+  --chart-segment-line: hsl(var(--primary) / 0.35);
+  --chart-brush-border: hsl(var(--border));
+  --chart-tooltip-background: hsl(var(--card) / 0.96);
+  --chart-tooltip-foreground: hsl(var(--text));
+  --chart-tooltip-muted: hsl(var(--muted-foreground));
+}

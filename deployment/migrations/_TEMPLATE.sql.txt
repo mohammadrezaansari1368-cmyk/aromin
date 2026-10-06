@@ -1,0 +1,20 @@
+-- ── نمونهٔ مهاجرت ──
+-- برای افزودنِ یک آپدیتِ SQL جدید:
+--   ۱) یک فایلِ تازه با شمارهٔ بعدی بساز (مثلاً 002_add_phone.sql)
+--   ۲) دستورِ SQL را به‌صورت idempotent بنویس (چند بار اجرا خطا ندهد)
+--   ۳) دفعهٔ بعد که سرور بالا بیاید یا `npm run migrate` بزنی، خودکار اعمال می‌شود.
+--
+-- این فایل چون پسوندش .sql.txt است اجرا نمی‌شود (فقط *.sql اجرا می‌شود).
+--
+-- مثال — افزودنِ ستون (MariaDB از IF NOT EXISTS پشتیبانی می‌کند):
+--   ALTER TABLE people ADD COLUMN IF NOT EXISTS phone VARCHAR(32) NULL;
+--
+-- مثال — جدولِ جدید:
+--   CREATE TABLE IF NOT EXISTS notes (
+--     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+--     body TEXT NULL,
+--     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+--   ) ENGINE=InnoDB;
+--
+-- مثال — تغییرِ دادهٔ اولیه:
+--   INSERT IGNORE INTO role_access (role, panel) VALUES ('sales','p-forecast');
