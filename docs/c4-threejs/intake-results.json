@@ -1,0 +1,410 @@
+[
+  {
+    "iteration": 1,
+    "frame": 18,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-1/prepared-018.png",
+      "width": 606,
+      "height": 255,
+      "foregroundCoverage": 0.5578,
+      "largestComponentFraction": 0.9936,
+      "pHash": 13523939947862044824,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 1,
+    "frame": 28,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-1/prepared-028.png",
+      "width": 587,
+      "height": 255,
+      "foregroundCoverage": 0.5143,
+      "largestComponentFraction": 0.9905,
+      "pHash": 13740390081783927050,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 1,
+    "frame": 35,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-1/prepared-035.png",
+      "width": 573,
+      "height": 255,
+      "foregroundCoverage": 0.5045,
+      "largestComponentFraction": 0.9923,
+      "pHash": 13738697929915896586,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 1,
+    "frame": 46,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-1/prepared-046.png",
+      "width": 552,
+      "height": 255,
+      "foregroundCoverage": 0.5169,
+      "largestComponentFraction": 0.9935,
+      "pHash": 13743483016066372394,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 1,
+    "frame": 53,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-1/prepared-053.png",
+      "width": 548,
+      "height": 256,
+      "foregroundCoverage": 0.5144,
+      "largestComponentFraction": 0.9959,
+      "pHash": 13742942039434072842,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 1,
+    "frame": 70,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-1/prepared-070.png",
+      "width": 529,
+      "height": 257,
+      "foregroundCoverage": 0.4951,
+      "largestComponentFraction": 0.9968,
+      "pHash": 17201671318098974985,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 1,
+    "frame": 76,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-1/prepared-076.png",
+      "width": 524,
+      "height": 255,
+      "foregroundCoverage": 0.4779,
+      "largestComponentFraction": 0.9945,
+      "pHash": 18350189081297689089,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 1,
+    "frame": 121,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-1/prepared-121.png",
+      "width": 528,
+      "height": 251,
+      "foregroundCoverage": 0.4406,
+      "largestComponentFraction": 0.9889,
+      "pHash": 18368772940665721089,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 2,
+    "frame": 18,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-2/prepared-018.png",
+      "width": 606,
+      "height": 255,
+      "foregroundCoverage": 0.5705,
+      "largestComponentFraction": 0.9938,
+      "pHash": 13523939947862044824,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 2,
+    "frame": 28,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-2/prepared-028.png",
+      "width": 588,
+      "height": 255,
+      "foregroundCoverage": 0.5539,
+      "largestComponentFraction": 0.9921,
+      "pHash": 13739264186172051722,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 2,
+    "frame": 35,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-2/prepared-035.png",
+      "width": 574,
+      "height": 255,
+      "foregroundCoverage": 0.5329,
+      "largestComponentFraction": 0.9926,
+      "pHash": 13738697929915896586,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 2,
+    "frame": 46,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-2/prepared-046.png",
+      "width": 554,
+      "height": 255,
+      "foregroundCoverage": 0.5499,
+      "largestComponentFraction": 0.9941,
+      "pHash": 13743483016066372394,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 2,
+    "frame": 53,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-2/prepared-053.png",
+      "width": 549,
+      "height": 256,
+      "foregroundCoverage": 0.5522,
+      "largestComponentFraction": 0.9947,
+      "pHash": 18354628057794351882,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 2,
+    "frame": 70,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-2/prepared-070.png",
+      "width": 529,
+      "height": 257,
+      "foregroundCoverage": 0.5161,
+      "largestComponentFraction": 0.9964,
+      "pHash": 17201671318098974985,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 2,
+    "frame": 76,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-2/prepared-076.png",
+      "width": 528,
+      "height": 255,
+      "foregroundCoverage": 0.5069,
+      "largestComponentFraction": 0.9959,
+      "pHash": 18350749832227854849,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 2,
+    "frame": 121,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-2/prepared-121.png",
+      "width": 528,
+      "height": 239,
+      "foregroundCoverage": 0.4787,
+      "largestComponentFraction": 0.9889,
+      "pHash": 18368740219996868900,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 3,
+    "frame": 18,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-3/prepared-018.png",
+      "width": 602,
+      "height": 241,
+      "foregroundCoverage": 0.6163,
+      "largestComponentFraction": 1.0,
+      "pHash": 18135625777320826920,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 3,
+    "frame": 28,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-3/prepared-028.png",
+      "width": 574,
+      "height": 241,
+      "foregroundCoverage": 0.6043,
+      "largestComponentFraction": 1.0,
+      "pHash": 18063563991384332586,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 3,
+    "frame": 35,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-3/prepared-035.png",
+      "width": 549,
+      "height": 239,
+      "foregroundCoverage": 0.6191,
+      "largestComponentFraction": 1.0,
+      "pHash": 18350665151939615530,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 3,
+    "frame": 46,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-3/prepared-046.png",
+      "width": 542,
+      "height": 240,
+      "foregroundCoverage": 0.6078,
+      "largestComponentFraction": 1.0,
+      "pHash": 18350665142809664298,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 3,
+    "frame": 53,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-3/prepared-053.png",
+      "width": 540,
+      "height": 238,
+      "foregroundCoverage": 0.613,
+      "largestComponentFraction": 1.0,
+      "pHash": 18354676161092524846,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 3,
+    "frame": 70,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-3/prepared-070.png",
+      "width": 511,
+      "height": 237,
+      "foregroundCoverage": 0.5866,
+      "largestComponentFraction": 1.0,
+      "pHash": 17201707583066348452,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 3,
+    "frame": 76,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-3/prepared-076.png",
+      "width": 492,
+      "height": 234,
+      "foregroundCoverage": 0.5955,
+      "largestComponentFraction": 1.0,
+      "pHash": 13757561833552092052,
+      "duplicateOfHash": null
+    }
+  },
+  {
+    "iteration": 3,
+    "frame": 121,
+    "exitCode": 0,
+    "admitted": true,
+    "reasons": [],
+    "provenance": {
+      "viewpoint": "dashboard",
+      "sourcePath": "/workspace/scratch/c4-reference/iteration-3/prepared-121.png",
+      "width": 459,
+      "height": 231,
+      "foregroundCoverage": 0.578,
+      "largestComponentFraction": 1.0,
+      "pHash": 13541721171343999788,
+      "duplicateOfHash": null
+    }
+  }
+]

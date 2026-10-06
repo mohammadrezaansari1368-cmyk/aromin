@@ -1,0 +1,35 @@
+{
+  "source": "existing 104 WebP frames; no production modification",
+  "frames": [
+    18,
+    28,
+    35,
+    46,
+    53,
+    70,
+    76,
+    121
+  ],
+  "observations": [
+    "Axial assembly with a circular front fan and conical spinner",
+    "Multiple exposed compressor discs connected along an axle",
+    "Cylindrical central body, upper hardware and external curved pipes",
+    "Dark toothed rear rotor/ring visible across assembly states",
+    "Dark magenta cinematic background, lower reflection and glowing orbit not geometry"
+  ],
+  "inferences": [
+    "Rotational symmetry is plausible; unseen back face and internal mechanism remain uncertain"
+  ],
+  "suitability": "conditional for approximate procedural reconstruction; no authoritative hidden geometry",
+  "originalFailure": {
+    "skillCommit": "fe2d0d2d1263cd8203f486bf6f4526110da42f9c",
+    "function": "forge/stage1_intake/extract_pbr_evidence.py:build_foreground_mask",
+    "predicate": "alpha > 16 and (color_distance > threshold or (saturation > 0.16 and luma < 0.94))",
+    "cause": "Opaque dark purple background, vignette, shadows, glow and floor reflections satisfy the saturated-dark fallback; almost the entire image is considered foreground.",
+    "coverageRange": [
+      0.9993,
+      0.9998
+    ],
+    "limit": 0.97
+  }
+}

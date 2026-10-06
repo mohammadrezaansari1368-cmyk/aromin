@@ -1,0 +1,22 @@
+{
+  "status": "BLOCKED_BY_REFERENCE_INTAKE",
+  "numericAdmissionIsNotVisualApproval": true,
+  "reviews": [
+    {
+      "iteration": 1,
+      "visualAccepted": false,
+      "reason": "Frame 070 loses rear rotor teeth; frame 121 includes a connected floor/orbit patch. Do not admit derived reference for reconstruction."
+    },
+    {
+      "iteration": 2,
+      "visualAccepted": false,
+      "reason": "Temporal/local-contrast seeds and observed rear-metal seeds recover part of the rotor; floor rejection reduces contamination. Upper/lower rear contour remains truncated; light specks remain."
+    },
+    {
+      "iteration": 3,
+      "visualAccepted": false,
+      "reason": "Canny-supported rear seeds recover additional fins; connected-component filtering removes glow specks. Enlarged original-vs-mask comparison at frame 070 still shows missing lower rear teeth and an artificial diagonal termination; exact silhouette preservation fails."
+    }
+  ],
+  "reconstructionStarted": false
+}
