@@ -496,6 +496,7 @@ def post_state(payload: dict = Body(default={}), tenant: str = Query(default="")
                 old = parse(row["payload"]) if row else None
                 _preserve_import_history(old, st)
                 _preserve_compensation(old, st)
+                _merge_sale_dates(old, st)
                 bad = _c1_lock_violation(old, st)
                 if bad:
                     return JSONResponse({"ok": False, "error": bad, "locked": True}, status_code=409)
@@ -1816,6 +1817,7 @@ def _c1_save(tenant, full):
             previous = parse(row["payload"]) if row else None
             _preserve_import_history(previous, full)
             _preserve_compensation(previous, full)
+            _merge_sale_dates(previous, full)
             cur.execute("""INSERT INTO tenant_state (tenant, industry, name, payload) VALUES (%s,%s,%s,%s)
                 ON DUPLICATE KEY UPDATE payload=VALUES(payload)""",
                 (tenant, info.get("industry"), info.get("name"), j(full)))
@@ -4628,6 +4630,30 @@ async def telegram_post_create(request: Request, payload: dict = Body(default={}
 
 
 # Manager-only compensation changes; approvals cannot be forged by generic state saves.
+def _merge_sale_dates(old, new):
+    """Fill-only display metadata: never rewrites locked invoices or historical ledgers."""
+    saved = (old or {}).get('saleDates') or {}
+    merged = {year: dict(values) for year, values in saved.items() if isinstance(values, dict)}
+    incoming = (new.get('saleDates') or {}).get('1405') or {}
+    valid_keys = set()
+    for p in new.get('people', []):
+        inv = (p.get('invY') or {}).get('1405')
+        if inv is None and str(new.get('fy')) == '1405':
+            inv = p.get('inv') or []
+        for d in inv or []:
+            if str(d.get('fy') or '1405') == '1405':
+                valid_keys.add(str(p.get('id')) + ':' + str(d.get('id')))
+    active = merged.setdefault('1405', {})
+    for key, value in incoming.items():
+        parsed = _c1_jdate(value)
+        if key in valid_keys and key not in active and parsed:
+            active[key] = parsed[0]
+    if any(merged.values()):
+        new['saleDates'] = merged
+    else:
+        new.pop('saleDates', None)
+
+
 def _preserve_compensation(old, new):
     previous = {str(p.get('id')): p for p in (old or {}).get('people', [])}
     for p in new.get('people', []):

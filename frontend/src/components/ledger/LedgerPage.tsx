@@ -29,13 +29,14 @@ import { RowOrderContext, RowGrip, useRowOrder } from '@/components/ui/use-row-o
 import { orderRows } from '@/components/ui/row-order'
 import CompensationSettings from './CompensationSettings'
 import SalesTrend from './SalesTrend'
+import { saleDateOf } from '@/lib/sales-date'
 import { dealDate, funnelDays, isStagnant } from '@/lib/ledger-analysis'
 import Funnel from '@/components/ui/funnel-chart'
 import { funnelReach } from '@/components/ui/funnel-geometry'
 
 /* ---------- انواع ---------- */
 const rowOrderKey = (r: Row) => String(r.p.id) + ':' + r.d.id
-interface Row { key: string; pi: number; p: any; d: Deal; S: CommS; ref: Ref }
+interface Row { saleDate: string; key: string; pi: number; p: any; d: Deal; S: CommS; ref: Ref }
 const StagePatchCtx = createContext<{ patch: (r: Row, p: Partial<Deal>) => void; canEdit: (r: Row) => boolean; openDocument: (r: Row) => void }>({ patch: () => {}, canEdit: () => false, openDocument: () => {} })
 function InlineStages({ row }: { row: Row }) {
  const { patch, canEdit } = useContext(StagePatchCtx)
@@ -189,7 +190,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 		people.forEach((p, pi) => {
 			if (scope !== ALL && String(pi) !== scope) return
 			const S: CommS = p.S && p.S.weights ? p.S : freshS()
-			for (const d of ledgerOf(p, full, viewFy)) out.push({ key: pi + ':' + d.id, pi, p, d, S, ref: { pid: p.id, pname: String(p.name || ''), id: d.id } })
+			for (const d of ledgerOf(p, full, viewFy)) out.push({ saleDate: saleDateOf(d, full?.saleDates?.[viewFy], p.id), key: pi + ':' + d.id, pi, p, d, S, ref: { pid: p.id, pname: String(p.name || ''), id: d.id } })
 		})
 		return out
 	}, [people, full, scope, ver, viewFy])
@@ -236,7 +237,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 		})
 		if (f.sort) {
 			const g = (r: Row): number | string =>
-				f.sort === 'date' ? dealDate(r.d.entry) : f.sort === 'amount' ? num(r.d.amount) : f.sort === 'basis' ? rowBasis(r.d, r.S).basis : f.sort === 'month' ? monthOf(r.d) : f.sort === 'no' ? rawDigits(r.d.no).padStart(12, '0') + String(r.d.no || '') : norm(r.d.name)
+				f.sort === 'date' ? r.saleDate : f.sort === 'amount' ? num(r.d.amount) : f.sort === 'basis' ? rowBasis(r.d, r.S).basis : f.sort === 'month' ? monthOf(r.d) : f.sort === 'no' ? rawDigits(r.d.no).padStart(12, '0') + String(r.d.no || '') : norm(r.d.name)
 			out = out.map((r, i) => ({ r, v: g(r), i })).sort((a, b) => (a.v < b.v ? -1 : a.v > b.v ? 1 : a.i - b.i) * f.dir).map((x) => x.r)
 		}
 		return f.sort ? out : orderRows(out, rowOrder.order, rowOrderKey)
@@ -452,7 +453,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 		const d = r.d
 		if (col === 'name' && v !== (d.name || '')) patch(r, { name: v })
 		else if (col === 'amount') { const raw = rawDigits(v); if (raw !== rawDigits(d.amount)) patch(r, { amount: raw }) }
-		else if (col === 'date') { const date = parseJ(v); if (date) patch(r, { entry: date.j, month: +date.j.slice(5, 7) - 1 }); else setToast({ t: 'تاریخ شمسی معتبر وارد کنید', tone: 'err' }) }
+		else if (col === 'date') { const date = parseJ(v); if (date) patch(r, { saleDate: date.j }); else setToast({ t: 'تاریخ شمسی معتبر وارد کنید', tone: 'err' }) }
 		else if (col === 'change' && v !== funnelOf(d)) patch(r, { funnel: v })
 		else if (col === 'month' && +v !== monthOf(d)) patch(r, { month: +v })
 		else if (col === 'settle' && v !== (d.settle || 'cash')) patch(r, { settle: v })
@@ -533,7 +534,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 				<Tile key="c3" title="ترازنامه" code="C3">
 					<Fig k="فروشِ ناخالص" v={sep(T.gross)} />
 					<Fig k="مبنای پورسانت" v={sep(T.eligible)} />
-					<Fig k="پورسانت" v={sep(T.payout)} strong /><Fig k="مبنای سهم مالی (همهٔ کارشناسان)" v={sep(T.financeBasis)} /><Fig k="پاداش تصویب‌شدهٔ مدیر" v={sep(T.approvedBonus)} />
+					<Fig k="پورسانت" v={sep(T.payout)} strong /><Fig k="پاداش تصویب‌شدهٔ مدیر" v={sep(T.approvedBonus)} />
 				</Tile>
 				<Tile key="c5" title="دستورِ پرداخت و معلق" code="C5·C6">
 					<p className="text-[26px] font-extrabold leading-none text-success tabular-nums">{sep(T.payNow)}</p>
@@ -541,7 +542,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 					<Split parts={[{ k: 'نقد', v: T.payNow, c: 'bg-success' }, { k: 'چک (پس از وصول)', v: T.payCheck, c: 'bg-warning' }, { k: 'معلق', v: T.payPend, c: 'bg-error' }]} />
 				</Tile>
 				<Tile key="c4" title="فروش روزانهٔ ماه جاری" code="C4" className="md:col-span-2">
-					<SalesTrend deals={allRows.map(r => r.d)} />
+					<SalesTrend deals={allRows.map(r => ({ ...r.d, saleDate: r.saleDate }))} />
 				</Tile>
 				<Tile key="c2" title="قیف" code="C2">
 					<Funnel data={funnelReach(T.funnel).map(s => ({ ...s, label: FUNNEL.find(f => f.k === s.key)!.t }))} />
@@ -784,7 +785,7 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 		}
 		case 'owner': return <span className="truncate text-[12.5px]">{r.p.name}</span>
 		case 'leadGen': return <span className="flex min-w-0 flex-col gap-0.5"><span className={`truncate text-[12.5px] ${d.leadGen ? 'font-bold' : 'text-muted-foreground'}`}>{d.leadGen || '— خودِ کارشناس'}</span>{d.leadGen && <span className="text-[11px] text-muted-foreground">سهمِ لید {fa((r.S.weights || DEFAULT_WEIGHTS).lead)}٪</span>}</span>
-		case 'date': return <span dir="ltr" className="tabular-nums">{dealDate(d.entry) || '—'}</span>
+		case 'date': return <span dir="ltr" className="tabular-nums">{r.saleDate || '—'}</span>
 		case 'change': return <span className="text-xs"><b>{funLabel(funnelOf(d))}</b><span dir="ltr" className="block">{dealDate(d.stageChangedAt) || '—'}</span>{isStagnant(d) && <span className="text-warning">توقف {fa(funnelDays(d))} روز</span>}</span>
 		case 'kind': {
 			const k = (d.kind as string) || 'new', fix = kindFix(r)
@@ -836,7 +837,7 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 /* ---------- ویرایشگرِ خانه: Enter ذخیره · Esc انصراف · Tab/Shift+Tab بعدی/قبلی ---------- */
 function CellEditor({ r, col, leadNames, onCommit, onCancel, onStep }: { r: Row; col: ColK; leadNames: string[]; onCommit: (v: string) => void; onCancel: () => void; onStep: (v: string, dir: 1 | -1) => void }) {
 	const d = r.d
-	const init = col === 'date' ? dealDate(d.entry) : col === 'change' ? funnelOf(d) : col === 'amount' ? faGroup(d.amount) : col === 'month' ? String(monthOf(d)) : col === 'settle' ? String(d.settle || 'cash') : col === 'kind' ? String(d.kind || 'new') : col === 'channel' ? String(d.channel || 'official') : String((d as any)[col] ?? '')
+	const init = col === 'date' ? r.saleDate : col === 'change' ? funnelOf(d) : col === 'amount' ? faGroup(d.amount) : col === 'month' ? String(monthOf(d)) : col === 'settle' ? String(d.settle || 'cash') : col === 'kind' ? String(d.kind || 'new') : col === 'channel' ? String(d.channel || 'official') : String((d as any)[col] ?? '')
 	const [v, setV] = useState(init)
 	const done = useRef(false)
 	const key = (e: React.KeyboardEvent) => {

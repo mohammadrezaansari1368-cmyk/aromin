@@ -7,6 +7,7 @@
  * applyDealImport فقط روی نسخهٔ تازهٔ سرور (داخلِ saveState) اجرا می‌شود.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { excelSaleDate, saleDateKey, saleDateOf } from '@/lib/sales-date'
 import { freshS, invoiceKey, isLocked, num, MONTHS, type Deal } from '../commission/index.ts'
 import { classifyKinds, ledgerOf } from '../customer/index.ts'
 
@@ -43,6 +44,9 @@ const yearOf = (v: unknown) => { const m = c1Norm(v).match(/(1[34]\d\d)/); retur
 export type RowStatus = 'valid' | 'previous' | 'duplicate' | 'invalid'
 export interface PlanRow { i: number; no: string; name: string; st: RowStatus; why: string; fy: string }
 export interface Plan {
+ saleDateColumn: string | null
+ missingSaleDates: number
+ dateUpdates: { key: string; date: string }[]
 	error?: string
 	rows: PlanRow[]
 	cnt: Record<RowStatus, number>
@@ -60,13 +64,13 @@ export interface Plan {
 	rial: boolean
 }
 const emptyPlan = (mode: 'append' | 'replace', rial: boolean, error: string): Plan => ({
-	error, rows: [], cnt: { valid: 0, previous: 0, duplicate: 0, invalid: 0 }, years: {}, fySource: 'date', fyColumn: null, groups: {}, order: [], monthsInFile: {}, leadNames: {}, noRep: 0, total: 0, fyRows: 0, mode, rial,
+	error, saleDateColumn: null, missingSaleDates: 0, dateUpdates: [], rows: [], cnt: { valid: 0, previous: 0, duplicate: 0, invalid: 0 }, years: {}, fySource: 'date', fyColumn: null, groups: {}, order: [], monthsInFile: {}, leadNames: {}, noRep: 0, total: 0, fyRows: 0, mode, rial,
 })
 
 /**
  * پیش‌نمایش (بدونِ نوشتن). people/full = نسخهٔ فعلیِ داده (فقط خواندن) برای تشخیصِ تکراری.
  */
-export function planDealImport(rowsJson: Record<string, unknown>[], full: any, opts: { mode: 'append' | 'replace'; rial: boolean }): Plan {
+export function planDealImport(rowsJson: Record<string, unknown>[], full: any, opts: { mode: 'append' | 'replace'; rial: boolean; date1904?: boolean }): Plan {
 	const { mode, rial } = opts
 	if (!rowsJson || !rowsJson.length) return emptyPlan(mode, rial, 'فایل خالی بود یا خوانده نشد.')
 	if (String(full?.fy) !== TARGET_FY) return emptyPlan(mode, rial, `سالِ مالیِ فعالِ سیستم «${full?.fy ?? '—'}» است؛ ایمپورتِ معاملات فقط وقتی سالِ مالیِ فعال ۱۴۰۵ است انجام می‌شود.`)
@@ -76,6 +80,8 @@ export function planDealImport(rowsJson: Record<string, unknown>[], full: any, o
 	const cName = pickCol(keys, ['شرکت', 'مخاطب', 'نام', 'مشتری'])
 	const cVal = pickCol(keys, ['ارزش', 'مبلغ', 'قیمت'])
 	const cFy = pickCol(keys, ['سال مالی', 'سالمالی', 'سال‌مالی', 'fiscal year', 'fiscalyear', 'fy', 'سال'], true)
+	const cSale = pickCol(keys, ['تاریخ فروش', 'روز فروش', 'تاریخ فاکتور', 'تاریخ صدور فاکتور', 'تاریخ صدور', 'sale date', 'sales date', 'invoice date', 'تاریخ'], true)
+	const cChange = pickCol(keys, ['تغییر مرحله', 'تاریخ تغییر مرحله'], true)
 	const cDate = pickCol(keys, ['تغییر مرحله', 'تاریخ', 'ورود'])
 	const cEntry = pickCol(keys, ['ورود', 'تاریخ ثبت', 'تاریخ ایجاد', 'ثبت'])
 	const cRep = pickCol(keys, ['کارشناس', 'مسئول', 'فروشنده'])
@@ -89,12 +95,12 @@ export function planDealImport(rowsJson: Record<string, unknown>[], full: any, o
 	const people: any[] = Array.isArray(full?.people) ? full.people : []
 	// کلید = شمارهٔ فاکتور (فقط تطبیقِ دقیق پس از یکسان‌سازیِ بی‌ضرر)، در کلِ دفترِ ۱۴۰۵؛ رکوردِ موجود همیشه نسخهٔ اصل است.
 	// فاکتور فقط معاملهٔ «بستن» است: ردیفِ باز/شکستِ همان شماره در ماهِ دیگر عکسِ لحظه‌ایِ جولیوست، فاکتورِ تکراری نیست.
-	const exist: Record<string, { rep: string; m: number; locked: boolean; won: boolean }[]> = {}
+	const exist: Record<string, { rep: string; m: number; locked: boolean; won: boolean; key: string; saleDate: string }[]> = {}
 	for (const p of people) {
 		const nm = cleanName(p?.name)
 		for (const x of ledgerOf(p, full, TARGET_FY)) {
 			const k = invoiceKey(x?.no); if (!k) continue
-			;(exist[k] ||= []).push({ rep: nm, m: x.month == null || x.month === '' ? 3 : +x.month, locked: isLocked(x), won: (x.funnel || 'won') === 'won' })
+			;(exist[k] ||= []).push({ key: saleDateKey(p.id, x.id), saleDate: saleDateOf(x, full.saleDates?.[TARGET_FY], p.id), rep: nm, m: x.month == null || x.month === '' ? 3 : +x.month, locked: isLocked(x), won: (x.funnel || 'won') === 'won' })
 		}
 	}
 	const seenAny: Record<string, number> = {}
@@ -102,13 +108,15 @@ export function planDealImport(rowsJson: Record<string, unknown>[], full: any, o
 	delete P.error
 	P.fySource = cFy ? 'column' : 'date'
 	P.fyColumn = cFy
+	P.saleDateColumn = cSale
 	const seen: Record<string, number> = {}
 	const cand: { row: PlanRow; k: string; rep: string; noRep: boolean; lead: string; d: Deal }[] = []
 	rowsJson.forEach((r, ix) => {
 		const row: PlanRow = { i: ix + 2, no: cNo ? String(r[cNo] ?? '').trim() : '', name: cName ? String(r[cName] ?? '').trim() : '', st: 'valid', why: '', fy: '' }
 		P.rows.push(row)
 		const bad = (st: RowStatus, why: string) => { row.st = st; row.why = why; P.cnt[st]++ }
-		let ds = cDate ? dateOf(r[cDate]) : null
+		const saleDate = cSale ? excelSaleDate(r[cSale], opts.date1904) : ''
+		let ds = saleDate ? dateOf(saleDate) : cDate ? dateOf(r[cDate]) : null
 		if (!ds && cEntry) ds = dateOf(r[cEntry])
 		let fy = ''
 		if (cFy) {
@@ -122,6 +130,8 @@ export function planDealImport(rowsJson: Record<string, unknown>[], full: any, o
 		row.fy = fy
 		P.years[fy] = (P.years[fy] || 0) + 1
 		if (fy !== TARGET_FY) return bad('previous', `سالِ مالیِ ${fy}`)
+		if (cSale && String(r[cSale] ?? '').trim() && !saleDate) return bad('invalid', 'تاریخ فروش نامعتبر است')
+		if (!saleDate) P.missingSaleDates++
 		// ماه: از تاریخِ همان ردیف (سالِ ۱۴۰۵)؛ بدونِ تاریخ ← نامعتبر (ماه معلوم نیست)
 		if (!ds || ds.m < 1 || ds.m > 12) return bad('invalid', 'ماهِ معامله معلوم نیست (تاریخ ندارد)')
 		P.fyRows++
@@ -142,7 +152,7 @@ export function planDealImport(rowsJson: Record<string, unknown>[], full: any, o
 		const lead = reg && reg !== rep ? reg : ''
 		cand.push({ row, k, rep, noRep, lead, d: {
 			id: 0, no: row.no, month: ds.m - 1, name: row.name, amount: String(v), close: lead ? 'nolead' : 'all', funnel: fk, settle: 'cash', kind: 'new', channel: 'official', leadGen: lead,
-			stageChangedAt: cDate ? String(r[cDate] ?? '').trim() : '', entry: cEntry ? String(r[cEntry] ?? '').trim() : '', src: cSrc ? String(r[cSrc] ?? '').trim() : '', lossReason: cFail ? String(r[cFail] ?? '').trim() : '', fy: TARGET_FY,
+			saleDate, stageChangedAt: cChange ? String(r[cChange] ?? '').trim() : '', entry: cEntry ? String(r[cEntry] ?? '').trim() : '', src: cSrc ? String(r[cSrc] ?? '').trim() : '', lossReason: cFail ? String(r[cFail] ?? '').trim() : '', fy: TARGET_FY,
 		} })
 	})
 	cand.forEach((c) => (P.monthsInFile[c.d.month as number] = 1))
@@ -151,7 +161,11 @@ export function planDealImport(rowsJson: Record<string, unknown>[], full: any, o
 		const live = (c.k ? exist[c.k] || [] : []).filter((e) => mode !== 'replace' || e.rep !== c.rep || !P.monthsInFile[e.m] || e.locked)
 		// فاکتور (بستن): تکراری فقط اگر فاکتورِ دیگری با همین شماره باشد؛ ردیفِ باز/شکست: اگر همین معامله هست (idempotent)
 		const hit = c.d.funnel === 'won' ? live.find((e) => e.won) : live[0]
-		if (hit) { c.row.st = 'duplicate'; c.row.why = `شمارهٔ ${c.row.no} از قبل در دفترِ «${hit.rep}» هست${hit.locked ? ' (سندِ قفل)' : ''} — نسخهٔ اصل حفظ شد، ردیفِ فایل ثبت نشد`; P.cnt.duplicate++; continue }
+		if (hit && !hit.saleDate && c.d.saleDate && live.filter(e => c.d.funnel !== 'won' || e.won).length === 1) {
+            P.dateUpdates.push({ key: hit.key, date: String(c.d.saleDate) })
+            c.row.st = 'duplicate'; c.row.why = 'فاکتور موجود حفظ می‌شود؛ فقط تاریخ فروشِ خالی از اکسل تکمیل می‌شود'; P.cnt.duplicate++; continue
+        }
+        if (hit) { c.row.st = 'duplicate'; c.row.why = `شمارهٔ ${c.row.no} از قبل در دفترِ «${hit.rep}» هست${hit.locked ? ' (سندِ قفل)' : ''} — نسخهٔ اصل حفظ شد، ردیفِ فایل ثبت نشد`; P.cnt.duplicate++; continue }
 		P.cnt.valid++
 		if (c.noRep) P.noRep++
 		if (c.lead) P.leadNames[c.lead] = (P.leadNames[c.lead] || 0) + 1
@@ -169,10 +183,14 @@ export const previousYears = (P: Plan) => Object.keys(P.years).filter((y) => y !
  * ثبت روی نسخهٔ تازهٔ سرور (mutator). دوباره برنامه‌ریزی می‌کند تا تکراری‌ها روی دادهٔ همین لحظه سنجیده شوند.
  * فقط دفترِ ۱۴۰۵ (inv + invY['1405'] یکسان)، gid، people (کارشناسِ تازه)، importLog و custbook تغییر می‌کنند.
  */
-export function applyDealImport(full: any, rowsJson: Record<string, unknown>[], opts: { mode: 'append' | 'replace'; rial: boolean; fileName: string; sig: string; custbook: any | null }) {
+export function applyDealImport(full: any, rowsJson: Record<string, unknown>[], opts: { mode: 'append' | 'replace'; rial: boolean; date1904?: boolean; fileName: string; sig: string; custbook: any | null }) {
 	const P = planDealImport(rowsJson, full, opts)
 	if (P.error) throw new Error(P.error)
 	const people: any[] = full.people
+	if (P.dateUpdates.length) {
+		full.saleDates ||= {}; full.saleDates[TARGET_FY] ||= {}
+		for (const update of P.dateUpdates) full.saleDates[TARGET_FY][update.key] = update.date
+	}
 	let gid = Math.max(+full.gid || 1, 1 + Math.max(0, ...people.map((p) => +p.id || 0), ...people.flatMap((p) => Object.values(p.invY || { _: p.inv || [] }).flat().map((d: any) => +d?.id || 0))))
 	const nextId = () => gid++
 	const byName = (nm: string) => { let f: any = null; for (const p of people) if (cleanName(p.name) === nm) f = p; return f }
@@ -199,7 +217,7 @@ export function applyDealImport(full: any, rowsJson: Record<string, unknown>[], 
 	let repeatN = 0
 	people.forEach((p, pi) => ledgerOf(p, full, TARGET_FY).forEach((d: Deal) => { if (added.has(d)) { d.kind = kinds.get(pi + ':' + d.id) || 'new'; if (d.kind === 'repeat') repeatN++ } }))
 	const log = Array.isArray(full.importLog) ? full.importLog : (full.importLog = [])
-	log.push({ name: opts.fileName, type: 'deal', rows: rowsJson.length, sig: opts.sig, ts: Date.now(), dup: false, routed: true, err: '', fy: { valid: P.cnt.valid, previous: P.cnt.previous, duplicate: P.cnt.duplicate, invalid: P.cnt.invalid, years: P.years } })
+	log.push({ name: opts.fileName, type: 'deal', rows: rowsJson.length, sig: opts.sig, ts: Date.now(), dup: false, routed: true, err: '', dateUpdates: P.dateUpdates.length, fy: { valid: P.cnt.valid, previous: P.cnt.previous, duplicate: P.cnt.duplicate, invalid: P.cnt.invalid, years: P.years } })
 	if (log.length > 200) full.importLog = log.slice(-200)
 	return { plan: P, created, repeatN }
 }

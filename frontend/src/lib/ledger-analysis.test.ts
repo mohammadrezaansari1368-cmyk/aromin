@@ -13,7 +13,7 @@ describe('ledger dates and stagnation', () => {
   expect(isStagnant(d(), '1405/07/11')).toBe(true)
  })
  it('keeps 31 slots, excludes other months, and does not invent Mehr 31', () => {
-  const series=monthlySeries([d({entry:'1405/07/01',funnel:'won',amount:10}), d({entry:'1405/07/01',funnel:'won',settle:'check',amount:20}), d({entry:'1404/07/01',funnel:'won',amount:900})], '1405/07/13')
+  const series=monthlySeries([d({saleDate:'1405/07/01',funnel:'won',amount:10}), d({saleDate:'1405/07/01',funnel:'won',settle:'check',amount:20}), d({saleDate:'1404/07/01',funnel:'won',amount:900})], '1405/07/13')
   expect(series).toHaveLength(31); expect(series[0]).toMatchObject({desktop:10,mobile:20,tablet:0}); expect(series[30].desktop).toBeNull()
  })
 })

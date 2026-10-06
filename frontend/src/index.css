@@ -251,3 +251,28 @@ select:not([multiple]):not([size]):disabled { opacity: .6; cursor: not-allowed; 
 :root[data-theme='blue'] { --chart-1: var(--aromin-blue); --chart-2: var(--aromin-purple); }
 :root[data-theme='gold'] { --chart-1: var(--aromin-yellow); --chart-2: var(--aromin-blue); }
 :root[data-mode='dark'] { --chart-1: hsl(var(--primary)); --chart-2: hsl(var(--secondary)); }
+
+/* Bklit chart tokens inherit the existing three-brand light/dark design system. */
+:root {
+  --chart-background: hsl(var(--card));
+  --chart-foreground: hsl(var(--text));
+  --chart-foreground-muted: hsl(var(--muted-foreground));
+  --chart-label: hsl(var(--muted-foreground));
+  --chart-line-primary: var(--chart-1);
+  --chart-line-secondary: var(--chart-2);
+  --chart-crosshair: var(--chart-1);
+  --chart-grid: hsl(var(--border));
+  --chart-indicator-color: var(--chart-1);
+  --chart-indicator-secondary-color: var(--chart-2);
+  --chart-marker-background: hsl(var(--muted));
+  --chart-marker-border: hsl(var(--border));
+  --chart-marker-foreground: hsl(var(--text));
+  --chart-marker-badge-background: hsl(var(--primary));
+  --chart-marker-badge-foreground: hsl(var(--primary-foreground));
+  --chart-segment-background: hsl(var(--primary) / 0.12);
+  --chart-segment-line: hsl(var(--primary) / 0.35);
+  --chart-brush-border: hsl(var(--border));
+  --chart-tooltip-background: hsl(var(--card) / 0.96);
+  --chart-tooltip-foreground: hsl(var(--text));
+  --chart-tooltip-muted: hsl(var(--muted-foreground));
+}

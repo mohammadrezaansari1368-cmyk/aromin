@@ -1,4 +1,5 @@
 import { funnelOf, num, type Deal } from '@/engines/commission'
+import { saleDateOf } from './sales-date'
 import { parseJ, todayJ } from './jalali'
 
 export function dealDate(value: unknown): string {
@@ -23,7 +24,7 @@ export function monthlySeries(deals: Deal[], today = todayJ()) {
   return { day: i + 1, date: valid ? date : '', desktop: valid ? 0 : null, mobile: valid ? 0 : null, tablet: valid ? 0 : null }
  })
  for (const d of deals) {
-  const date = dealDate(d.entry)
+  const date = saleDateOf(d)
   if (!date.startsWith(month + '/') || funnelOf(d) !== 'won') continue
   const p = points[+date.slice(-2) - 1]
   const key = d.settle === 'hold' ? 'tablet' : d.settle === 'check' ? 'mobile' : 'desktop'

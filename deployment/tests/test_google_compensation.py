@@ -57,3 +57,16 @@ class GoogleCompensationTests(unittest.TestCase):
    self.assertTrue(result['ok']);self.assertEqual(deal['finBy'],'Financial Expert')
    self.assertEqual(deal['finApproval']['cash'],0);self.assertEqual(deal['finApproval']['pending'],0)
    self.assertEqual(deal['finAudit'][-1]['cash'],0)
+
+ def test_sales_date_enrichment_preserves_locked_invoice_and_stale_saves(self):
+  invoice={'id':7,'no':'INV','finState':'approved','amount':999,'fy':'1405'}
+  old={'fy':'1405','people':[{'id':1,'invY':{'1405':[invoice]}}],'saleDates':{'1404':{'1:6':'1404/01/01'}}}
+  import copy
+  new=copy.deepcopy(old);new['saleDates']['1405']={'1:7':'1405/07/05','1:999':'1405/07/05'}
+  server._merge_sale_dates(old,new)
+  self.assertIsNone(server._c1_lock_violation(old,new));self.assertEqual(new['people'],old['people'])
+  self.assertEqual(new['saleDates']['1405'],{'1:7':'1405/07/05'})
+  stale=copy.deepcopy(old);server._merge_sale_dates(new,stale)
+  self.assertEqual(stale['saleDates'],new['saleDates'])
+  change=copy.deepcopy(stale);change['saleDates']['1405']['1:7']='1405/07/06';server._merge_sale_dates(new,change)
+  self.assertEqual(change['saleDates'],new['saleDates'])

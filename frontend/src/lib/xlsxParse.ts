@@ -1,7 +1,7 @@
 /** خواندنِ اکسل در Web Worker (در صورتِ خطا روی نخِ اصلی) — خروجی: ردیف‌های شیتِ اول، همهٔ شیت‌ها (aoa)، نوعِ فایل */
 import type { Detected } from '@/lib/importTypes'
 
-export interface Parsed { rows: Record<string, unknown>[]; sheets: { name: string; aoa: unknown[][] }[]; det: Detected }
+export interface Parsed { date1904?: boolean; rows: Record<string, unknown>[]; sheets: { name: string; aoa: unknown[][] }[]; det: Detected }
 
 async function onMain(buf: ArrayBuffer): Promise<Parsed> {
 	const XLSX = await import('xlsx')
@@ -10,7 +10,7 @@ async function onMain(buf: ArrayBuffer): Promise<Parsed> {
 	return {
 		rows: XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }),
 		sheets: wb.SheetNames.map((name) => ({ name, aoa: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' }) as unknown[][] })),
-		det: detectImportType(wb),
+		date1904: !!wb.Workbook?.WBProps?.date1904, det: detectImportType(wb),
 	}
 }
 

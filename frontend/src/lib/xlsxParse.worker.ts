@@ -9,7 +9,7 @@ self.onmessage = (e: MessageEvent<ArrayBuffer>) => {
 		const det = detectImportType(wb)
 		const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
 		const sheets = wb.SheetNames.map((name) => ({ name, aoa: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '' }) as unknown[][] }))
-		;(self as unknown as Worker).postMessage({ ok: true, rows, sheets, det })
+		;(self as unknown as Worker).postMessage({ ok: true, rows, sheets, det, date1904: !!wb.Workbook?.WBProps?.date1904 })
 	} catch (err) {
 		;(self as unknown as Worker).postMessage({ ok: false, err: String((err as Error)?.message || err) })
 	}

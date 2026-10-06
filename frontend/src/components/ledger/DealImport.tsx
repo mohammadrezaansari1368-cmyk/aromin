@@ -13,7 +13,7 @@ import { custbookFromDeals } from '@/engines/customer/index.ts'
 import { fa } from '@/engines/commission/index.ts'
 import { BTN_GHOST, BTN_PRIMARY, CARD } from '@/components/ui/tokens'
 
-export interface ImportDone { valid: number; previous: number; years: Record<string, number>; duplicate: number; invalid: number; repeatN: number; created: number; name: string }
+export interface ImportDone { dateUpdates: number; valid: number; previous: number; years: Record<string, number>; duplicate: number; invalid: number; repeatN: number; created: number; name: string }
 const RIAL_KEY = 'aromin.c1.rial'
 const readRial = () => { try { return localStorage.getItem(RIAL_KEY) !== '0' } catch { return true } }
 
@@ -42,20 +42,20 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 		return () => { alive = false }
 	}, [file])
 
-	const plan: Plan | null = useMemo(() => (parsed && full ? planDealImport(parsed.rows, full, { mode, rial }) : null), [parsed, full, mode, rial])
+	const plan: Plan | null = useMemo(() => (parsed && full ? planDealImport(parsed.rows, full, { mode, rial, date1904: parsed.date1904 }) : null), [parsed, full, mode, rial])
 	const prevY = plan ? previousYears(plan) : []
 	const bad = plan ? plan.rows.filter((r) => r.st !== 'valid') : []
 
 	const commit = async () => {
-		if (!parsed || !plan || plan.error || !plan.total) return
+		if (!parsed || !plan || plan.error || !(plan.total || plan.dateUpdates.length)) return
 		setBusy(true); setErr('')
 		try {
 			try { localStorage.setItem(RIAL_KEY, rial ? '1' : '0') } catch { /* */ }
 			const cb = custbookFromDeals(parsed.sheets)
 			let res: ReturnType<typeof applyDealImport> | null = null
-			await saveState((f) => { res = applyDealImport(f, parsed.rows, { mode, rial, fileName: file.name, sig: parsed.det.sig, custbook: cb }) }, { forceBackup: true, tag: 'پیش از ایمپورتِ معاملاتِ ۱۴۰۵ (نسخهٔ جدید)' })
+			await saveState((f) => { res = applyDealImport(f, parsed.rows, { mode, rial, date1904: parsed.date1904, fileName: file.name, sig: parsed.det.sig, custbook: cb }) }, { forceBackup: true, tag: 'پیش از ایمپورتِ معاملاتِ ۱۴۰۵ (نسخهٔ جدید)' })
 			const r = res as unknown as ReturnType<typeof applyDealImport>
-			onDone({ valid: r.plan.cnt.valid, previous: r.plan.cnt.previous, years: r.plan.years, duplicate: r.plan.cnt.duplicate, invalid: r.plan.cnt.invalid, repeatN: r.repeatN, created: r.created, name: file.name })
+			onDone({ dateUpdates: r.plan.dateUpdates.length, valid: r.plan.cnt.valid, previous: r.plan.cnt.previous, years: r.plan.years, duplicate: r.plan.cnt.duplicate, invalid: r.plan.cnt.invalid, repeatN: r.repeatN, created: r.created, name: file.name })
 		} catch (e) {
 			const m = (e as Error).message
 			setErr(m === 'backup' ? 'بک‌آپِ سرور گرفته نشد؛ برای امنیت چیزی ثبت نشد.' : m === 'empty' ? 'دادهٔ سرور خالی است؛ چیزی ثبت نشد.' : m === 'save' ? 'ذخیره روی سرور انجام نشد.' : m)
@@ -85,7 +85,8 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 						<Kpi n={plan.cnt.duplicate} t="تکراری — رد می‌شود" tone="text-foreground" />
 						<Kpi n={plan.cnt.invalid} t="نامعتبر" tone={plan.cnt.invalid ? 'text-error' : 'text-foreground'} />
 					</div>
-					{prevY.length > 0 && (
+					<p className="mt-2 text-sm" role="status">تاریخ فروش: {plan.saleDateColumn ? `ستون «${plan.saleDateColumn}»` : 'ستون یافت نشد'} · {fa(plan.dateUpdates.length)} تاریخ خالیِ فاکتور موجود تکمیل می‌شود. {plan.missingSaleDates > 0 && `${fa(plan.missingSaleDates)} ردیف تاریخ فروش ندارد و در نمودار روزانه نمایش داده نمی‌شود.`}</p>
+                    {prevY.length > 0 && (
 						<p className="mt-2 rounded-md bg-warning/10 px-3 py-2 text-[12.5px] leading-6 text-foreground ring-1 ring-inset ring-warning/30" role="note">
 							<b>{fa(plan.cnt.previous)}</b> ردیف از سال‌های قبل در فایل هست ({prevY.map((y) => `${fa(y)}: ${fa(plan.years[y])}`).join('، ')}) — وارد دفترِ {fa(TARGET_FY)} نمی‌شوند و دادهٔ آن سال‌ها هم تغییر نمی‌کند.
 						</p>
@@ -125,8 +126,8 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 			)}
 			{err && <p className="mt-3 rounded-md bg-error/10 px-3 py-2 text-[13px] font-bold text-error" role="alert">{err}</p>}
 			<div className="mt-4 flex flex-wrap items-center gap-2">
-				<button type="button" className={BTN_PRIMARY} disabled={busy || !plan || !!plan.error || !plan.total} onClick={commit}>
-					{busy ? 'بک‌آپ و ثبت…' : plan && plan.total ? `ثبتِ ${fa(plan.total)} ردیفِ ${fa(TARGET_FY)}` : 'ردیفِ معتبری برای ثبت نیست'}
+				<button type="button" className={BTN_PRIMARY} disabled={busy || !plan || !!plan.error || !(plan.total || plan.dateUpdates.length)} onClick={commit}>
+					{busy ? 'بک‌آپ و ثبت…' : plan && (plan.total || plan.dateUpdates.length) ? `ثبت ${fa(plan.total)} ردیف و تکمیل ${fa(plan.dateUpdates.length)} تاریخ فروش` : 'ردیفِ معتبری برای ثبت نیست'}
 				</button>
 				<button type="button" className={BTN_GHOST} disabled={busy} onClick={onClose}>انصراف</button>
 				<span className="text-[11.5px] text-muted-foreground">پیش از ثبت، بک‌آپِ سرور گرفته می‌شود.</span>
@@ -138,7 +139,7 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 /** متنِ اعلانِ پس از ایمپورت (برای toast/وضعیت) */
 export function importSummary(r: ImportDone) {
 	const prev = Object.keys(r.years).filter((y) => y !== TARGET_FY).sort()
-	return `${fa(r.valid)} ردیفِ ۱۴۰۵ ثبت شد` + (r.repeatN ? ` (${fa(r.repeatN)} تکرار خرید)` : '') +
+	return `${fa(r.valid)} ردیفِ ۱۴۰۵ ثبت شد · ${fa(r.dateUpdates)} تاریخ فروش تکمیل شد` + (r.repeatN ? ` (${fa(r.repeatN)} تکرار خرید)` : '') +
 		(r.previous ? ` · ${fa(r.previous)} ردیف از سال‌های قبل (${prev.map((y) => fa(y)).join('، ')}) کنار گذاشته شد` : '') +
 		(r.duplicate ? ` · ${fa(r.duplicate)} تکراری` : '') + (r.invalid ? ` · ${fa(r.invalid)} نامعتبر` : '')
 }

@@ -7,7 +7,7 @@ const assert = require('node:assert/strict')
  await page.clock.setFixedTime(new Date('2026-10-05T12:00:00Z'))
  await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({contentType:'text/css',body:''}))
  const S={weights:{lead:5,pre:10,funnel:20,follow:15,close:35,post:10,fin:5},officialDeduct:10,months:{}}
- const deals=[{id:1,no:'STUCK',name:'متوقف',entry:'1405/05/01',stageChangedAt:'1405/07/01',month:6,funnel:'advance',amount:'100000000',settle:'cash',stages:['lead','pre']},{id:2,no:'WON',name:'بسته',entry:'1405/07/05',month:6,funnel:'won',amount:'100000000',settle:'cash',stages:['lead','pre','funnel','follow','close','post','fin']}]
+ const deals=[{id:1,no:'STUCK',name:'متوقف',entry:'1405/05/01',stageChangedAt:'1405/07/01',month:6,funnel:'advance',amount:'100000000',settle:'cash',stages:['lead','pre']},{id:2,no:'WON',name:'بسته',entry:'1405/07/05',saleDate:'1405/07/05',month:6,funnel:'won',amount:'100000000',settle:'cash',stages:['lead','pre','funnel','follow','close','post','fin']}]
  let full={fy:'1405',people:[{id:1,name:'آزمایش',role:'sales',comp:'fixed',S,inv:deals,invY:{1405:deals}}],years:{1405:{}}}
  let writes=[],google=[]
  await page.route('**/api/**',async r=>{
@@ -22,8 +22,8 @@ const assert = require('node:assert/strict')
  assert.equal(await page.locator('[data-colk="role"]').count(),0)
  assert.equal(await page.locator('[data-colk="date"]').count(),1)
  assert.equal(await page.locator('[data-colk="change"]').count(),1)
- assert.equal(await page.locator('.recharts-brush').count(),1)
- assert.equal(await page.locator('.recharts-line').count(),6)
+ await page.locator('[data-bklit-sales-chart] .visx-brush').waitFor()
+ assert.ok(await page.locator('[data-bklit-sales-chart] svg').count() >= 2)
  console.log('Stagnation filter'); await page.getByRole('button',{name:/توقف بیش از ۴۰ روز/}).click()
  assert.equal(await page.locator('[data-order-row]').count(),1)
  const row=page.locator('[data-order-row]').first()
