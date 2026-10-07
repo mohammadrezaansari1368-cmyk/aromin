@@ -4,3 +4,6 @@ deployment/.assistant-secrets/
 releases/*.zip
 releases/*.sha256
 releases/*.tgz
+
+# Graphify: graph is rebuilt locally (code-only, no LLM): graphify update .
+graphify-out/

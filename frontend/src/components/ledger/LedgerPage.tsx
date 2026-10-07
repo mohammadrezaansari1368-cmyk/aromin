@@ -539,11 +539,11 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 					<Funnel data={funnelReach(T.funnel).map(s => ({ ...s, label: FUNNEL.find(f => f.k === s.key)!.t }))} />
 					<p className="mt-2 text-xs text-muted-foreground">تعداد رسیده به هر مرحله · شکست: {fa(T.funnel.lost.n)}</p>
 				</Tile>
-				<Tile key="w7" title="وزنِ هفت مرحلهٔ پورسانت" code="C1" className="md:col-span-2 xl:col-span-4">
+				<Tile key="w7" title="وزنِ هفت مرحلهٔ پورسانت" code="C7" className="md:col-span-2 xl:col-span-4">
 					<StageWeights weights={wt} basis={T.byStage} />
 				</Tile>
-			{single && isAdmin(session.role) && <Tile key="compensation" title="مدل حقوق و تصویب پاداش" code="C1"><CompensationSettings key={String(single.id) + ':' + single.comp} person={single} session={session} refresh={load} /></Tile>}
-<Tile key="recommendations" title="نقاط قوت و پیشنهاد بهبود فروش" code="C1" className="md:col-span-2 xl:col-span-4">
+			{single && isAdmin(session.role) && <Tile key="compensation" title="مدل حقوق و تصویب پاداش" code="C8"><CompensationSettings key={String(single.id) + ':' + single.comp} person={single} session={session} refresh={load} /></Tile>}
+<Tile key="recommendations" title="نقاط قوت و پیشنهاد بهبود فروش" code="C9" className="md:col-span-2 xl:col-span-4">
  <p className="text-sm leading-7">نقطهٔ قوت: {fa(T.funnel.won.n)} معاملهٔ بسته‌شده. فرصت بهبود: {fa(attCounts.stagnant.n)} معامله با توقف بیش از ۴۰ روز و {fa(attCounts.follow.n)} پیگیری تکمیل‌نشده.</p>
  <p className="text-xs text-muted-foreground">ابتدا معاملات متوقف و پیگیری‌های تکمیل‌نشده را بررسی کنید؛ تاریخ‌های نامشخص در محاسبهٔ توقف وارد نمی‌شوند.</p>
  </Tile>
