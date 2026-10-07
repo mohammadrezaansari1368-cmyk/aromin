@@ -213,6 +213,8 @@ async function c1Call(session: Session, path: string, body: Record<string, unkno
 export const submitDocs = (session: Session, ids: number[]) => c1Call(session, 'submit', { ids }) as Promise<{ submitted: number; skipped: string[] }>
 /** برگرداندنِ «در انتظار تصویب» به پیش‌نویس */
 export const withdrawDoc = (session: Session, id: number, reason = '') => c1Call(session, 'withdraw', { id, reason })
+/** «تأیید مالی و صحتِ داده» (finBy): مالی یا مدیر؛ پس از ثبت فقط مدیر؛ person خالی = لغو. سرور اعتبارسنجی و ممیزی می‌کند */
+export const setFinanceBy = (session: Session, id: number, person: string) => c1Call(session, 'finance-by', { id, person }) as Promise<{ finBy: string; unchanged?: boolean }>
 export interface ApprovalInput { cash: string; pending: string; regDateJ: string; confirmAccuracy: boolean; confirmRegistered: boolean }
 /** «تصویب سند» (فقط کارشناسِ مالی؛ سرور دوباره اعتبارسنجی می‌کند) */
 export const approveDoc = (session: Session, id: number, v: ApprovalInput) => c1Call(session, 'approve', { id, ...v }) as Promise<{ approval?: Record<string, unknown>; already?: boolean }>
