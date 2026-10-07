@@ -16,7 +16,7 @@ version = re.search(r'APP_VERSION\s*=\s*"([0-9.]+)"', (deploy / 'legacy.html').r
 shutil.rmtree(deploy / 'web')
 shutil.copytree(dist, deploy / 'web')
 files = [p for p in deploy.rglob('*') if p.is_file() and '__pycache__' not in p.parts and not {'tests', 'media'} & set(p.relative_to(deploy).parts) and (p.name == '.env.example' or not any(part.startswith('.') for part in p.relative_to(deploy).parts))]
-for required in ('aromin_publish.py', 'aromin_stage.py', 'fix_stage_dates.py', 'assets/aromin-logo.webp', 'assets/fonts/Vazirmatn-Regular.ttf',
+for required in ('aromin_stage.py', 'fix_stage_dates.py', 'aromin_publish.py', 'assets/aromin-logo.webp', 'assets/fonts/Vazirmatn-Regular.ttf',
                  'assets/fonts/Vazirmatn-Bold.ttf', 'assets/fonts/OFL.txt', 'migrations/005_publishing.sql',
                  'migrations/005_publishing.down.sql.txt'):
     assert deploy / required in files, 'Missing publishing package file: ' + required

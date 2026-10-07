@@ -85,9 +85,11 @@ def _resolve(d, sources):
     if not rows:
         return None, "file", "no_source"
     nh = name_hash(d.get("name"))
-    if nh and all(x.get("name_h") and nh not in x.get("name_h") for x in rows):
+    if nh and any(x.get("name_h") and nh not in x.get("name_h") for x in rows):
         return None, "file", "ambiguous_name"
     parsed = [parse_stage_change(x.get("raw")) if x.get("raw_type", "str") in ("str", "NoneType") else {"ok": False, "error": "not_text"} for x in rows]
+    if any(not p["ok"] for p in parsed):
+        return None, "file", "invalid_source"
     ok = {(p["date"], p["time"]): p for p in parsed if p["ok"]}
     if not ok:
         return None, "file", "invalid_source"
@@ -106,6 +108,12 @@ def plan_fix(full, sources=None):
         d = ds[0]
         key = "%s:%s" % (pid, did)
         rep["checked"] += 1
+        # Divergent copies cannot share a single before/after audit safely.
+        fields = PROTECTED + ("saleDate", "saleTime", "month", "stageChangedAt")
+        if any(any(x.get(f) != d.get(f) for f in fields) for x in ds[1:]):
+            rep["ambiguous"] += 1
+            issues.append(dict(key=key, fy=fy, no=d.get("no"), reason="ambiguous_copies"))
+            continue
         sc, origin, why = _resolve(d, sources)
         if not sc:
             bucket = "ambiguous" if why.startswith("ambiguous") else why
@@ -130,13 +138,16 @@ def plan_fix(full, sources=None):
                 mine.append(("deal", "stageChangedAt", d.get("stageChangedAt"), sc["raw"]))
         else:
             cur = str(d.get("saleDate") or "")
-            if cur and cur != sc["date"]:
+            map_date = (sale_dates.get(fy) or {}).get(key)
+            map_time = (sale_times.get(fy) or {}).get(key)
+            time_conflict = sc["time"] and (d.get("saleTime") or map_time) and (d.get("saleTime") or map_time) != sc["time"]
+            if (cur and cur != sc["date"]) or (not cur and map_date and map_date != sc["date"]) or time_conflict:
                 rep["locked_conflict"] += 1
                 issues.append(dict(key=key, fy=fy, no=d.get("no"), reason="locked_conflict"))
                 continue
-            if not cur and (sale_dates.get(fy) or {}).get(key) != sc["date"]:
+            if not cur and not (sale_dates.get(fy) or {}).get(key):
                 mine.append(("saleDates", key, (sale_dates.get(fy) or {}).get(key), sc["date"]))
-            if sc["time"] and not d.get("saleTime") and (sale_times.get(fy) or {}).get(key) != sc["time"]:
+            if sc["time"] and not d.get("saleTime") and not (sale_times.get(fy) or {}).get(key):
                 mine.append(("saleTimes", key, (sale_times.get(fy) or {}).get(key), sc["time"]))
             if d.get("month") not in (None, "") and int(d.get("month")) != month:
                 rep["locked_month_mismatch"] += 1
@@ -168,7 +179,7 @@ def rollback_changes(full, audit):
         pid, did = c["key"].split(":", 1)
         if c["target"] == "deal":
             ds = copies.get((pid, c["fy"], did)) or []
-            if not ds or any(d.get(c["field"]) != c["after"] for d in ds):
+            if not ds or any(locked(d) or d.get(c["field"]) != c["after"] for d in ds):
                 skipped.append(c)
                 continue
             for d in ds:
@@ -212,8 +223,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tenant", default="team")
     ap.add_argument("--source", help="JSONِ استخراج‌شده از خروجی‌های اصلیِ Joolio")
-    ap.add_argument("--apply", action="store_true", help="اجرای واقعی (پیش‌فرض: dry-run)")
-    ap.add_argument("--rollback", metavar="RUN_ID")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--apply", action="store_true", help="اجرای واقعی (پیش‌فرض: dry-run)")
+    mode.add_argument("--rollback", metavar="RUN_ID")
     ap.add_argument("--report", help="مسیرِ فایلِ گزارشِ JSON")
     a = ap.parse_args(argv)
     import server  # همان پیکربندیِ DBِ سرویس (env)
@@ -221,22 +233,27 @@ def main(argv=None):
     cx.autocommit(False)
     try:
         with cx.cursor() as cur:
-            cur.execute(AUDIT_DDL)
-            cur.execute("SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE", (a.tenant,))   # کنترلِ هم‌زمانی
+            if a.apply or a.rollback:
+                # DDL before the row lock; backup failures must abort, never be swallowed.
+                cur.execute(AUDIT_DDL)
+                server.ensure_backup_table()
+            cur.execute("SELECT payload FROM tenant_state WHERE tenant=%s" + (" FOR UPDATE" if a.apply or a.rollback else ""), (a.tenant,))   # کنترلِ هم‌زمانی
             row = cur.fetchone()
             if not row:
                 print("کسب‌وکار پیدا نشد:", a.tenant)
                 return 2
             full = server.parse(row["payload"])
             if a.rollback:
-                cur.execute("SELECT deal_key, fy, target, field, before_v, after_v FROM data_fix_audit WHERE run_id=%s AND tenant=%s AND rolled_back IS NULL ORDER BY id", (a.rollback, a.tenant))
-                audit = [dict(key=r["deal_key"], fy=r["fy"], target=r["target"], field=r["field"],
+                cur.execute("SELECT id, deal_key, fy, target, field, before_v, after_v FROM data_fix_audit WHERE run_id=%s AND tenant=%s AND rolled_back IS NULL ORDER BY id", (a.rollback, a.tenant))
+                audit = [dict(audit_id=r["id"], key=r["deal_key"], fy=r["fy"], target=r["target"], field=r["field"],
                               before=json.loads(r["before_v"]) if r["before_v"] is not None else None,
                               after=json.loads(r["after_v"]) if r["after_v"] is not None else None) for r in cur.fetchall()]
-                server._c1_backup(a.tenant, full, "pre-rollback-" + a.rollback[:20])
+                cur.execute("INSERT INTO tenant_backups (tenant, tag, payload) VALUES (%s,%s,%s)", (a.tenant, "pre-rollback-" + a.rollback[:20], server.j(full)))
                 done, skipped = rollback_changes(full, audit)
                 cur.execute("UPDATE tenant_state SET payload=%s WHERE tenant=%s", (server.j(full), a.tenant))
-                cur.execute("UPDATE data_fix_audit SET rolled_back=NOW() WHERE run_id=%s AND tenant=%s", (a.rollback, a.tenant))
+                for c in audit:
+                    if c not in skipped:
+                        cur.execute("UPDATE data_fix_audit SET rolled_back=NOW() WHERE id=%s AND tenant=%s", (c["audit_id"], a.tenant))
                 cx.commit()
                 print(json.dumps({"rollback": a.rollback, "reverted": done, "skipped_changed_since": len(skipped)}, ensure_ascii=False))
                 return 0
@@ -245,7 +262,7 @@ def main(argv=None):
                    "fields_changed": len(changes), "issues_sample": issues[:50]}
             if a.apply and changes:
                 run = "stage-%s-%s" % (time.strftime("%Y%m%d%H%M%S"), uuid.uuid4().hex[:6])
-                server._c1_backup(a.tenant, full, "pre-" + run[:40])
+                cur.execute("INSERT INTO tenant_backups (tenant, tag, payload) VALUES (%s,%s,%s)", (a.tenant, "pre-" + run[:40], server.j(full)))
                 for i in range(0, len(changes), 500):   # پیشرفت به‌صورتِ دسته‌ای
                     for c in changes[i:i + 500]:
                         cur.execute("INSERT INTO data_fix_audit (run_id, tool, tenant, deal_key, fy, target, field, before_v, after_v, at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())",
