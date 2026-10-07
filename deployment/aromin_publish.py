@@ -267,11 +267,11 @@ def render(product, copy_fields, photo, asset_dir, font_dir=None, show_price=Fal
     fitted_text(draw, "۰۱۳۹۱۰۰۲۰۳۰ · arominco.com", (120, 1590, 960, 1670), 36, regular)
     story_geometry = list(geometry)
     channel = Image.new("RGB", (1080, 1080), "white")
-    fit_photo(channel, (60, 60, 1020, 850))
+    fit_photo(channel, (60, 130, 1020, 870))
     draw = ImageDraw.Draw(channel)
     draw.rectangle((0, 900, 1080, 1080), fill="#8A0C72")
     fitted_text(draw, product["name"], (60, 930, 1020, 1050), 52, bold, 2, "white")
-    logo(channel, (60, 40, 260, 140))
+    logo(channel, (60, 30, 300, 110))
     output = []
     for image in (channel, story):
         buffer = io.BytesIO()

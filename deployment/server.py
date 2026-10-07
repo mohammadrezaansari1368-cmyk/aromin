@@ -4922,7 +4922,7 @@ def pub_prepare(job, config):
     if not product:
         since = pub_now() - datetime.timedelta(days=config["rotation"]["cooldown_days"])
         recent = {r["product_url"] for r in q("SELECT product_url FROM pub_jobs WHERE tenant=%s AND id<>%s AND created_at>=%s UNION SELECT product_url FROM tg_posts WHERE tenant=%s AND status<>'REJECTED' AND created_at>=%s",
-                                                (job["tenant"], job["id"], since, job["tenant"], since))}
+                                                (job["tenant"], job["id"], since, TG_TENANT, since))}   # tg_posts is written with TG_TENANT
         urls = [_product_url(u) for u in _sa_sitemap_urls(PRODUCT_SITE)]
         urls = pub.candidates([u for u in urls if u], config["rotation"], recent)
         for url in urls[:config["cost_limits"]["max_product_fetches_per_run"]]:
@@ -5231,6 +5231,9 @@ def pub_report(job):
     return pub_safe(result)
 
 
+PUB_MISS_AFTER = datetime.timedelta(hours=48)   # unapproved drafts expire (MISSED) instead of lingering forever
+
+
 def pub_tick():
     now = pub_now()
     for row in q("SELECT tenant,settings FROM pub_settings"):
@@ -5257,6 +5260,12 @@ def pub_tick():
                     # READY is approved before the deadline. A late regenerated draft follows late policy.
                     pub_approve(job["id"], job["snapshot_sha256"], "automatic", automatic=True)
                     job = pub_job(job["id"])
+                if job["status"] in ("AWAITING_APPROVAL", "DEFERRED") and pub_now() >= job["publish_at_utc"] + PUB_MISS_AFTER:
+                    missed, _ = _tg_exec("UPDATE pub_jobs SET status='MISSED',updated_at=%s WHERE id=%s AND generation=%s AND lease_token=%s AND status IN ('AWAITING_APPROVAL','DEFERRED')",
+                                         (pub_now(), job["id"], job["generation"], token))
+                    if missed:
+                        pub_audit(job["id"], "missed", "no approval within %d hours after the publishing slot" % (PUB_MISS_AFTER.total_seconds() // 3600))
+                    continue
                 if job["status"] in ("AWAITING_APPROVAL", "DEFERRED"):
                     pub_preview(job, config)
                     if pub_now() >= job["publish_at_utc"]:

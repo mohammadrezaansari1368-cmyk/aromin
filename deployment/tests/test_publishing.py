@@ -263,6 +263,37 @@ class LifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             server.pub_approve(job["id"], job["snapshot_sha256"], "manager", "other-tenant")
 
+    def test_unapproved_job_expires_to_missed_after_48h(self):
+        job = self.ready()
+        self.save_config()
+        server._tg_exec("UPDATE pub_jobs SET status='DEFERRED',lease_until=NULL,lease_token=NULL WHERE id=%s", (job["id"],))
+        self.now = job["publish_at_utc"] + dt.timedelta(hours=47)
+        with patch.object(server, "pub_preview"):
+            server.pub_tick()
+        self.assertEqual(server.pub_job(job["id"])["status"], "DEFERRED")
+        self.now = job["publish_at_utc"] + dt.timedelta(hours=48)
+        with patch.object(server, "pub_preview") as preview, patch.object(server, "pub_deliver") as deliver:
+            server.pub_tick()
+            preview.assert_not_called(); deliver.assert_not_called()
+        self.assertEqual(server.pub_job(job["id"])["status"], "MISSED")
+        with self.assertRaises(ValueError):
+            server.pub_approve(job["id"], job["snapshot_sha256"], "manager", "test")
+
+    def test_cooldown_reads_tg_posts_with_telegram_tenant(self):
+        cx = sqlite3.connect(self.database)
+        cx.execute("INSERT INTO tg_posts VALUES(?,?,?,?)", (PRODUCT["url"], server.TG_TENANT, "PUBLISHED", self.now.isoformat(sep=" ")))
+        cx.commit(); cx.close()
+        job = self.draft()
+        seen = {}
+        def fake_candidates(urls, rotation, recent):
+            seen["recent"] = set(recent)
+            raise RuntimeError("stop after cooldown query")
+        with patch.object(server, "TG_TENANT", "team"), patch.object(server, "_sa_sitemap_urls", return_value=[PRODUCT["url"]]),              patch.object(server.pub, "candidates", side_effect=fake_candidates):
+            server._tg_exec("UPDATE pub_jobs SET tenant='other',product_json=NULL WHERE id=%s", (job["id"],))
+            with self.assertRaises(Exception):
+                server.pub_prepare(server.pub_job(job["id"]), self.cfg)
+        self.assertIn(PRODUCT["url"], seen.get("recent", set()))
+
     def test_late_immediate_approval(self):
         self.cfg = config(late_approval_policy="immediate")
         job = self.ready()
