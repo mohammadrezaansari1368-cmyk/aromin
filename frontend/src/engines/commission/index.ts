@@ -387,4 +387,4 @@ export const finStateOf = (d: Deal): FinState => (d.finClosed ? 'closed' : d.fin
 /** سندِ قفل: در انتظار تصویب / تصویب‌شده / بسته — فقط مسیرهای سرور تغییرش می‌دهند */
 export const isLocked = (d: Deal | null | undefined) => !!d && finStateOf(d) !== 'draft'
 export const FIN_STATE_LABEL: Record<FinState, string> = { draft: 'قابل ویرایش', submitted: 'در انتظار تصویب', approved: 'تصویب‌شده', closed: 'بسته‌شده' }
-export const SERVER_FIELDS = ['finState', 'finApproval', 'finAudit', 'finClosed', 'finReopen'] as const
+export const SERVER_FIELDS = ['finState', 'finApproval', 'finAudit', 'finClosed', 'finReopen', 'finBy'] as const   // finBy فقط از /api/c1/finance-by

@@ -47,52 +47,87 @@ describe('هفت مرحلهٔ پورسانت', () => {
 	})
 })
 
-/* ---------- ایمپورتِ سالِ مالیِ ۱۴۰۵ ---------- */
+/* ---------- ایمپورت: سالِ مالی، تاریخ و ساعت فقط از سلولِ «تغییر مرحله» ---------- */
 const person = (id: number, name: string, inv: Deal[] = []) => ({ id, name, role: 'sales', S: freshS(), inv, invY: { '1405': inv } })
 const blob = (extra: Record<string, unknown> = {}) => {
 	const p1 = person(1, 'سارا', [deal({ id: 10, no: 'A-1', name: 'کافه رشت', month: 0 })])
 	;(p1.invY as Record<string, Deal[]>)['1404'] = [deal({ id: 5, no: 'OLD-1', name: 'کافه قدیمی', month: 5 })]
-	return { fy: '1405', gid: 20, years: { '1405': {} }, people: [p1, person(2, 'نیما')], importLog: [], ...extra } as any
+	return { fy: '1405', gid: 20, years: { '1405': {}, '1404': {}, '1403': {} }, people: [p1, person(2, 'نیما')], importLog: [], ...extra } as any
 }
-const R = (o: Record<string, unknown>) => ({ 'سال مالی': '1405', 'معامله': '', 'شرکت': 'مشتری', 'ارزش': 5000000, 'تاریخ تغییر مرحله': '1405/02/10', 'کارشناس': 'سارا', 'مرحله': 'بستن', ...o })
+// ساختارِ واقعیِ خروجیِ Joolio: «ورود» (تاریخ)، «تغییر مرحله» (ساعت تاریخ)، «معامله» (شناسهٔ یکتا)؛ بدونِ ستونِ «سال مالی»
+const R = (o: Record<string, unknown>) => ({ 'ورود': '1405/02/01', 'تغییر مرحله': '10:00:00 1405/02/10', 'معامله': '', 'شرکت': 'مشتری', 'ارزش': 5000000, 'کارشناس': 'سارا', 'مرحله': 'بستن', ...o })
+const opts = { mode: 'append' as const, rial: false }
 
-describe('ایمپورت — فقط ۱۴۰۵', () => {
-	it('ستونِ «سال مالی» مرجع است (حتی اگر تاریخ چیز دیگری بگوید)', () => {
-		const rows = [R({ 'معامله': 'N1', 'سال مالی': '۱۴۰۵' }), R({ 'معامله': 'N2', 'سال مالی': '1404', 'تاریخ تغییر مرحله': '1405/01/05' }), R({ 'معامله': 'N3', 'سال مالی': '1403' }), R({ 'معامله': 'N4', 'سال مالی': '' })]
-		const P = planDealImport(rows, blob(), { mode: 'append', rial: false })
-		expect(P.fySource).toBe('column')
-		expect(P.cnt).toEqual({ valid: 1, previous: 2, duplicate: 0, invalid: 1 })
-		expect(P.years).toEqual({ '1405': 1, '1404': 1, '1403': 1 })
+describe('ایمپورت — منبعِ سالِ مالی و تاریخ = «تغییر مرحله»', () => {
+	it('۱) ایمپورتِ معتبر بدونِ ستونِ «سال مالی»', () => {
+		const P = planDealImport([R({ 'معامله': 'N1', 'تغییر مرحله': '16:32:51 1405/06/31' })], blob(), opts)
+		expect(P.error).toBeUndefined()
+		expect(P.cnt.valid).toBe(1)
+		const d = P.groups['سارا'][0]
+		expect([d.saleDate, d.saleTime, d.fy, d.month, d.stageChangedAt]).toEqual(['1405/06/31', '16:32:51', '1405', 5, '16:32:51 1405/06/31'])
 	})
-	it('بدون ستون سال مالی ثبت متوقف می‌شود، حتی با تاریخ ۱۴۰۵', () => {
-		const row = R({ 'معامله': 'N1' }); delete (row as Record<string, unknown>)['سال مالی']
-		expect(planDealImport([row], blob(), { mode: 'append', rial: false }).error).toContain('سال مالی')
+	it('۲) ستونِ قدیمیِ «سال مالی» منبع را override نمی‌کند', () => {
+		const P = planDealImport([R({ 'معامله': 'N1', 'سال مالی': '1404' }), R({ 'معامله': 'N2', 'سال مالی': '1405', 'تغییر مرحله': '09:00:00 1404/11/02' })], blob(), opts)
+		expect(P.rows.map((r) => [r.no, r.fy, r.st])).toEqual([['N1', '1405', 'valid'], ['N2', '1404', 'previous']])
 	})
-	it('ثبت: فقط ۱۴۰۵، inv و invY یکسان، دادهٔ سال‌های قبل دست‌نخورده، بار دوم هیچ (idempotent)', () => {
+	it('۳) سالِ ستونِ «ورود» جایگزینِ سالِ مالی نمی‌شود', () => {
+		const P = planDealImport([R({ 'معامله': 'N1', 'ورود': '1404/12/20', 'تغییر مرحله': '08:15:00 1405/01/05' })], blob(), opts)
+		expect([P.rows[0].fy, P.rows[0].st, P.groups['سارا'][0].saleDate]).toEqual(['1405', 'valid', '1405/01/05'])
+	})
+	it('۴) خطای روشن: سالِ مالیِ تعریف‌نشده، ستونِ مفقود و ستونِ مبهم', () => {
+		const P = planDealImport([R({ 'معامله': 'N1', 'تغییر مرحله': '10:00:00 1406/01/01' })], blob(), { ...opts, source: 'deal.xlsx', sheet: 'Worksheet' })
+		expect(P.rows[0].st).toBe('invalid')
+		expect(P.rows[0].why).toContain('سالِ مالیِ 1406 در سیستم تعریف نشده')
+		for (const part of ['«deal.xlsx»', 'برگهٔ «Worksheet»', 'ردیف 2', 'ستون «تغییر مرحله»', '10:00:00 1406/01/01']) expect(P.rows[0].why).toContain(part)
+		const noCol = R({ 'معامله': 'N1' }); delete (noCol as Record<string, unknown>)['تغییر مرحله']
+		expect(planDealImport([{ ...noCol, 'سال مالی': '1405', 'تاریخ': '1405/02/02' }], blob(), opts).error).toContain('تغییر مرحله')
+		expect(planDealImport([{ ...R({ 'معامله': 'N1' }), 'تغییر مرحله_1': '10:00:00 1405/02/10' }], blob(), opts).error).toContain('چند بار')
+	})
+	it('۵) سه نوع رقم، حفظِ مقدارِ خام و ساعت، ردِ تاریخِ نامعتبر', () => {
+		const rows = [R({ 'معامله': 'N1', 'تغییر مرحله': '۱۶:۳۲:۵۱ ۱۴۰۵/۰۶/۳۱' }), R({ 'معامله': 'N2', 'تغییر مرحله': '١٦:٣٢:٥١ ١٤٠٥/٠٦/٣١' }), R({ 'معامله': 'N3', 'تغییر مرحله': '16:32:51 1405/07/31' }), R({ 'معامله': 'N4', 'تغییر مرحله': '' })]
+		const P = planDealImport(rows, blob(), opts)
+		expect(P.rows.map((r) => r.st)).toEqual(['valid', 'valid', 'invalid', 'invalid'])
+		expect(P.groups['سارا'].map((d) => [d.saleDate, d.saleTime, d.stageChangedAt])).toEqual([['1405/06/31', '16:32:51', '۱۶:۳۲:۵۱ ۱۴۰۵/۰۶/۳۱'], ['1405/06/31', '16:32:51', '١٦:٣٢:٥١ ١٤٠٥/٠٦/٣١']])
+		expect(P.rows[2].why).toContain('تاریخِ شمسیِ نامعتبر')
+		expect(P.rows[2].raw).toBe('16:32:51 1405/07/31')
+	})
+	it('۶) جابه‌جاییِ ستون‌ها نتیجه را عوض نمی‌کند (تشخیص با هدر، نه شمارهٔ ستون)', () => {
+		const rows = [R({ 'معامله': 'N1' }), R({ 'معامله': 'N2', 'تغییر مرحله': '11:11:11 1405/03/03' })]
+		const rev = rows.map((r) => Object.fromEntries(Object.entries(r).reverse()))
+		const a = planDealImport(rows, blob(), opts), b = planDealImport(rev, blob(), opts)
+		expect(JSON.stringify(b.groups)).toBe(JSON.stringify(a.groups))
+		expect(b.cnt).toEqual(a.cnt)
+	})
+	it('۷) پیش‌نمایش = ثبتِ نهایی؛ بار دوم هیچ (idempotent)؛ inv و invY یکسان؛ سال‌های قبل دست‌نخورده', () => {
 		const full = blob()
 		const before1404 = JSON.stringify(full.people[0].invY['1404'])
-		const rows = [R({ 'معامله': 'N1' }), R({ 'معامله': 'N2', 'سال مالی': '1404', 'تاریخ تغییر مرحله': '1404/03/03' }), R({ 'معامله': 'N1' }), R({ 'معامله': 'A-1', 'تاریخ تغییر مرحله': '1405/01/01' })]
-		const r = applyDealImport(full, rows, { mode: 'append', rial: false, fileName: 'f.xlsx', sig: 's', custbook: null })
-		expect(r.plan.cnt).toEqual({ valid: 1, previous: 1, duplicate: 2, invalid: 0 })
+		const rows = [R({ 'معامله': 'N1', 'تغییر مرحله': '16:32:51 1405/06/31' }), R({ 'معامله': 'N2', 'تغییر مرحله': '10:00:00 1404/03/03' }), R({ 'معامله': 'N1' }), R({ 'معامله': 'A-1' })]
+		const preview = planDealImport(rows, full, opts)
+		const r = applyDealImport(full, rows, { ...opts, fileName: 'f.xlsx', sig: 's', custbook: null })
+		expect(r.plan.cnt).toEqual(preview.cnt)
+		expect(r.plan.rows.map((x) => [x.st, x.fy, x.date, x.time])).toEqual(preview.rows.map((x) => [x.st, x.fy, x.date, x.time]))
 		const sara = full.people[0]
 		expect(sara.inv).toBe(sara.invY['1405'])
-		expect(sara.inv.map((d: Deal) => d.no)).toEqual(['A-1', 'N1'])
-		expect(sara.inv[1].fy).toBe('1405')
+		const n1 = sara.inv.find((d: Deal) => d.no === 'N1')
+		expect([n1.saleDate, n1.saleTime, n1.fy]).toEqual(['1405/06/31', '16:32:51', '1405'])
 		expect(JSON.stringify(sara.invY['1404'])).toBe(before1404)
-		expect(JSON.stringify(full).includes('"N2"')).toBe(false)
-		expect(full.importLog.at(-1).fy.previous).toBe(1)
-		const again = planDealImport(rows, full, { mode: 'append', rial: false })
-		expect(again.cnt.valid).toBe(0)
+		expect(planDealImport(rows, full, opts).cnt.valid).toBe(0)
 		expect(new Set(sara.inv.map((d: Deal) => d.id)).size).toBe(sara.inv.length)
+	})
+	it('تکمیلِ تاریخ و ساعتِ خالیِ فاکتورِ موجود (بدونِ رکوردِ تازه)', () => {
+		const full = blob()
+		const r = applyDealImport(full, [R({ 'معامله': 'A-1', 'تغییر مرحله': '12:30:00 1405/01/20' })], { ...opts, fileName: 'f', sig: 's', custbook: null })
+		expect(r.plan.dateUpdates).toEqual([{ key: '1:10', date: '1405/01/20', time: '12:30:00' }])
+		expect([full.saleDates['1405']['1:10'], full.saleTimes['1405']['1:10'], full.people[0].inv.length]).toEqual(['1405/01/20', '12:30:00', 1])
 	})
 	it('جایگزینی فقط ماه‌های فایل را عوض می‌کند', () => {
 		const full = blob()
 		full.people[0].inv.push(deal({ id: 11, no: 'A-2', month: 1 }))
-		applyDealImport(full, [R({ 'معامله': 'N9', 'تاریخ تغییر مرحله': '1405/02/20' })], { mode: 'replace', rial: false, fileName: 'f', sig: 's', custbook: null })
+		applyDealImport(full, [R({ 'معامله': 'N9', 'تغییر مرحله': '10:00:00 1405/02/20' })], { mode: 'replace', rial: false, fileName: 'f', sig: 's', custbook: null })
 		expect(full.people[0].inv.map((d: Deal) => d.no)).toEqual(['A-1', 'N9'])
 	})
 	it('سالِ مالیِ فعالِ سیستم غیرِ ۱۴۰۵ → هیچ ثبتی', () => {
-		expect(planDealImport([R({})], blob({ fy: '1404' }), { mode: 'append', rial: false }).error).toBeTruthy()
+		expect(planDealImport([R({})], blob({ fy: '1404' }), opts).error).toBeTruthy()
 	})
 })
 

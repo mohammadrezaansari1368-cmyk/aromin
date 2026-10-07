@@ -42,7 +42,7 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 		return () => { alive = false }
 	}, [file])
 
-	const plan: Plan | null = useMemo(() => (parsed && full ? planDealImport(parsed.rows, full, { mode, rial, date1904: parsed.date1904 }) : null), [parsed, full, mode, rial])
+	const plan: Plan | null = useMemo(() => (parsed && full ? planDealImport(parsed.rows, full, { mode, rial, date1904: parsed.date1904, source: file.name, sheet: parsed.sheets[0]?.name }) : null), [parsed, full, mode, rial, file.name])
 	const prevY = plan ? previousYears(plan) : []
 	const bad = plan ? plan.rows.filter((r) => r.st !== 'valid') : []
 
@@ -53,7 +53,7 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 			try { localStorage.setItem(RIAL_KEY, rial ? '1' : '0') } catch { /* */ }
 			const cb = custbookFromDeals(parsed.sheets)
 			let res: ReturnType<typeof applyDealImport> | null = null
-			await saveState((f) => { res = applyDealImport(f, parsed.rows, { mode, rial, date1904: parsed.date1904, fileName: file.name, sig: parsed.det.sig, custbook: cb }) }, { forceBackup: true, tag: 'پیش از ایمپورتِ معاملاتِ ۱۴۰۵ (نسخهٔ جدید)' })
+			await saveState((f) => { res = applyDealImport(f, parsed.rows, { mode, rial, date1904: parsed.date1904, source: file.name, sheet: parsed.sheets[0]?.name, fileName: file.name, sig: parsed.det.sig, custbook: cb }) }, { forceBackup: true, tag: 'پیش از ایمپورتِ معاملاتِ ۱۴۰۵ (نسخهٔ جدید)' })
 			const r = res as unknown as ReturnType<typeof applyDealImport>
 			onDone({ dateUpdates: r.plan.dateUpdates.length, valid: r.plan.cnt.valid, previous: r.plan.cnt.previous, years: r.plan.years, duplicate: r.plan.cnt.duplicate, invalid: r.plan.cnt.invalid, repeatN: r.repeatN, created: r.created, name: file.name })
 		} catch (e) {
@@ -92,7 +92,7 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 						</p>
 					)}
 					<p className="mt-2 text-[12px] leading-6 text-muted-foreground">
-						سالِ مالی: {plan.fySource === 'column' ? <>از ستونِ «{plan.fyColumn}» فایل</> : <>فایل ستونِ «سال مالی» ندارد؛ از سالِ ستونِ تاریخ</>}
+						سالِ مالی، تاریخِ فروش و ساعت: از سلولِ ستونِ «{plan.fyColumn}» (ستونِ «سال مالی» یا «ورود» اگر باشد استفاده نمی‌شود)
 						{Object.keys(plan.monthsInFile).length > 0 && <> · ماه‌های ۱۴۰۵ در فایل: {monthsLabel(plan)}</>}
 					</p>
 					<div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px]">

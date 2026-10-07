@@ -1679,7 +1679,8 @@ def otp_verify(payload: dict = Body(default={})):
 # POST /api/state: هر تغییر روی سندِ قفل (در انتظار/تصویب‌شده/بسته)، هر تغییرِ فیلدهای مالیِ سرور، و هر تغییرِ شمارهٔ فاکتور رد می‌شود.
 C1_FIN_ROLES = ("finance",)
 C1_APPROVE_ROLES = C1_FIN_ROLES + ("manager", "salesmgr", "accmgr")   # تصویبِ سند: کارشناسِ مالی و مدیر
-C1_SERVER_FIELDS = ("finState", "finApproval", "finAudit", "finClosed", "finReopen")
+C1_SERVER_FIELDS = ("finState", "finApproval", "finAudit", "finClosed", "finReopen", "finBy")   # finBy فقط از /api/c1/finance-by
+C1_FIN_PERSON_ROLES = ("finance", "accmgr")   # اشخاصِ مجاز برای «تأیید مالی و صحتِ داده» (همان finNamesِ دفتر)
 C1_LOCK_STATES = ("submitted", "approved")
 _c1_codes = {}   # user -> {code, exp, tries, last, deal}
 _FA_DIG = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
@@ -1933,6 +1934,42 @@ def c1_withdraw(request: Request, payload: dict = Body(default={})):
         _c1_audit(d, "withdraw", ident, full, reason=reason)
     _c1_save(tenant, full)
     return {"ok": True}
+
+
+@app.post("/api/c1/finance-by")
+def c1_finance_by(request: Request, payload: dict = Body(default={})):
+    """تعیین/تغییر/لغوِ «تأیید مالی و صحتِ داده» (finBy). کارشناسِ مالی یا مدیر؛ پس از ثبت، تغییر/لغو فقط با مدیر.
+    شخصِ انتخاب‌شده (finBy) از کاربرِ انجام‌دهنده (finAudit: by/user/role) جدا ثبت می‌شود. سندِ قفل تغییر نمی‌کند."""
+    tenant, ident, full, err = _c1_ctx(request, payload)
+    if err:
+        return err
+    if ident["role"] not in C1_APPROVE_ROLES:
+        return _c1_deny("تعیینِ تأیید مالی فقط برای کارشناسِ مالی یا مدیر است.")
+    did = str((payload or {}).get("id") or "")
+    ds = _c1_index(full).get(did) or []
+    if not ds:
+        return _c1_deny("سند پیدا نشد.", 404)
+    if any(_c1_locked(d) for d in ds):
+        return _c1_deny("سند قفل است (تصویب/بسته) و تأیید مالیِ آن تغییر نمی‌کند.", 409)
+    person = str((payload or {}).get("person") or "").strip()
+    current = str(ds[0].get("finBy") or "").strip()
+    if person == current:
+        return {"ok": True, "unchanged": True, "finBy": current}
+    if current and ident["role"] not in KB_ADMIN_ROLES:
+        return _c1_deny("تأیید مالی ثبت شده — فقط مدیر تغییر یا لغو می‌کند.")
+    if person:
+        allowed = {str(p.get("name") or "").strip() for p in (full.get("people") or [])
+                   if isinstance(p, dict) and p.get("role") in C1_FIN_PERSON_ROLES and not p.get("inactive")}
+        if person not in allowed:
+            return _c1_deny("شخصِ انتخاب‌شده برای تأیید مالی مجاز نیست.", 400)
+    for d in ds:
+        if person:
+            d["finBy"] = person
+        else:
+            d.pop("finBy", None)
+        _c1_audit(d, "fin_by", ident, full, frm=current, to=person)
+    _c1_save(tenant, full)
+    return {"ok": True, "finBy": person}
 
 
 @app.post("/api/c1/approve")
@@ -4667,6 +4704,18 @@ def _merge_sale_dates(old, new):
         new['saleDates'] = merged
     else:
         new.pop('saleDates', None)
+    # ساعتِ فروش (همان سلولِ «تغییر مرحله»): همان قاعدهٔ فقط‌تکمیل؛ اصلاحِ مقدارِ موجود فقط با ابزارِ اصلاحِ تاریخی
+    saved_t = (old or {}).get('saleTimes') or {}
+    merged_t = {year: dict(values) for year, values in saved_t.items() if isinstance(values, dict)}
+    active_t = merged_t.setdefault('1405', {})
+    for key, value in ((new.get('saleTimes') or {}).get('1405') or {}).items():
+        v = str(value or '').translate(_FA_DIG).strip()
+        if key in valid_keys and key not in active_t and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?", v):
+            active_t[key] = v
+    if any(merged_t.values()):
+        new['saleTimes'] = merged_t
+    else:
+        new.pop('saleTimes', None)
 
 
 def _preserve_compensation(old, new):
