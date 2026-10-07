@@ -2,23 +2,14 @@
 
 این مخزن را دو کدنویس با هم جلو می‌برند. هر دو همین قواعد را رعایت کنند.
 
-**محلِ ذخیره:** منبعِ حقیقت شاخهٔ `main` روی GitHub است (https://github.com/mohammadrezaansari1368-cmyk/aromin). نسخهٔ محلیِ دائمی روی این سیستم: `C:\Users\Administrator\aromin`. نسخه‌های موقت (پوشهٔ Temp/scratchpad) منبع نیستند.
-
-## پیش از شروعِ کار
-1. `git pull --ff-only` روی `main` (کارِ بزرگ: شاخهٔ کوتاه‌عمر از `main` و برگشت با fast-forward).
-2. **HANDOFF.md** را بخوان؛ بالاترین بخش = آخرین وضعیت و کارهای باز.
-3. گراف را تازه کن و برای فهمِ کد از آن بپرس (بدون LLM، فقط AST):
-   ```bash
-   graphify update .
-   graphify query "finance-by permission flow"
-   ```
-   `graphify-out/` در گیت نیست؛ `.graphifyignore` بخش‌های ساختگی (web/، dist/، تست‌ها، md) را کنار می‌گذارد.
-4. کدِ کاشی‌ها: **docs/TILE-MAP.md** (کاربر با کدهایی مثل C1، M15 درخواست می‌دهد).
-
-## پس از پایانِ هر نوبت
-- تست‌ها (پایین) را اجرا کن؛ تستی را که اجرا نشده «موفق» اعلام نکن.
-- یک بخش **بالای** HANDOFF.md اضافه کن: «تا اینجا انجام دادم» — تاریخ، کدنویس، شاخه/کامیت، چه شد، چه تست شد، کارِ باز.
-- commit و push روی `main` (فقط fast-forward؛ **force-push و بازنویسیِ تاریخچه ممنوع**). اگر push رد شد: `git pull --rebase` روی کامیت‌های push‌نشدهٔ خودت، نه force.
+## روال (GitHub-only، حداقلِ توکن)
+- منبعِ حقیقت فقط `origin/main` (https://github.com/mohammadrezaansari1368-cmyk/aromin). هیچ clone/نسخهٔ دائمی روی سیستم نگه ندار.
+- هر کار: clone موقت در `%TEMP%` (`git clone --depth 1`) → حداقلِ تغییر → تستِ مرتبط → commit → push → بررسیِ remote → حذفِ workspace.
+- اول `git status/diff/log`؛ فقط فایل‌های مرتبط را بخوان؛ کلِ مخزن را اسکن نکن (برای پیدا کردن: `graphify update .` و `graphify query "..."`).
+- force-push و بازنویسیِ تاریخچه ممنوع؛ push رد شد → `git pull --rebase`.
+- `.env`، کلید/توکن، دیتابیس، بکاپ و دادهٔ مشتری هرگز در گیت نه؛ `node_modules`، `frontend/dist`، `deployment/web` و بسته‌های `releases/` commit نشوند.
+- توضیح/مستندِ اضافه نساز؛ HANDOFF.md: فقط یک بندِ کوتاه بالای فایل؛ گزارشِ پایانی حداکثر ۵ خط: branch / commit / tests / push / cleanup.
+- کدِ کاشی‌ها: docs/TILE-MAP.md.
 
 ## ساختار
 - `deployment/server.py` — FastAPI تک‌فایل + MariaDB (pymysql)؛ migrations خودکار.

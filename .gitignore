@@ -7,3 +7,6 @@ releases/*.tgz
 
 # Graphify: graph is rebuilt locally (code-only, no LLM): graphify update .
 graphify-out/
+# Build output: packaged from frontend/dist by tools/package_release.py
+deployment/web/
+__pycache__/
