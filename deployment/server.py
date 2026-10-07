@@ -5496,7 +5496,7 @@ def _startup():
         print("در حال بررسی و اعمالِ مهاجرت‌های دیتابیس…")
         n = run_migrations(CFG_DB)
         print(("مهاجرت‌ها اعمال شد (%d فایل)." % n) if n else "دیتابیس از قبل به‌روز بود.")
-        if tg_configured() or any(c.get("activated") and c.get("enabled") for c in _sa_all().values()) or q("SELECT tenant FROM pub_settings WHERE settings LIKE '%\"enabled\":true%'"):
+        if tg_configured() or any(c.get("activated") and c.get("enabled") for c in _sa_all().values()) or q("SELECT tenant FROM pub_settings WHERE settings LIKE %s", ('%"enabled":true%',)):
             sa_start_worker()
     except Exception as e:
         print("اجرای مهاجرت‌ها ناموفق بود:", str(e))

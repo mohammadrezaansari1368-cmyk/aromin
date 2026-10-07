@@ -11,7 +11,7 @@ BK="$APP_DIR/backups-install/$TS"
 echo "› بازگردانی از $BK"
 rm -rf "$SPA_DIR"; [ -d "$BK/web" ] && cp -r "$BK/web" "$SPA_DIR" || true
 [ -f "$BK/server.py" ] && cp "$BK/server.py" "$SRV_DIR/server.py" || true
-for item in aromin_publish.py assets migrations/005_publishing.sql migrations/005_publishing.down.sql.txt; do
+for item in aromin_publish.py aromin_stage.py fix_stage_dates.py assets migrations/005_publishing.sql migrations/005_publishing.down.sql.txt; do
   if [ -e "$BK/$item" ]; then
     rm -rf "$SRV_DIR/$item"
     mkdir -p "$SRV_DIR/$(dirname "$item")"

@@ -20,7 +20,7 @@ BK="$APP_DIR/backups-install/$TS"; mkdir -p "$BK"
 echo "› بکاپ در: $BK"
 [ -e "$SPA_DIR" ]            && cp -r "$SPA_DIR" "$BK/web"        || true
 [ -f "$SRV_DIR/server.py" ] && cp "$SRV_DIR/server.py" "$BK/"    || true
-for item in aromin_publish.py assets migrations/005_publishing.sql migrations/005_publishing.down.sql.txt; do
+for item in aromin_publish.py aromin_stage.py fix_stage_dates.py assets migrations/005_publishing.sql migrations/005_publishing.down.sql.txt; do
   mkdir -p "$BK/$(dirname "$item")"
   if [ -e "$SRV_DIR/$item" ]; then cp -r "$SRV_DIR/$item" "$BK/$item"; else touch "$BK/$item.absent"; fi
 done
@@ -31,6 +31,7 @@ echo "› نصبِ فایل‌ها"
 rm -rf "$SPA_DIR"; cp -r "$HERE/web" "$SPA_DIR"
 cp "$HERE/server.py" "$SRV_DIR/server.py"
 cp "$HERE/aromin_publish.py" "$SRV_DIR/aromin_publish.py"
+cp "$HERE/aromin_stage.py" "$HERE/fix_stage_dates.py" "$SRV_DIR/"
 mkdir -p "$SRV_DIR/assets" "$SRV_DIR/migrations"
 cp -r "$HERE/assets/." "$SRV_DIR/assets/"
 cp "$HERE/migrations/005_publishing.sql" "$HERE/migrations/005_publishing.down.sql.txt" "$SRV_DIR/migrations/"

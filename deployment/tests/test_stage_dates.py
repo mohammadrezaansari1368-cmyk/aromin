@@ -184,3 +184,34 @@ class FinanceAssignee(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class CorrectionSafety(unittest.TestCase):
+    def test_divergent_copies_are_not_rewritten(self):
+        for field, value in [('finState', 'approved'), ('saleDate', '1405/01/01'), ('stageChangedAt', '1405/02/02')]:
+            full = blob([deal(stageChangedAt='10:00:00 1405/06/31')])
+            full['people'][0]['inv'][0][field] = value
+            changes, _, issues = fix.plan_fix(full)
+            self.assertEqual(changes, [])
+            self.assertEqual(issues[0]['reason'], 'ambiguous_copies')
+
+    def test_locked_maps_are_fill_only(self):
+        full = blob([deal(finState='approved', stageChangedAt='10:00:00 1405/06/31')],
+                    {'saleDates': {'1405': {'1:1': '1405/01/01'}}, 'saleTimes': {'1405': {'1:1': '09:00:00'}}})
+        changes, _, _ = fix.plan_fix(full)
+        self.assertEqual(changes, [])
+
+    def test_rollback_does_not_edit_newly_locked_document(self):
+        full = blob([deal(stageChangedAt='10:00:00 1405/06/31')])
+        changes, _, _ = fix.plan_fix(full)
+        fix.apply_changes(full, changes)
+        full['people'][0]['inv'][0]['finState'] = 'approved'
+        done, skipped = fix.rollback_changes(full, changes)
+        self.assertEqual(done, 0)
+        self.assertEqual(len(skipped), len(changes))
+
+class AmbiguousSourceSafety(unittest.TestCase):
+    def test_mixed_invalid_or_conflicting_customer_sources_are_not_guessed(self):
+        good = {'raw':'10:00:00 1405/06/31', 'won':True, 'name_h':[fix.name_hash('کافه رشت')]}
+        for other in [dict(good,raw='bad'), dict(good,name_h=[fix.name_hash('دیگری')])]:
+            changes, _, _ = fix.plan_fix(blob([deal()]), {'4699':[good, other]})
+            self.assertEqual(changes, [])
