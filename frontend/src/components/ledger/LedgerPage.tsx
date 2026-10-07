@@ -10,7 +10,7 @@
 import { createContext, memo, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as RKE, type ReactNode } from 'react'
 import {
 	ATT, CHANNEL, DEFAULT_WEIGHTS, FUNNEL, KIND, MONTHS, SETTLE, STAGES, STAGE_KEYS, settlementChoices, attIs, attPrimary, commAmount, financeOf, fa, faGroup, freshS, funLabel, funnelOf, label, mil,
-	monthOf, num, period, rawDigits, roleCount, rowBasis, sep, stagesOf, wDeal, invoiceKey, isInvoice, isLocked, finStateOf, FIN_STATE_LABEL, type Att, type CommS, type Deal, type FinState, type StageKey,
+	monthOf, num, period, rawDigits, rowBasis, sep, stagesOf, invoiceKey, isInvoice, isLocked, finStateOf, FIN_STATE_LABEL, type Att, type CommS, type Deal, type FinState, type StageKey,
 } from '@/engines/commission/index.ts'
 import { classifyKinds, custNorm, ledgerOf } from '@/engines/customer/index.ts'
 import { cleanName } from '@/engines/deal-import/index.ts'
@@ -30,7 +30,7 @@ import { orderRows } from '@/components/ui/row-order'
 import CompensationSettings from './CompensationSettings'
 import SalesTrend from './SalesTrend'
 import { saleDateOf, saleTimeOf } from '@/lib/sales-date'
-import { financeControl, rolesPatch } from '@/lib/ledger-roles'
+import { financeControl, rolesPatch, salesProgress } from '@/lib/ledger-roles'
 import { dealDate, funnelDays, isStagnant } from '@/lib/ledger-analysis'
 import Funnel from '@/components/ui/funnel-chart'
 import { funnelReach } from '@/components/ui/funnel-geometry'
@@ -49,7 +49,7 @@ const COLS: Col[] = [
 	{ k: 'no', t: 'شماره فاکتور', w: 124, sort: true, tier: 1 },
 	{ k: 'name', t: 'مشتری', w: 200, edit: 'text', sort: true, tier: 1 },
 	{ k: 'amount', t: 'خالص فاکتور', w: 128, edit: 'money', sort: true, tier: 1 },
-	{ k: 'stage', t: 'مرحله و وزنِ ۷گانه', w: 262, edit: 'stage', tier: 1 },
+	{ k: 'stage', t: 'مرحله و وزنِ ۷گانه', w: 262, tier: 1 },
 	{ k: 'settle', t: 'تسویه', w: 138, edit: 'select', tier: 1 },
 	{ k: 'next', t: 'اقدام بعدی', w: 138, tier: 1 },
 	{ k: 'owner', t: 'کارشناس', w: 118, tier: 2 },
@@ -714,22 +714,17 @@ const Chip = ({ on, tone, click, n, t, sub }: { on: boolean; tone: string; click
 )
 
 /* ---------- نمایشِ خانه‌ها (بدونِ کنترلِ فرم؛ کنترل فقط هنگامِ ویرایش) ---------- */
-function StageBar({ d, S }: { d: Deal; S: CommS }) {
-	const st = stagesOf(d), W = S.weights || DEFAULT_WEIGHTS
-	return (
-		<span className="flex h-2.5 w-full gap-[2px]" aria-hidden>
-			{STAGES.map((s) => {
-				const mine = st.includes(s.k)
-				const other = (s.k === 'lead' && d.leadGen) || (s.k === 'post' && d.supportGen && d.supportSla) || (s.k === 'fin' && financeOf(d))
-				const half = s.k === 'close' && mine && d.mgrShare
-				return <span key={s.k} className={`rounded-[2px] ${mine ? (half ? 'bg-gradient-to-l from-primary from-50% to-primary/25 to-50%' : 'bg-primary') : other ? 'bg-secondary/55' : 'bg-muted-foreground/15'}`} style={{ flexGrow: W[s.k] || 0.5, flexBasis: 0 }} />
-			})}
-		</span>
-	)
+function StageBar({ d }: { d: Deal }) {
+ const { stages } = salesProgress(d)
+ return <span className="flex w-full gap-1" aria-label="مراحل پیشرفت فروش">
+  {STAGES.map(s => <span key={s.k} data-sales-stage={s.k} data-complete={stages.includes(s.k)} className={`flex-1 text-center text-xs ${stages.includes(s.k) ? 'text-primary-ink' : 'text-muted-foreground'}`} title={`${s.t} (${fa(DEFAULT_WEIGHTS[s.k])}٪)`}>
+   <span aria-hidden>{stages.includes(s.k) ? '✓' : '○'}</span><span className="sr-only">{s.t}: {stages.includes(s.k) ? 'انجام‌شده' : 'انجام‌نشده'}</span>
+  </span>)}
+ </span>
 }
-function stageTitle(d: Deal, S: CommS) {
-	const st = stagesOf(d), W = S.weights || DEFAULT_WEIGHTS
-	return STAGES.map((s) => `${st.includes(s.k) ? '✓' : (s.k === 'lead' && d.leadGen) ? '→ ' + d.leadGen : (s.k === 'fin' && financeOf(d)) ? '→ ' + financeOf(d) : (s.k === 'post' && d.supportGen && d.supportSla) ? '→ ' + d.supportGen : '✗'} ${s.t} (${fa(W[s.k])}٪)`).join('\n')
+function stageTitle(d: Deal) {
+ const { stages } = salesProgress(d)
+ return STAGES.map(s => `${stages.includes(s.k) ? '✓' : '○'} ${s.t} (${fa(DEFAULT_WEIGHTS[s.k])}٪)`).join('\n')
 }
 function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col: ColK; dup: Set<string>; kindFix: (r: Row) => string; onNA: (r: Row, n: NA) => void; canEdit: boolean; onDel: (r: Row) => void }) {
 	const d = r.d
@@ -744,6 +739,7 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 					<span className="flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
 						<span className="truncate">{r.p.comp === 'fixed' ? 'حقوق ثابت · بدون پورسانت' : MONTHS[monthOf(d)]}</span>
 						{st !== 'draft' && <StateBadge st={st} />}
+                        <button type="button" aria-label="سند مالی" onClick={e => { e.stopPropagation(); openDocument(r) }} className="text-primary-ink underline">سند مالی</button>
 					</span>
 				</span>
 			)
@@ -753,19 +749,12 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 			return <span className="flex flex-col items-start gap-0.5"><span className={`text-[13.5px] font-extrabold tabular-nums ${a ? '' : 'text-muted-foreground'}`}>{faGroup(d.amount) || '۰'}</span><span className="text-[11px] text-muted-foreground">{a ? mil(a) : ''}</span></span>
 		}
 		case 'stage': {
-			const fk = funnelOf(d), won = fk === 'won'
-			return (
-				<span className="flex w-full min-w-0 flex-col gap-1" title={stageTitle(d, r.S)}>
-					<span className="flex min-w-0 items-center gap-1.5">
-						<span className={`${BADGE} ${FUN_TONE[fk] || FUN_TONE.advance}`}>{funLabel(fk)}</span>
-						<span className={`text-[12.5px] font-extrabold tabular-nums ${won ? 'text-primary-ink' : 'text-muted-foreground'}`}>{won ? fa(Math.round(wDeal(d, r.S.weights || DEFAULT_WEIGHTS))) + '٪' : 'بدون پورسانت'}</span>
-						<span className="mr-auto shrink-0 text-[11px] text-muted-foreground tabular-nums">نقش {fa(roleCount(d))}/{fa(STAGES.length)}{d.mgrShare ? ' · مدیر' : ''}</span>
-					</span>
-					<StageBar d={d} S={r.S} />
-					<button type="button" aria-label="سند مالی" onClick={e => { e.stopPropagation(); openDocument(r) }} className={`flex min-w-0 items-center gap-1 truncate text-[11px] ${financeOf(d) ? 'text-success' : won ? 'text-warning' : 'text-muted-foreground'}`}>{financeOf(d) ? '✓ تأیید مالی: ' + financeOf(d) : won ? 'بدونِ تأیید مالی' : '—'}</button>
-				</span>
-			)
-		}
+   const fk = funnelOf(d), progress = salesProgress(d)
+   return <span data-sales-progress={progress.percent} className="flex w-full min-w-0 flex-col gap-1" title={stageTitle(d)}>
+    <span className="flex items-center gap-1.5"><span className={`${BADGE} ${FUN_TONE[fk] || FUN_TONE.advance}`}>{funLabel(fk)}</span><b className="text-primary-ink tabular-nums">{fa(progress.percent)}٪</b><span className="mr-auto text-xs">{fa(progress.stages.length)}/{fa(STAGES.length)}</span></span>
+    <StageBar d={d} />
+   </span>
+  }
 		case 'settle': {
 			const s = (d.settle as string) || 'cash'
 			return <span className="flex flex-col gap-0.5"><span className="truncate text-[12.5px] font-bold">{label(SETTLE, s)}</span><span className={`text-[11px] ${s === 'hold' ? 'text-error' : s === 'check' ? 'text-warning' : 'text-success'}`}>{s === 'hold' ? 'بدون پورسانت' : s === 'check' ? 'پس از وصول' : 'تسویه‌شده'}</span></span>
@@ -1303,7 +1292,7 @@ function CardList({ rows, dup, kindFix, onEdit, onNA, edit, commit, cancel, lead
 							<div className="min-w-0 flex-1"><CellView r={r} col="name" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} /></div>
 							<CellView r={r} col="amount" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} />
 						</div>
-						<div className="mt-2 block w-full text-right"><CellView r={r} col="stage" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} /><button className={BTN_GHOST} onClick={() => onEdit(r, 'stage')}>تصویب سند</button></div>
+						<div className="mt-2 block w-full text-right"><CellView r={r} col="stage" dup={dup} kindFix={kindFix} onNA={onNA} canEdit={canEdit(r)} onDel={onDel} /></div>
 						{field(r, 'date', 'تاریخ')}{field(r, 'change', 'تغییر مرحله')}{field(r, 'settle', 'تسویه')}
 						{field(r, 'kind', 'نوع خرید')}
 						{scopeAll && <div className="flex min-h-9 items-center gap-2 border-t border-border/60 py-1.5 text-[12px]"><span className="w-[84px] shrink-0 text-[11.5px] text-muted-foreground">کارشناس</span>{r.p.name}</div>}
