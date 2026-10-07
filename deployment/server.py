@@ -16,6 +16,7 @@ import zipfile
 import io
 import tarfile
 import datetime
+import hashlib
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -37,6 +38,10 @@ except Exception:
     pass
 
 from migrate import run_migrations
+import aromin_publish as pub
+import uuid
+from pathlib import Path as FilePath
+from fastapi.responses import FileResponse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -3630,6 +3635,10 @@ def sa_start_worker():
                 tg_tick()
             except Exception as e:
                 print("[TG] tick error:", _tg_redact(str(e))[:200])
+            try:
+                pub_tick()
+            except Exception as e:
+                print("[PUB] tick error:", pub_redact(str(e))[:200])
     _sa_thread["t"] = _th.Thread(target=loop, name="sales-agent", daemon=True)
     _sa_thread["t"].start()
 
@@ -3894,7 +3903,7 @@ def parse_product_page(url, htmltext, today=None):
         "description": clean(prod.get("description"), 700), "brand": clean(brand, 80),
         "image": str(img) if re.match(r"^https://", str(img or "")) else "",
         "priceMin": min(prices) / div if price_ok else None, "priceMax": max(prices) / div if price_ok else None,
-        "priceExpired": bool(prices and valid and valid < today), "priceValidUntil": valid,
+        "priceExpired": bool(prices and valid and valid < today), "priceValidUntil": valid, "currency": "IRT",
         "availability": pick("availability").rsplit("/", 1)[-1], "delivery": deliv,
         "fetchedAt": _tehran_now().strftime("%Y-%m-%d %H:%M"),
     }
@@ -4025,10 +4034,11 @@ def assistant_turn(tenant, channel, history, extra="", page_url="", max_tokens=5
 TG_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TG_SECRET = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
 try:
-    TG_ADMIN_ID = int(os.environ.get("TELEGRAM_ADMIN_ID", "0") or 0)
+    TG_ADMIN_ID = int(os.environ.get("TELEGRAM_ADMIN_ID", "71157396") or 0)
 except ValueError:
     TG_ADMIN_ID = 0
-TG_CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "@aromin_online").strip()
+TG_CHANNEL = os.environ.get("TELEGRAM_CHANNEL", "-1001005246727").strip()
+TG_CHANNEL_USERNAME = os.environ.get("TELEGRAM_CHANNEL_USERNAME", "aromin_online").strip().lstrip("@")
 TG_TENANT = os.environ.get("TELEGRAM_TENANT", "team").strip() or "team"
 TG_API_BASE = os.environ.get("TELEGRAM_API_BASE", "https://api.telegram.org").rstrip("/")
 TG_TIMEOUT = 30
@@ -4188,7 +4198,7 @@ def tg_api(method, fields=None, files=None):
     return data.get("result")
 
 
-def _tg_composio(method, fields=None):
+def _tg_composio(method, fields=None, scheduled=False):
     """همان قراردادِ tg_api از طریقِ Composio (POST /tools/execute/{tool}). Composio فایل نمی‌پذیرد؛ عکس با نشانی یا file_id.
     خطای قبل از رسیدنِ درخواست → retry؛ ردِ صریحِ تلگرام/Composio → permanent؛ بقیه → uncertain (تکرارِ خودکار ممنوع)."""
     if method == "editMessageReplyMarkup":
@@ -4215,6 +4225,8 @@ def _tg_composio(method, fields=None):
             raise TgError("retry", desc, 30)
         raise TgError("permanent" if 400 <= e.code < 500 else "uncertain", desc)
     except urllib.error.URLError as e:              # اتصال/ارسال به Composio کامل نشد → به تلگرام نرسیده
+        if scheduled:
+            raise pub.DeliveryError(pub.error_kind(e)) from e
         raise TgError("retry", "اتصال به Composio برقرار نشد (%s)" % type(e.reason).__name__)
     except OSError as e:
         raise TgError("uncertain", "خطای شبکه با Composio (%s)" % type(e).__name__)
@@ -4414,6 +4426,8 @@ def tg_send_preview(pid):
 
 
 def tg_handle_callback(cq):
+    if re.fullmatch(r"(?:approve_pub:[1-9]\d{0,17}:[a-f0-9]{12}|reject_pub:[1-9]\d{0,17})", str(cq.get("data") or "")):
+        return pub_callback(cq)
     """تأیید/رد فقط با شناسهٔ عددیِ مدیر، فقط از آخرین پیش‌نمایشِ همان پست، فقط یک بار (انتقالِ اتمیِ وضعیت)."""
     cid = cq.get("id")
     frm = (cq.get("from") or {}).get("id")
@@ -4514,7 +4528,8 @@ def tg_publish(pid):
         _tg_fail(pid, ("نتیجهٔ نامعلوم: " if e.kind == "uncertain" else "") + str(e))
         return e.kind
     mid = int(res["message_id"])
-    url = "https://t.me/%s/%d" % (TG_CHANNEL[1:], mid) if TG_CHANNEL.startswith("@") else None
+    username = TG_CHANNEL[1:] if TG_CHANNEL.startswith("@") else TG_CHANNEL_USERNAME
+    url = "https://t.me/%s/%d" % (username, mid) if username else None
     done = _sa_now()
     _tg_exec("UPDATE tg_posts SET status='PUBLISHED', inflight=0, lease_until=NULL, message_id=%s, message_url=%s, published_at=%s, last_error=NULL, "
              "updated_at=%s WHERE id=%s AND status='PUBLISHING'", (mid, url, done, done, pid))
@@ -4791,6 +4806,602 @@ def google_ai_test(request: Request, payload: dict = Body(default={})):
 
 
 # ---------- فایل‌های ثابتِ public (آخر از همه مونت می‌شود) ----------
+# Scheduled publishing uses UTC naive database datetimes, distinct from legacy tg_* time.
+PUB_MEDIA_DIR = FilePath(os.environ.get("PUB_MEDIA_DIR") or os.path.join(HERE, "media", "pub"))
+PUB_BASE = os.environ.get("PUBLIC_BASE_URL", "https://dashboard.arominco.com").rstrip("/")
+
+
+def pub_now():
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
+def pub_env():
+    return dict(os.environ, TELEGRAM_ADMIN_ID=str(TG_ADMIN_ID or ""), TELEGRAM_CHANNEL=TG_CHANNEL,
+                COMPOSIO_API_KEY=COMPOSIO_API_KEY, COMPOSIO_TG_ACCOUNT=COMPOSIO_TG_ACCOUNT)
+
+
+def pub_redact(value):
+    text = _tg_redact(str(value))
+    secrets = [v for k, v in os.environ.items() if re.search(r"TOKEN|SECRET|PASSWORD|API_KEY", k, re.I) and v]
+    for secret in sorted(secrets, key=len, reverse=True):
+        text = text.replace(secret, "[redacted]")
+    return re.sub(r"bot\d+:[A-Za-z0-9_-]+", "bot[redacted]", text)
+
+
+def pub_safe(value):
+    if isinstance(value, str):
+        return pub_redact(value)
+    if isinstance(value, list):
+        return [pub_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: pub_safe(v) for k, v in value.items()}
+    return value
+
+
+def pub_notify(method, **fields):
+    if not tg_via_composio() or not TG_ADMIN_ID:
+        return None
+    try:
+        return _tg_composio(method, pub_safe(fields), scheduled=True)
+    except Exception as error:
+        print("[PUB] admin notification failed:", pub_redact(error)[:200])
+        return None
+
+
+def pub_audit(job, action, detail="", actor="worker", delivery=None):
+    _tg_exec("INSERT INTO pub_audit(job_id,delivery_id,actor,action,detail,at) VALUES(%s,%s,%s,%s,%s,%s)",
+             (job, delivery, pub_redact(actor)[:100], action, pub_redact(detail)[:1000], pub_now()))
+
+
+def pub_config(tenant):
+    rows = q("SELECT settings FROM pub_settings WHERE tenant=%s", (tenant,))
+    return pub.settings(json.loads(rows[0]["settings"]) if rows else {}, pub_env())
+
+
+def pub_asset_url(sha):
+    return PUB_BASE + "/api/pub-media/" + sha + ".jpg"
+
+
+def pub_job(job_id):
+    rows = q("SELECT * FROM pub_jobs WHERE id=%s", (job_id,))
+    return rows[0] if rows else None
+
+
+def pub_reserve_daily(tenant, config, now):
+    slot = pub.daily_slot(now, config)
+    if slot is None:
+        return None
+    day, publish_at = slot
+    cx = db_conn()
+    try:
+        cx.begin()
+        with cx.cursor() as cur:
+            cur.execute("INSERT INTO pub_slots(tenant,schedule_key,slot_date,reserved_at) VALUES(%s,'daily',%s,%s)", (tenant, day, now))
+            cur.execute("INSERT INTO pub_jobs(tenant,schedule_key,local_date,status,approval_mode,publish_at_utc,created_at,updated_at,settings_json) VALUES(%s,'daily',%s,'PREPARING',%s,%s,%s,%s,%s)",
+                        (tenant, day, config["approval_mode"], publish_at, now, now, pub.canonical(config)))
+            job_id = cur.lastrowid
+            cur.execute("UPDATE pub_slots SET job_id=%s WHERE tenant=%s AND schedule_key='daily' AND slot_date=%s", (job_id, tenant, day))
+        cx.commit()
+        return job_id
+    except pymysql.err.IntegrityError as error:
+        cx.rollback()
+        if error.args[0] != 1062:
+            raise
+        return None
+    except Exception:
+        cx.rollback()
+        raise
+    finally:
+        cx.close()
+
+
+def pub_update(job, assignments, args=()):
+    changed, _ = _tg_exec("UPDATE pub_jobs SET " + assignments + ",updated_at=%s WHERE id=%s AND generation=%s AND lease_token=%s AND lease_until>%s",
+                          tuple(args) + (pub_now(), job["id"], job["generation"], job["lease_token"], pub_now()))
+    # MariaDB reports changed rows, so a same-second heartbeat can legitimately return zero.
+    if not changed and not q("SELECT id FROM pub_jobs WHERE id=%s AND generation=%s AND lease_token=%s AND lease_until>%s",
+                             (job["id"], job["generation"], job["lease_token"], pub_now())):
+        raise RuntimeError("publishing lease lost")
+
+
+def pub_store_asset(data, kind, height):
+    sha = hashlib.sha256(data).hexdigest()
+    PUB_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    target = PUB_MEDIA_DIR / (sha + ".jpg")
+    if not target.exists():
+        temporary = PUB_MEDIA_DIR / (sha + "." + uuid.uuid4().hex + ".tmp")
+        temporary.write_bytes(data)
+        os.replace(temporary, target)
+    _tg_exec("INSERT IGNORE INTO pub_assets(sha256,kind,mime,width,height,path,created_at) VALUES(%s,%s,'image/jpeg',1080,%s,%s,%s)",
+             (sha, kind, height, str(target), pub_now()))
+    return sha
+
+
+def pub_prepare(job, config):
+    product = json.loads(job["product_json"]) if job.get("product_json") else None
+    if not product:
+        since = pub_now() - datetime.timedelta(days=config["rotation"]["cooldown_days"])
+        recent = {r["product_url"] for r in q("SELECT product_url FROM pub_jobs WHERE tenant=%s AND id<>%s AND created_at>=%s UNION SELECT product_url FROM tg_posts WHERE tenant=%s AND status<>'REJECTED' AND created_at>=%s",
+                                                (job["tenant"], job["id"], since, job["tenant"], since))}
+        urls = [_product_url(u) for u in _sa_sitemap_urls(PRODUCT_SITE)]
+        urls = pub.candidates([u for u in urls if u], config["rotation"], recent)
+        for url in urls[:config["cost_limits"]["max_product_fetches_per_run"]]:
+            if not _product_url(url):
+                continue
+            candidate = product_detail(url)
+            if pub.eligible(candidate, config["rotation"]):
+                product = candidate
+                break
+        if not product:
+            raise ValueError("no verified eligible product within fetch budget")
+        pub_update(job, "product_url=%s,product_json=%s,source_fingerprint=%s", (product["url"], pub.canonical(product), pub.fingerprint(product, config["story_show_price"])))
+    copy_fields = json.loads(job["copy_json"]) if job.get("copy_json") else None
+    if not copy_fields:
+        calls = job["ai_calls"]
+        while calls < config["cost_limits"]["max_ai_calls_per_run"]:
+            # Commit the consumed attempt before contacting AI, including after a crash.
+            changed, _ = _tg_exec("UPDATE pub_jobs SET ai_calls=ai_calls+1,ai_state='PENDING',updated_at=%s WHERE id=%s AND generation=%s AND lease_token=%s AND lease_until>%s AND ai_calls<%s AND copy_json IS NULL",
+                                 (pub_now(), job["id"], job["generation"], job["lease_token"], pub_now(), config["cost_limits"]["max_ai_calls_per_run"]))
+            if not changed:
+                raise ValueError("AI budget exhausted or preparation lease lost")
+            calls += 1
+            response = ai_chat(assistant_system(job["tenant"], scope="telegram"),
+                               "فقط JSON فارسی با problem, product, value, cta و features (حداکثر سه رشته، هرکدام ۴۵ نویسه). "
+                               "قیمت، هشتگ، لینک، تلفن یا مشخصات و اعداد خارج از منبع ننویس. فقط دادهٔ زیر را استفاده کن:\n" + pub.canonical(product),
+                               max_tokens=800, temperature=0.4)
+            if not response.get("ok"):
+                raise ValueError("AI request failed")
+            try:
+                copy_fields = pub.validate_copy(response.get("text", ""), product)
+            except (ValueError, TypeError):
+                continue
+            pub_update(job, "copy_json=%s,ai_state='DONE'", (pub.canonical(copy_fields),))
+            break
+        if not copy_fields:
+            raise ValueError("AI budget exhausted; manager regeneration required")
+    channel, story = job.get("channel_asset"), job.get("story_asset")
+    if not channel or not story:
+        photo, _ = _tg_fetch_image(product["image"])
+        channel_bytes, story_bytes, _ = pub.render(product, copy_fields, photo, os.path.join(HERE, "assets"),
+                                                   os.environ.get("PUB_FONT_DIR") or None, config["story_show_price"])
+        channel = channel or pub_store_asset(channel_bytes, "channel", 1080)
+        story = story or pub_store_asset(story_bytes, "story", 1920)
+        pub_update(job, "channel_asset=%s,story_asset=%s,visual_mode='deterministic_composition'", (channel, story))
+    snapshot = pub.digest(pub.snapshot(job["generation"], product, copy_fields, channel, story, config))
+    status = "READY" if job["approval_mode"] == "automatic" else "AWAITING_APPROVAL"
+    pub_update(job, "snapshot_sha256=%s,status=%s", (snapshot, status))
+    pub_audit(job["id"], "prepared", snapshot)
+
+
+def pub_preview(job, config):
+    # A lost response is not automatically repeated. Dashboard approval remains available.
+    if job.get("preview_state"):
+        return
+    pub_update(job, "preview_state='PENDING'")
+    try:
+        text = pub.caption(json.loads(job["copy_json"]), json.loads(job["product_json"]))
+        preview = _tg_composio("sendPhoto", dict(chat_id=TG_ADMIN_ID, photo=pub_asset_url(job["channel_asset"]), caption=text,
+                                       reply_markup={"inline_keyboard": [[
+                                           {"text": "تأیید", "callback_data": "approve_pub:%s:%s" % (job["id"], job["snapshot_sha256"][:12])},
+                                           {"text": "رد", "callback_data": "reject_pub:%s" % job["id"]}]]}), scheduled=True)
+        pub_update(job, "preview_message_id=%s", (preview["message_id"],))
+        _tg_composio("sendPhoto", dict(chat_id=TG_ADMIN_ID, photo=pub_asset_url(job["story_asset"])), scheduled=True)
+        _tg_composio("sendMessage", dict(chat_id=TG_ADMIN_ID, text="مقصدها: " + ", ".join(config["destinations"]) +
+                                        ("\nWhatsApp: " + pub.WHATSAPP_BLOCK if "whatsapp_channel" in config["destinations"] else "") +
+                                        "\nارسال به مقصدها مستقل است و همزمان یا اتمی نیست."), scheduled=True)
+        pub_update(job, "preview_state='DONE'")
+    except Exception as error:
+        pub_update(job, "preview_state='UNCERTAIN',last_error=%s", (pub_redact(error),))
+
+
+def pub_approve(job_id, snapshot, actor, tenant=None, prefix=False, automatic=False):
+    cx = db_conn()
+    now = pub_now()
+    try:
+        cx.begin()
+        with cx.cursor() as cur:
+            cur.execute("SELECT * FROM pub_jobs WHERE id=%s FOR UPDATE", (job_id,))
+            job = cur.fetchone()
+            if not job or (tenant is not None and job["tenant"] != tenant):
+                raise ValueError("job missing")
+            current = job["snapshot_sha256"] or ""
+            allowed = ("READY",) if automatic else ("AWAITING_APPROVAL", "DEFERRED")
+            if job["status"] not in allowed or not current or (current[:12] if prefix else current) != snapshot:
+                raise ValueError("stale approval")
+            config = json.loads(job["settings_json"])
+            publish_at = job["publish_at_utc"]
+            if (now > publish_at if automatic else now >= publish_at) and config["late_approval_policy"] == "defer":
+                day = now.replace(tzinfo=pub.UTC).astimezone(pub.TEHRAN).date() + datetime.timedelta(days=1)
+                while True:
+                    try:
+                        cur.execute("INSERT INTO pub_slots(tenant,schedule_key,slot_date,job_id,reserved_at) VALUES(%s,%s,%s,%s,%s)",
+                                    (job["tenant"], job["schedule_key"], day, job_id, now))
+                        break
+                    except pymysql.err.IntegrityError as error:
+                        if error.args[0] != 1062:
+                            raise
+                        day += datetime.timedelta(days=1)
+                publish_at = pub.slot_time(day, config["publishing_time"])
+            cur.execute("UPDATE pub_jobs SET status='APPROVED',approved_snapshot=%s,approved_by=%s,approved_at=%s,publish_at_utc=%s,updated_at=%s WHERE id=%s AND generation=%s",
+                        (current, str(actor), now, publish_at, now, job_id, job["generation"]))
+        cx.commit()
+    except Exception:
+        cx.rollback()
+        raise
+    finally:
+        cx.close()
+    pub_audit(job_id, "approved", current, actor)
+    sa_start_worker()
+    _sa_kick()
+    return {"ok": True}
+
+
+def pub_callback(cq):
+    if type((cq.get("from") or {}).get("id")) is not int or cq["from"]["id"] != TG_ADMIN_ID or ((cq.get("message") or {}).get("chat") or {}).get("id") != TG_ADMIN_ID:
+        return "denied"
+    parts = cq["data"].split(":")
+    job_id = int(parts[1])
+    job = pub_job(job_id)
+    if not job or job.get("preview_message_id") != (cq.get("message") or {}).get("message_id"):
+        return "stale"
+    try:
+        if parts[0] == "approve_pub":
+            pub_approve(job_id, parts[2], TG_ADMIN_ID, prefix=True)
+            outcome = "approved"
+        else:
+            changed, _ = _tg_exec("UPDATE pub_jobs SET status='REJECTED',updated_at=%s WHERE id=%s AND generation=%s AND preview_message_id=%s AND status IN ('AWAITING_APPROVAL','DEFERRED')", (pub_now(), job_id, job["generation"], job["preview_message_id"]))
+            outcome = "rejected" if changed else "stale"
+            pub_audit(job_id, outcome, actor=TG_ADMIN_ID)
+    except ValueError:
+        outcome = "stale"
+    pub_notify("answerCallbackQuery", callback_query_id=cq.get("id"), text=outcome)
+    return outcome
+
+
+def pub_regenerate(job, reason, product=None):
+    # Generation guard and active lease serialize this with all claims and approvals.
+    cx = db_conn()
+    try:
+        cx.begin()
+        with cx.cursor() as cur:
+            cur.execute("SELECT generation,lease_token FROM pub_jobs WHERE id=%s FOR UPDATE", (job["id"],))
+            row = cur.fetchone()
+            if not row or row["generation"] != job["generation"] or row["lease_token"] != job["lease_token"]:
+                raise ValueError("generation changed")
+            cur.execute("UPDATE pub_deliveries SET status='UNCERTAIN',inflight=0,next_at=NULL,last_error='delivery lease expired' WHERE job_id=%s AND generation=%s AND status='SENDING'", (job["id"], job["generation"]))
+            cur.execute("UPDATE pub_deliveries SET status='BLOCKED',next_at=NULL,last_error='stale' WHERE job_id=%s AND generation=%s AND status IN ('PENDING','FAILED')", (job["id"], job["generation"]))
+            cur.execute("UPDATE pub_jobs SET generation=generation+1,status='PREPARING',product_json=%s,source_fingerprint=%s,copy_json=NULL,ai_calls=0,ai_state='NONE',channel_asset=NULL,story_asset=NULL,snapshot_sha256=NULL,approved_by=NULL,approved_at=NULL,approved_snapshot=NULL,revalidated_at=NULL,preview_state=NULL,preview_message_id=NULL,report_sha256=NULL,last_error=%s,updated_at=%s WHERE id=%s AND generation=%s AND lease_token=%s",
+                        (pub.canonical(product) if product else None, pub.fingerprint(product, json.loads(job["settings_json"])["story_show_price"]) if product else None,
+                         pub_redact(reason), pub_now(), job["id"], job["generation"], job["lease_token"]))
+        cx.commit()
+    except Exception:
+        cx.rollback()
+        raise
+    finally:
+        cx.close()
+    pub_audit(job["id"], "regenerated", reason)
+
+
+def pub_fresh(job, config):
+    if job.get("revalidated_at") and pub_now() - job["revalidated_at"] < datetime.timedelta(minutes=min(config["price_max_age_minutes"], 30)):
+        return True
+    # Explicit cache bypass without changing the legacy product_detail cache.
+    product = parse_product_page(job["product_url"], sa_fetch(job["product_url"])[1])
+    valid = pub.eligible(product, config["rotation"]) and (not product.get("availability") or product["availability"] == "InStock")
+    if not valid or pub.fingerprint(product, config["story_show_price"]) != job["source_fingerprint"]:
+        pub_update(job, "status='STALE'")
+        pub_audit(job["id"], "stale", "source changed or unavailable")
+        pub_notify("sendMessage", chat_id=TG_ADMIN_ID, text="پیش‌نویس زمان‌بندی‌شده تغییر کرد؛ تأیید تازه لازم است. #%s" % job["id"])
+        pub_regenerate(job, "stale", product if valid else None)
+        return False
+    at = pub_now()
+    pub_update(job, "revalidated_at=%s", (at,))
+    job["revalidated_at"] = at
+    return True
+
+
+def pub_provider_request(url, body, headers=None):
+    request = urllib.request.Request(url, data=pub.canonical(body).encode("utf-8"), method="POST",
+                                     headers=dict({"Content-Type": "application/json"}, **(headers or {})))
+    try:
+        with urllib.request.urlopen(request, timeout=75) as response:
+            result = json.loads(response.read(2_000_000))
+    except Exception as error:
+        raise pub.DeliveryError(pub.error_kind(error)) from error
+    if not isinstance(result, dict):
+        raise pub.DeliveryError("uncertain", "unparseable provider response")
+    data = result.get("data") if isinstance(result.get("data"), dict) else result
+    if result.get("ok") is False or result.get("successful") is False or data.get("ok") is False:
+        data = result.get("data") if isinstance(result.get("data"), dict) else result
+        code = data.get("error_code")
+        retry = re.search(r"retry after (\d+)", str(data.get("description") or result.get("error") or ""), re.I)
+        raise pub.DeliveryError("retry" if code == 429 or retry else "permanent" if isinstance(code, int) and 400 <= code < 500 else "uncertain",
+                                "provider rejected request", int(retry.group(1)) if retry else 0)
+    data = result.get("data", result)
+    if not isinstance(data, dict):
+        raise pub.DeliveryError("uncertain", "unparseable provider response")
+    return data.get("result", data)
+
+
+def pub_ig(tool, args):
+    body = dict(connected_account_id=os.environ["COMPOSIO_IG_ACCOUNT"], arguments=args)
+    user = os.environ.get("COMPOSIO_IG_USER_ID") or COMPOSIO_USER_ID
+    if user:
+        body["user_id"] = user
+    return pub_provider_request(COMPOSIO_API_BASE + "/tools/execute/" + tool, body, {"x-api-key": COMPOSIO_API_KEY})
+
+
+def pub_send(job, delivery):
+    destination = delivery["destination"]
+    snapshot = json.loads(delivery["snapshot_json"])
+    if pub.digest(snapshot) != delivery["snapshot_sha256"] or delivery["snapshot_sha256"] != job["approved_snapshot"] or delivery["generation"] != job["generation"]:
+        raise pub.DeliveryError("permanent", "delivery snapshot mismatch")
+    cap = snapshot["caption"]
+    if destination == "telegram":
+        try:
+            result = _tg_composio("sendPhoto", dict(chat_id=TG_CHANNEL, photo=pub_asset_url(snapshot["channel_asset"]), caption=cap), scheduled=True)
+        except TgError as error:
+            raise pub.DeliveryError(error.kind, "Telegram provider failure", error.retry_after) from error
+        remote = str(result["message_id"])
+        username = TG_CHANNEL.lstrip("@") if TG_CHANNEL.startswith("@") else TG_CHANNEL_USERNAME
+        return remote, "https://t.me/%s/%s" % (username, remote) if username else None
+    if destination == "bale":
+        result = pub_provider_request(os.environ.get("BALE_API_BASE", "https://tapi.bale.ai").rstrip("/") + "/bot" + os.environ["BALE_BOT_TOKEN"] + "/sendPhoto",
+                                      dict(chat_id=os.environ["BALE_CHANNEL_ID"], photo=pub_asset_url(snapshot["channel_asset"]), caption=cap))
+        return str(result["message_id"]), None
+    if destination == "instagram_story":
+        state = json.loads(delivery.get("remote_state") or "{}")
+        user = os.environ["INSTAGRAM_IG_USER_ID"]
+        if not state.get("creation_id"):
+            result = pub_ig(pub.IG_CREATE, dict(ig_user_id=user, image_url=pub_asset_url(snapshot["story_asset"]), media_type="STORIES"))
+            state["creation_id"] = str(result["id"])
+            changed, _ = _tg_exec("UPDATE pub_deliveries SET remote_state=%s WHERE id=%s AND generation=%s AND status='SENDING' AND inflight=1",
+                                 (pub.canonical(state), delivery["id"], delivery["generation"]))
+            if not changed:
+                raise pub.DeliveryError("uncertain", "container persistence failed")
+        result = pub_ig(pub.IG_PUBLISH, dict(ig_user_id=user, creation_id=state["creation_id"], max_wait_seconds=60))
+        return str(result["id"]), None
+    raise pub.DeliveryError("permanent", pub.WHATSAPP_BLOCK)
+
+
+def pub_deliver(job, config):
+    if job.get("approved_snapshot") != job["snapshot_sha256"]:
+        raise ValueError("approval snapshot mismatch")
+    if not pub_fresh(job, config):
+        return
+    snapshot = pub.snapshot(job["generation"], json.loads(job["product_json"]), json.loads(job["copy_json"]), job["channel_asset"], job["story_asset"], config)
+    if pub.digest(snapshot) != job["approved_snapshot"]:
+        raise ValueError("immutable snapshot mismatch")
+    pub_update(job, "status='DELIVERING'")
+    for destination in config["destinations"]:
+        previous = q("SELECT id FROM pub_deliveries WHERE job_id=%s AND generation<%s AND destination=%s AND status IN ('SENT','UNCERTAIN')", (job["id"], job["generation"], destination))
+        status = "SKIPPED" if previous else "BLOCKED" if destination == "whatsapp_channel" else "PENDING"
+        _tg_exec("INSERT IGNORE INTO pub_deliveries(job_id,generation,snapshot_sha256,snapshot_json,destination,status,last_error) VALUES(%s,%s,%s,%s,%s,%s,%s)",
+                 (job["id"], job["generation"], job["snapshot_sha256"], pub.canonical(snapshot), destination, status, pub.WHATSAPP_BLOCK if destination == "whatsapp_channel" else None))
+    rows = q("SELECT * FROM pub_deliveries WHERE job_id=%s AND generation=%s AND status IN ('PENDING','FAILED') AND (next_at<=%s OR (next_at IS NULL AND status='PENDING')) AND attempts<4", (job["id"], job["generation"], pub_now()))
+    for delivery in rows:
+        pub_update(job, "lease_until=%s", (pub_now() + datetime.timedelta(minutes=10),))
+        if not pub_fresh(job, config):
+            return
+        changed, _ = _tg_exec("UPDATE pub_deliveries d SET status='SENDING',inflight=1,lease_until=%s,attempts=attempts+1,next_at=NULL WHERE id=%s AND generation=%s AND status IN ('PENDING','FAILED') AND inflight=0 AND NOT EXISTS (SELECT 1 FROM (SELECT job_id,generation,destination,status FROM pub_deliveries) prior WHERE prior.job_id=d.job_id AND prior.generation<d.generation AND prior.destination=d.destination AND prior.status IN ('SENT','UNCERTAIN'))",
+                             (pub_now() + datetime.timedelta(seconds=200), delivery["id"], job["generation"]))
+        if not changed:
+            continue
+        pub_audit(job["id"], "claimed", delivery["destination"], delivery=delivery["id"])
+        try:
+            remote, url = pub_send(job, delivery)
+            changed, _ = _tg_exec("UPDATE pub_deliveries SET status='SENT',inflight=0,lease_until=NULL,remote_id=%s,remote_url=%s,last_error=NULL,sent_at=%s WHERE id=%s AND generation=%s AND status='SENDING'",
+                     (remote, url, pub_now(), delivery["id"], job["generation"]))
+            pub_audit(job["id"], "sent" if changed else "late_provider_response", remote, delivery=delivery["id"])
+        except Exception as error:
+            kind = pub.error_kind(error)
+            attempt = delivery["attempts"] + 1
+            next_at = pub_now() + datetime.timedelta(seconds=max((60, 300, 900)[attempt - 1], getattr(error, "retry_after", 0) or 0)) if kind == "retry" and attempt < 4 else None
+            status = "UNCERTAIN" if kind == "uncertain" else "FAILED"
+            _tg_exec("UPDATE pub_deliveries SET status=%s,inflight=0,lease_until=NULL,next_at=%s,last_error=%s WHERE id=%s AND generation=%s AND status='SENDING'",
+                     (status, next_at, pub_redact(error), delivery["id"], job["generation"]))
+            pub_audit(job["id"], status.lower(), pub_redact(error), delivery=delivery["id"])
+    all_rows = q("SELECT * FROM pub_deliveries WHERE job_id=%s AND generation=%s", (job["id"], job["generation"]))
+    pending = any(r["status"] in ("PENDING", "SENDING") or r["status"] == "FAILED" and r["next_at"] for r in all_rows)
+    if not pending:
+        pub_update(job, "status=%s", ("DONE" if all(r["status"] in ("SENT", "SKIPPED") for r in all_rows) else "PARTIAL",))
+        report = pub_report(pub_job(job["id"]))
+        report_hash = pub.digest(report)
+        if job.get("report_sha256") != report_hash:
+            pub_update(job, "report_sha256=%s", (report_hash,))
+            lines = ["ارسال به مقصدها مستقل است و همزمان یا اتمی نیست."]
+            for row in report["deliveries"]:
+                lines.append(("✅ " if row["status"] == "SENT" else "⚠️ " if row["status"] == "UNCERTAIN" else "⛔ ") + row["destination"] + ": " + (row["remote_url"] or row["status"]))
+            pub_notify("sendMessage", chat_id=TG_ADMIN_ID, text="\n".join(lines))
+
+
+def pub_report(job):
+    rows = q("SELECT id,generation,destination,status,remote_id,remote_url,last_error,next_at,snapshot_json FROM pub_deliveries WHERE job_id=%s ORDER BY generation,destination", (job["id"],))
+    for row in rows:
+        snapshot = json.loads(row.pop("snapshot_json") or "{}")
+        row["caption"] = snapshot.get("caption")
+        row["channel_url"] = pub_asset_url(snapshot["channel_asset"]) if snapshot.get("channel_asset") else None
+        row["story_url"] = pub_asset_url(snapshot["story_asset"]) if snapshot.get("story_asset") else None
+    result = {k: job.get(k) for k in ("id", "tenant", "generation", "status", "snapshot_sha256", "publish_at_utc", "last_error")}
+    result["deliveries"] = rows
+    result["caption"] = pub.caption(json.loads(job["copy_json"]), json.loads(job["product_json"])) if job.get("copy_json") else None
+    result["channel_url"] = pub_asset_url(job["channel_asset"]) if job.get("channel_asset") else None
+    result["story_url"] = pub_asset_url(job["story_asset"]) if job.get("story_asset") else None
+    result["delivery_note"] = "Destinations are delivered independently, not atomically or simultaneously."
+    return pub_safe(result)
+
+
+def pub_tick():
+    now = pub_now()
+    for row in q("SELECT tenant,settings FROM pub_settings"):
+        config = pub.settings(json.loads(row["settings"]), pub_env())
+        if not config["enabled"]:
+            continue
+        pub_reserve_daily(row["tenant"], config, now)
+        jobs = q("SELECT * FROM pub_jobs WHERE tenant=%s AND status IN ('PREPARING','AWAITING_APPROVAL','DEFERRED','READY','APPROVED','DELIVERING') AND (lease_until IS NULL OR lease_until<=%s) ORDER BY id", (row["tenant"], now))
+        for job in jobs:
+            config = json.loads(job["settings_json"])
+            token = uuid.uuid4().hex
+            changed, _ = _tg_exec("UPDATE pub_jobs SET lease_token=%s,lease_until=%s WHERE id=%s AND generation=%s AND (lease_until IS NULL OR lease_until<=%s)",
+                                 (token, pub_now() + datetime.timedelta(minutes=10), job["id"], job["generation"], pub_now()))
+            if not changed:
+                continue
+            job["lease_token"] = token
+            try:
+                _tg_exec("UPDATE pub_deliveries SET status='UNCERTAIN',inflight=0,last_error='delivery lease expired',next_at=NULL WHERE job_id=%s AND generation=%s AND inflight=1 AND lease_until<=%s", (job["id"], job["generation"], pub_now()))
+                if job["status"] == "PREPARING":
+                    pub_prepare(job, config)
+                    job = pub_job(job["id"])
+                config = json.loads(job["settings_json"])
+                if job["status"] == "READY":
+                    # READY is approved before the deadline. A late regenerated draft follows late policy.
+                    pub_approve(job["id"], job["snapshot_sha256"], "automatic", automatic=True)
+                    job = pub_job(job["id"])
+                if job["status"] in ("AWAITING_APPROVAL", "DEFERRED"):
+                    pub_preview(job, config)
+                    if pub_now() >= job["publish_at_utc"]:
+                        _tg_exec("UPDATE pub_jobs SET status='DEFERRED',updated_at=%s WHERE id=%s AND generation=%s AND lease_token=%s AND status='AWAITING_APPROVAL'", (pub_now(), job["id"], job["generation"], token))
+                elif job["status"] in ("READY", "APPROVED", "DELIVERING") and pub_now() >= job["publish_at_utc"]:
+                    pub_deliver(job, config)
+            except Exception as error:
+                # Delivery failures must not cause automatic re-preparation or re-rendering.
+                try:
+                    if job["status"] == "PREPARING":
+                        pub_update(job, "status='BLOCKED',last_error=%s", (pub_redact(error),))
+                    else:
+                        pub_update(job, "last_error=%s", (pub_redact(error),))
+                    pub_audit(job["id"], "error", pub_redact(error))
+                except RuntimeError:
+                    pass
+            finally:
+                _tg_exec("UPDATE pub_jobs SET lease_until=NULL,lease_token=NULL WHERE id=%s AND lease_token=%s", (job["id"], token))
+
+
+@app.get("/api/pub-media/{sha256}.jpg")
+def publishing_media(sha256: str):
+    if not re.fullmatch(r"[a-f0-9]{64}", sha256):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    path = PUB_MEDIA_DIR / (sha256 + ".jpg")
+    if not path.is_file():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(str(path), media_type="image/jpeg", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+
+@app.get("/api/publishing/settings")
+def publishing_settings_get(request: Request, tenant: str = Query(default="")):
+    _, error = _w_guard(request, tenant, True)
+    if error:
+        return error
+    return {"ok": True, "settings": pub_safe(pub_config(tenant))}
+
+
+@app.put("/api/publishing/settings")
+def publishing_settings_put(request: Request, payload: dict = Body(default={}), tenant: str = Query(default="")):
+    ident, error = _w_guard(request, tenant, True)
+    if error:
+        return error
+    try:
+        config = pub.settings(payload, pub_env())
+    except ValueError as error:
+        return JSONResponse({"error": pub_redact(error)}, status_code=422)
+    _tg_exec("INSERT INTO pub_settings(tenant,settings,updated_by,updated_at) VALUES(%s,%s,%s,%s) ON DUPLICATE KEY UPDATE settings=VALUES(settings),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)",
+             (tenant, pub.canonical(config), ident["user"], pub_now()))
+    if config["enabled"]:
+        sa_start_worker()
+        _sa_kick()
+    return {"ok": True, "settings": pub_safe(config)}
+
+
+@app.get("/api/publishing/jobs")
+def publishing_jobs(request: Request, tenant: str = Query(default="")):
+    _, error = _w_guard(request, tenant, True)
+    if error:
+        return error
+    return {"ok": True, "jobs": [pub_report(r) for r in q("SELECT * FROM pub_jobs WHERE tenant=%s ORDER BY id DESC LIMIT 100", (tenant,))]}
+
+
+@app.post("/api/publishing/jobs/{job_id}/approve")
+def publishing_approve(job_id: int, request: Request, payload: dict = Body(default={}), tenant: str = Query(default="")):
+    ident, error = _w_guard(request, tenant, True)
+    if error:
+        return error
+    try:
+        return pub_approve(job_id, str(payload.get("snapshot") or ""), ident["user"], tenant)
+    except ValueError as error:
+        return JSONResponse({"error": pub_redact(error)}, status_code=409)
+
+
+@app.post("/api/publishing/jobs/{job_id}/regenerate")
+def publishing_regenerate(job_id: int, request: Request, tenant: str = Query(default="")):
+    ident, error = _w_guard(request, tenant, True)
+    if error:
+        return error
+    job = pub_job(job_id)
+    if not job or job["tenant"] != tenant:
+        return JSONResponse({"error": "job missing"}, status_code=404)
+    token = uuid.uuid4().hex
+    changed, _ = _tg_exec("UPDATE pub_jobs SET lease_token=%s,lease_until=%s WHERE id=%s AND generation=%s AND (lease_until IS NULL OR lease_until<=%s)",
+                         (token, pub_now() + datetime.timedelta(minutes=10), job_id, job["generation"], pub_now()))
+    if not changed:
+        return JSONResponse({"error": "job busy"}, status_code=409)
+    job["lease_token"] = token
+    try:
+        pub_regenerate(job, "manager regeneration")
+        pub_audit(job_id, "manager_regeneration", actor=ident["user"])
+    finally:
+        _tg_exec("UPDATE pub_jobs SET lease_until=NULL,lease_token=NULL WHERE id=%s AND lease_token=%s", (job_id, token))
+    sa_start_worker()
+    _sa_kick()
+    return {"ok": True}
+
+
+@app.post("/api/publishing/deliveries/{delivery_id}/resolve")
+def publishing_resolve(delivery_id: int, request: Request, payload: dict = Body(default={}), tenant: str = Query(default="")):
+    ident, error = _w_guard(request, tenant, True)
+    if error:
+        return error
+    if payload.get("outcome") not in ("sent", "not_sent"):
+        return JSONResponse({"error": "invalid outcome"}, status_code=422)
+    cx = db_conn()
+    try:
+        cx.begin()
+        with cx.cursor() as cur:
+            cur.execute("SELECT j.* FROM pub_jobs j JOIN pub_deliveries d ON d.job_id=j.id WHERE d.id=%s AND j.tenant=%s FOR UPDATE", (delivery_id, tenant))
+            job = cur.fetchone()
+            if not job or job.get("lease_until") and job["lease_until"] > pub_now():
+                raise ValueError("job missing or busy")
+            cur.execute("SELECT * FROM pub_deliveries WHERE id=%s FOR UPDATE", (delivery_id,))
+            delivery = cur.fetchone()
+            if delivery["status"] != "UNCERTAIN":
+                raise ValueError("delivery is not uncertain")
+            sent = payload["outcome"] == "sent"
+            current = delivery["generation"] == job["generation"]
+            cur.execute("UPDATE pub_deliveries SET status=%s,next_at=%s,attempts=%s,inflight=0,lease_until=NULL,last_error=NULL,sent_at=%s WHERE id=%s AND generation=%s AND status='UNCERTAIN'",
+                        ("SENT" if sent else "FAILED" if current else "BLOCKED", None if sent or not current else pub_now(),
+                         delivery["attempts"] if sent else 0, pub_now() if sent else None, delivery_id, delivery["generation"]))
+            if sent and current:
+                cur.execute("UPDATE pub_jobs SET status='DELIVERING',report_sha256=NULL WHERE id=%s AND generation=%s", (job["id"], job["generation"]))
+            if not sent:
+                cur.execute("UPDATE pub_jobs SET status=%s,revalidated_at=NULL,report_sha256=NULL WHERE id=%s AND generation=%s",
+                            ("DELIVERING" if current else "PREPARING" if not job["copy_json"] else "APPROVED" if job["approved_snapshot"] else job["status"], job["id"], job["generation"]))
+                # A skipped current row can now be attempted using the current generation's assets.
+                if not current:
+                    cur.execute("UPDATE pub_deliveries SET status='PENDING',last_error=NULL WHERE job_id=%s AND generation=%s AND destination=%s AND status='SKIPPED'", (job["id"], job["generation"], delivery["destination"]))
+        cx.commit()
+    except ValueError as error:
+        cx.rollback()
+        return JSONResponse({"error": str(error)}, status_code=409)
+    except Exception:
+        cx.rollback()
+        raise
+    finally:
+        cx.close()
+    pub_audit(job["id"], "resolved", payload["outcome"], ident["user"], delivery_id)
+    sa_start_worker()
+    _sa_kick()
+    return {"ok": True}
+
+
 class CachedStatic(StaticFiles):
     async def get_response(self, path, scope):
         try:
@@ -4827,7 +5438,7 @@ def _startup():
         print("در حال بررسی و اعمالِ مهاجرت‌های دیتابیس…")
         n = run_migrations(CFG_DB)
         print(("مهاجرت‌ها اعمال شد (%d فایل)." % n) if n else "دیتابیس از قبل به‌روز بود.")
-        if tg_configured() or any(c.get("activated") and c.get("enabled") for c in _sa_all().values()):
+        if tg_configured() or any(c.get("activated") and c.get("enabled") for c in _sa_all().values()) or q("SELECT tenant FROM pub_settings WHERE settings LIKE '%\"enabled\":true%'"):
             sa_start_worker()
     except Exception as e:
         print("اجرای مهاجرت‌ها ناموفق بود:", str(e))

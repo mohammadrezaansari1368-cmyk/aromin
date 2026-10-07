@@ -1,0 +1,7 @@
+-- Manual destructive rollback only. Export publishing history before use.
+DROP TABLE IF EXISTS pub_audit;
+DROP TABLE IF EXISTS pub_deliveries;
+DROP TABLE IF EXISTS pub_slots;
+DROP TABLE IF EXISTS pub_jobs;
+DROP TABLE IF EXISTS pub_assets;
+DROP TABLE IF EXISTS pub_settings;

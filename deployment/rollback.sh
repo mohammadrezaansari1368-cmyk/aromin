@@ -11,6 +11,16 @@ BK="$APP_DIR/backups-install/$TS"
 echo "› بازگردانی از $BK"
 rm -rf "$SPA_DIR"; [ -d "$BK/web" ] && cp -r "$BK/web" "$SPA_DIR" || true
 [ -f "$BK/server.py" ] && cp "$BK/server.py" "$SRV_DIR/server.py" || true
+for item in aromin_publish.py assets migrations/005_publishing.sql migrations/005_publishing.down.sql.txt; do
+  if [ -e "$BK/$item" ]; then
+    rm -rf "$SRV_DIR/$item"
+    mkdir -p "$SRV_DIR/$(dirname "$item")"
+    cp -r "$BK/$item" "$SRV_DIR/$item"
+  elif [ -f "$BK/$item.absent" ]; then
+    rm -rf "$SRV_DIR/$item"
+  fi
+done
+# Database history and public media remain intact; the down migration is manual only.
 [ -f "$BK/legacy.html" ] && cp "$BK/legacy.html" "$(cd "$SRV_DIR/.." && pwd)/شروع-اینجا.html" || true
 SUDO=""; [ "$(id -u)" != "0" ] && SUDO="sudo"
 command -v systemctl >/dev/null 2>&1 && $SUDO systemctl restart "$SERVICE" 2>/dev/null || true

@@ -15,7 +15,11 @@ version = re.search(r'APP_VERSION\s*=\s*"([0-9.]+)"', (deploy / 'legacy.html').r
 # This is the generated deployment output, not a source or customer-data directory.
 shutil.rmtree(deploy / 'web')
 shutil.copytree(dist, deploy / 'web')
-files = [p for p in deploy.rglob('*') if p.is_file() and '__pycache__' not in p.parts and 'tests' not in p.relative_to(deploy).parts and not any(part.startswith('.') for part in p.relative_to(deploy).parts)]
+files = [p for p in deploy.rglob('*') if p.is_file() and '__pycache__' not in p.parts and not {'tests', 'media'} & set(p.relative_to(deploy).parts) and (p.name == '.env.example' or not any(part.startswith('.') for part in p.relative_to(deploy).parts))]
+for required in ('aromin_publish.py', 'assets/aromin-logo.webp', 'assets/fonts/Vazirmatn-Regular.ttf',
+                 'assets/fonts/Vazirmatn-Bold.ttf', 'assets/fonts/OFL.txt', 'migrations/005_publishing.sql',
+                 'migrations/005_publishing.down.sql.txt'):
+    assert deploy / required in files, 'Missing publishing package file: ' + required
 manifest = '\n'.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.relative_to(deploy).as_posix() for p in sorted(files)) + '\n'
 output = root / 'releases' / f'aromin-deploy-{version}.zip'
 output.parent.mkdir(exist_ok=True)

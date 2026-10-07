@@ -12,17 +12,31 @@ if [ -f "$SRV_DIR/migrations/004_check_collection.sql" ] && ! cmp -s "$HERE/migr
   echo "Conflicting migration 004_check_collection.sql; no files changed." >&2; exit 1
 fi
 SPA_DIR="$(cd "$SRV_DIR/.." && pwd)/web"
+if [ -f "$SRV_DIR/migrations/005_publishing.sql" ] && ! cmp -s "$HERE/migrations/005_publishing.sql" "$SRV_DIR/migrations/005_publishing.sql"; then
+  echo "Conflicting migration 005_publishing.sql; no files changed." >&2; exit 1
+fi
 TS="$(date +%Y%m%d-%H%M%S)"
 BK="$APP_DIR/backups-install/$TS"; mkdir -p "$BK"
 echo "› بکاپ در: $BK"
 [ -e "$SPA_DIR" ]            && cp -r "$SPA_DIR" "$BK/web"        || true
 [ -f "$SRV_DIR/server.py" ] && cp "$SRV_DIR/server.py" "$BK/"    || true
+for item in aromin_publish.py assets migrations/005_publishing.sql migrations/005_publishing.down.sql.txt; do
+  mkdir -p "$BK/$(dirname "$item")"
+  if [ -e "$SRV_DIR/$item" ]; then cp -r "$SRV_DIR/$item" "$BK/$item"; else touch "$BK/$item.absent"; fi
+done
 LEGACY="$(cd "$SRV_DIR/.." && pwd)/شروع-اینجا.html"
 [ -f "$LEGACY" ] && cp "$LEGACY" "$BK/legacy.html" || true
 echo "$TS" > "$APP_DIR/backups-install/LAST"
 echo "› نصبِ فایل‌ها"
 rm -rf "$SPA_DIR"; cp -r "$HERE/web" "$SPA_DIR"
 cp "$HERE/server.py" "$SRV_DIR/server.py"
+cp "$HERE/aromin_publish.py" "$SRV_DIR/aromin_publish.py"
+mkdir -p "$SRV_DIR/assets" "$SRV_DIR/migrations"
+cp -r "$HERE/assets/." "$SRV_DIR/assets/"
+cp "$HERE/migrations/005_publishing.sql" "$HERE/migrations/005_publishing.down.sql.txt" "$SRV_DIR/migrations/"
+if ! "$SRV_DIR/.venv/bin/pip" install Pillow==11.3.0 arabic-reshaper==3.0.0 python-bidi==0.6.6; then
+  echo "Publishing image dependencies unavailable; preparation will be BLOCKED. Server installation continues." >&2
+fi
 if [ -f "$HERE/migrations/004_check_collection.sql" ]; then
   mkdir -p "$SRV_DIR/migrations"
   cp "$HERE/migrations/004_check_collection.sql" "$SRV_DIR/migrations/004_check_collection.sql"
