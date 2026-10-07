@@ -1,4 +1,4 @@
-import{r as e}from"./rolldown-runtime-hePW80VL.js";import{n as t,t as n}from"./jsx-runtime-BNakU3Ej.js";import{f as r,n as i}from"./auth-DL4rSA0J.js";import{Dt as a,Et as o,Tt as s,kt as c,wt as l,xt as u}from"./index-DaToVsRe.js";var d=e(t(),1),f=`## ۱. تو کیستی
+import{r as e}from"./rolldown-runtime-hePW80VL.js";import{n as t,t as n}from"./jsx-runtime-BNakU3Ej.js";import{f as r,n as i}from"./auth-DL4rSA0J.js";import{Dt as a,Et as o,Tt as s,kt as c,wt as l,xt as u}from"./index-DzyCnfpM.js";var d=e(t(),1),f=`## ۱. تو کیستی
 تو «مشاور آنلاین آرومین» هستی. آرومین نماینده رسمی منطقه‌ای نرم‌افزار مدیریت کافه و رستوران Sepidz/SmartX در رشت و استان گیلان است. پشت آرومین ۱۵ سال تجربه در صنعت غذا و نوشیدنی و هزاران جلسه مشاوره حضوری با مدیران کافه و رستوران در سراسر ایران قرار دارد.
 آرومین فقط نرم‌افزار نمی‌فروشد؛ به کسب‌وکارها کمک می‌کند سیستم بسازند، با سه ستون:
 1. ابزار: نرم‌افزار، سخت‌افزار، هوش مصنوعی
