@@ -58,13 +58,20 @@ per-destination report. Disabled until an exact publishing time and destination 
 
 ## Data model (migration 005)
 - `pub_settings(tenant PK, settings JSON TEXT, updated_by, updated_at)`.
-- `pub_jobs(id, tenant, schedule_key, local_date, status, product_url, product_json, copy_json, ai_calls, snapshot_sha256,
+- `pub_slots(tenant, schedule_key, slot_date, job_id, reserved_at, PRIMARY KEY(tenant, schedule_key, slot_date))` — the
+  only authority for which job owns a publishing slot. Creating a daily job and deferring a job both reserve a slot with
+  one INSERT inside the same transaction as the job update; a duplicate-key error means the slot is taken (no new job).
+- `pub_jobs(id, tenant, schedule_key, local_date, generation, status, product_url, product_json, copy_json, ai_calls,
+  ai_state (NONE|PENDING|DONE), snapshot_sha256,
   channel_asset, story_asset, visual_mode, approval_mode, approved_by, approved_at, approved_snapshot, publish_at_utc,
   lease_until, last_error, created_at, updated_at, UNIQUE(tenant, schedule_key, local_date))`.
   Status: `PREPARING → AWAITING_APPROVAL|READY → APPROVED → DELIVERING → DONE|PARTIAL`, side states `BLOCKED`, `REJECTED`,
   `STALE`, `DEFERRED`, `MISSED`.
-- `pub_deliveries(id, job_id, destination, status, attempts, next_at, inflight, lease_until, remote_id, remote_state JSON
-  (e.g. Instagram creation_id), remote_url, last_error, sent_at, UNIQUE(job_id, destination))`.
+- `pub_deliveries(id, job_id, generation, snapshot_sha256, destination, status, attempts, next_at, inflight, lease_until,
+  remote_id, remote_state JSON (e.g. Instagram creation_id), remote_url, last_error, sent_at,
+  UNIQUE(job_id, generation, destination))`. Each row is bound to its generation's immutable snapshot and assets; claims
+  and updates are always scoped by (id, generation). Before creating or claiming a row for generation G, check that no row
+  of any generation < G for the same (job_id, destination) is `SENT` or `UNCERTAIN`.
   Status: `PENDING, SENDING, SENT, FAILED(retryable), UNCERTAIN, BLOCKED, SKIPPED`.
 - `pub_assets(sha256 PK, kind, mime, width, height, path, created_at)`; files are content-addressed `<sha>.jpg`.
 - `pub_audit(id, job_id, delivery_id, actor, action, detail, at)`.
@@ -79,13 +86,17 @@ max_image_api_calls_per_run:0}`. Enabling is rejected unless `publishing_time` i
 except `whatsapp_channel` has its env configuration. API: `GET/PUT /api/publishing/settings?tenant=`.
 
 ## Daily flow (worker tick, every ≤20 s, deterministic)
-1. Local Tehran date D. If enabled and now ≥ D+prep and now < D+publish and no job for (tenant,"daily",D): INSERT
-   (unique key makes duplicate ticks/restarts no-ops) and prepare. If now ≥ D+publish with no job: record nothing for D
+1. Local Tehran date D. If enabled and now ≥ D+prep and now < D+publish: in one transaction INSERT `pub_slots(D)` and the
+   job; a duplicate slot (daily job already created, or a deferred job already owns D) makes this a no-op, including across
+   restarts and concurrent ticks. If now ≥ D+publish with no job: record nothing for D
    (no catch-up burst, no backfill of earlier dates); next run is D+1.
 2. Prepare (resumable under a lease): pick product (priority list first, then not-excluded, not posted in cooldown across
    `pub_jobs` and `tg_posts`, complete data name/image/description, availability `InStock` when exposed; bounded by
-   `max_product_fetches_per_run`) → persist product snapshot → if `copy_json` empty: one structured AI request
-   `{problem, product, value, cta, features[≤3]}` validated deterministically (one retry max) → persist → fetch the
+   `max_product_fetches_per_run`) → persist product snapshot → if `copy_json` empty: reserve the attempt first (`ai_calls+=1, ai_state=PENDING`
+   committed, refused when `ai_calls >= max_ai_calls_per_run`), then one structured AI request
+   `{problem, product, value, cta, features[≤3]}` validated deterministically → persist copy with `ai_state=DONE`.
+   On resume, `ai_state=PENDING` without copy counts as a consumed attempt (never silently repeated beyond the budget);
+   budget exhausted → job `BLOCKED` (reason recorded) until a manager requests regeneration → fetch the
    official product photo (existing SSRF-safe fetch) → render channel visual + Story → store assets → snapshot hash.
    A resumed preparation never repeats a successful AI call or re-renders an existing asset.
 3. Manual mode: private Telegram preview to admin (channel visual with exact caption, Story image, report of
@@ -93,18 +104,36 @@ except `whatsapp_channel` has its env configuration. API: `GET/PUT /api/publishi
    dashboard `POST /api/publishing/jobs/{id}/approve {snapshot}`. Approval is accepted only for the current snapshot,
    records `approved_snapshot`, and is routed in `tg_handle_callback` by a new regex branch that leaves `approve_post`
    handling unchanged. Automatic mode: READY counts as approved.
-4. At D+publish: if approved → revalidate (fresh `product_detail`, cache bypassed): unavailable, name/image change, or
-   (when a price is displayed) price change or price older than `price_max_age_minutes` without successful revalidation →
-   job `STALE`, admin notified, draft regenerated (new snapshot; manual mode needs new approval; publish follows
-   late policy). If valid → create one `pub_deliveries` row per destination and deliver independently.
-   If still awaiting approval at D+publish: `defer` → when approved, publish at the next slot (that slot creates no new job
-   while a deferred job holds it); `immediate` → publish right after approval (after revalidation).
+4. At D+publish: if approved → revalidate (fresh `product_detail`, cache bypassed). **Source fingerprint** = sha256 of the
+   canonical source fields used for copy, Story and visuals: name, title, description, brand, image URL, availability,
+   and the displayed price (min/max/currency/validity) when shown; stored with each generation. Unavailable, or any
+   fingerprint change →
+   job `STALE`, admin notified, then the regeneration transition below runs (manual mode needs new approval;
+   publish follows late policy).
+   **Regeneration transition** (atomic, one UPDATE guarded by current `generation`): `generation+=1`, clear `copy_json`,
+   `ai_calls=0`, `ai_state=NONE`, `channel_asset`, `story_asset`, `snapshot_sha256`, `approved_*`; status `PREPARING`.
+   Snapshot = sha256 of canonical JSON {generation, product snapshot used for rendering, exact caption(s), story text
+   fields, asset sha256s, destinations}. Approvals/callbacks carrying an older generation or snapshot are rejected.
+   Asset cache is content-addressed, so unchanged renders are reused but never attached to a different snapshot. If valid → create one `pub_deliveries` row per destination and deliver independently.
+   If still awaiting approval at D+publish: `defer` → on approval, atomically reserve the next free slot in `pub_slots`
+   and set `publish_at_utc` to it; the daily insertion for that date then finds the slot taken; `immediate` → publish right after approval (after revalidation).
 5. Report to admin (Telegram) after the delivery round settles: per destination ✅ link / ⚠️ uncertain / ⛔ blocked/failed;
    `GET /api/publishing/jobs` returns the same.
 
 ## Delivery rules
-- Claim with `inflight+lease`; success → `SENT` (never resent); definite not-sent (connect failure, 429, Bale/Composio
-  explicit rejection classified retryable) → `FAILED` with bounded backoff 1m, 5m, 15m, 4 attempts; permanent rejection →
+- **Freshness gate before every unsent attempt** (first send, each retry, and any attempt after a manager resolves
+  `not_sent`): if the generation's last successful revalidation is older than `min(price_max_age_minutes, 30)` minutes,
+  revalidate first. Fingerprint changed or product unavailable → mark every remaining `PENDING`/`FAILED` row of this
+  generation `BLOCKED` (reason `stale`), keep `SENT` and `UNCERTAIN` rows untouched, set job `STALE`, notify admin and run
+  the regeneration transition. The new generation delivers only to destinations that have no `SENT` or `UNCERTAIN` row in
+  any earlier generation of the same job; unsent Instagram `creation_id`s from older generations are discarded (never
+  published; containers expire on Instagram's side) and new containers use the new Story asset.
+- Scheduled delivery uses its own error classification (the existing `/post` path is unchanged): retryable only when
+  the request provably never reached the provider — DNS failure (`socket.gaierror`), `ConnectionRefusedError`, timeout while
+  connecting, HTTP 429 / explicit "retry after". Every other `URLError`/`OSError`, timeout after connect, 5xx or unparseable
+  response → `UNCERTAIN`.
+- Claim with `inflight+lease`; success → `SENT` (never resent); definite not-sent (as above, or an explicit provider
+  rejection that is retryable) → `FAILED` with bounded backoff 1m, 5m, 15m, 4 attempts; permanent rejection →
   `FAILED` terminal; timeout after send / 5xx / unclear → `UNCERTAIN` (no automatic retry; admin resolves via
   `POST /api/publishing/deliveries/{id}/resolve {outcome: sent|not_sent}`; `not_sent` → retry). Lease expiry with inflight → `UNCERTAIN`.
 - Instagram: persist `creation_id` after container creation; retries reuse it; publish call uncertainty → `UNCERTAIN`.
@@ -123,13 +152,17 @@ product name. No image API is used (`visual_mode="deterministic_composition"`); 
 1. Settings default disabled; enabling without publishing_time/configured destinations fails; non-managers get 401/403.
 2. Scheduler: Tehran-time slot math correct; two ticks / restart produce one job; start after publish time creates no job
    for that date; downtime spanning days creates no backfill.
-3. One AI call per draft (≤2 with validation retry); resumed preparation makes none; delivery retries never re-render.
+3. AI attempts are reserved before each request; total per generation ≤ `max_ai_calls_per_run` even across crashes;
+   resumed preparation with copy present makes none; delivery retries never re-render.
 4. Story is 1080×1920 JPEG; all text inside safe margins; Persian shaped/RTL; prices only from verified data; photo
    aspect ratio preserved.
-5. Approval bound to snapshot; stale snapshot approval rejected; late policy defer/immediate both work.
-6. Partial failure: only failed destinations retried; SENT never resent; UNCERTAIN never auto-retried; Instagram reuses
+5. Approval bound to generation+snapshot; approval of a previous generation rejected; late policy defer/immediate both
+   work; a deferred job and the next daily preparation never both own a slot.
+6. Ambiguous network errors in scheduled delivery become UNCERTAIN (never auto-retried). Partial failure: only failed destinations retried; SENT never resent; UNCERTAIN never auto-retried; Instagram reuses
    creation_id; WhatsApp is BLOCKED with manual-ready assets.
-7. Stale price/availability blocks delivery and regenerates the draft.
+7. Any change of the source fingerprint (incl. description) or availability blocks delivery and regenerates the draft;
+   the freshness gate runs before retries and post-resolution attempts; after partial delivery only unreached
+   destinations receive the new generation.
 8. Telegram regression: `/post`, `approve_post`/`reject_post`, existing tests unchanged and passing; channel link uses
    `TELEGRAM_CHANNEL_USERNAME` when channel is numeric.
 9. Secrets never appear in errors, audit, API responses.
