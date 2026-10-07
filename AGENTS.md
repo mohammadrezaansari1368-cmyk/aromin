@@ -2,8 +2,10 @@
 
 این مخزن را دو کدنویس با هم جلو می‌برند. هر دو همین قواعد را رعایت کنند.
 
+**محلِ ذخیره:** منبعِ حقیقت شاخهٔ `main` روی GitHub است (https://github.com/mohammadrezaansari1368-cmyk/aromin). نسخهٔ محلیِ دائمی روی این سیستم: `C:\Users\Administrator\aromin`. نسخه‌های موقت (پوشهٔ Temp/scratchpad) منبع نیستند.
+
 ## پیش از شروعِ کار
-1. `git pull --ff-only` روی شاخهٔ کار.
+1. `git pull --ff-only` روی `main` (کارِ بزرگ: شاخهٔ کوتاه‌عمر از `main` و برگشت با fast-forward).
 2. **HANDOFF.md** را بخوان؛ بالاترین بخش = آخرین وضعیت و کارهای باز.
 3. گراف را تازه کن و برای فهمِ کد از آن بپرس (بدون LLM، فقط AST):
    ```bash
@@ -16,7 +18,7 @@
 ## پس از پایانِ هر نوبت
 - تست‌ها (پایین) را اجرا کن؛ تستی را که اجرا نشده «موفق» اعلام نکن.
 - یک بخش **بالای** HANDOFF.md اضافه کن: «تا اینجا انجام دادم» — تاریخ، کدنویس، شاخه/کامیت، چه شد، چه تست شد، کارِ باز.
-- commit و push (فقط fast-forward؛ **force-push و بازنویسیِ تاریخچه ممنوع**).
+- commit و push روی `main` (فقط fast-forward؛ **force-push و بازنویسیِ تاریخچه ممنوع**). اگر push رد شد: `git pull --rebase` روی کامیت‌های push‌نشدهٔ خودت، نه force.
 
 ## ساختار
 - `deployment/server.py` — FastAPI تک‌فایل + MariaDB (pymysql)؛ migrations خودکار.
