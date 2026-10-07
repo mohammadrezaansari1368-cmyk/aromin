@@ -1,0 +1,12 @@
+# Deployment files run on Linux: always LF, regardless of the packager's OS
+*.sh text eol=lf
+deployment/** text=auto eol=lf
+tools/** text=auto eol=lf
+*.ttf binary
+*.webp binary
+*.png binary
+*.jpg binary
+*.woff2 binary
+*.tgz binary
+*.zip binary
+*.glb binary
