@@ -182,5 +182,16 @@ class FinanceAssignee(unittest.TestCase):
         self.assertEqual(new2["saleTimes"]["1405"], {"1:1": "10:00:00", "1:2": "09:30:00"})
 
 
+class StartupRegression(unittest.TestCase):
+    def test_startup_without_telegram_does_not_crash_on_like_query(self):
+        """pymysql args=() هم «%» را قالب می‌گیرد؛ با تلگرامِ خاموش، سرور در 3.9.42 بالا نمی‌آمد."""
+        def pymysql_like_q(sql, args=None):
+            sql % tuple(args or ())   # همان رفتارِ cursor.execute وقتی args برابرِ () است
+            return []
+        with patch.object(server, "run_migrations", return_value=0), patch.object(server, "tg_configured", return_value=False),              patch.object(server, "_sa_all", return_value={}), patch.object(server, "q", side_effect=pymysql_like_q),              patch.object(server, "sa_start_worker") as worker:
+            server._startup()
+            worker.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
