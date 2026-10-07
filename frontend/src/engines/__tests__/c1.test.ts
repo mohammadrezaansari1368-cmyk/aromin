@@ -101,10 +101,12 @@ describe('ایمپورت — منبعِ سالِ مالی و تاریخ = «تغ
 	it('۷) پیش‌نمایش = ثبتِ نهایی؛ بار دوم هیچ (idempotent)؛ inv و invY یکسان؛ سال‌های قبل دست‌نخورده', () => {
 		const full = blob()
 		const before1404 = JSON.stringify(full.people[0].invY['1404'])
-		const rows = [R({ 'معامله': 'N1', 'تغییر مرحله': '16:32:51 1405/06/31' }), R({ 'معامله': 'N2', 'تغییر مرحله': '10:00:00 1404/03/03' }), R({ 'معامله': 'N1' }), R({ 'معامله': 'A-1' })]
+		// N1 دو بار، عیناً یکسان (تکراری)؛ A-1 همان فاکتورِ موجود با همان مشتری و مبلغ (تکراری + تکمیلِ تاریخ)
+		const rows = [R({ 'معامله': 'N1', 'تغییر مرحله': '16:32:51 1405/06/31' }), R({ 'معامله': 'N2', 'تغییر مرحله': '10:00:00 1404/03/03' }), R({ 'معامله': 'N1', 'تغییر مرحله': '16:32:51 1405/06/31' }), R({ 'معامله': 'A-1', 'شرکت': 'کافه رشت', 'ارزش': 100000000 })]
 		const preview = planDealImport(rows, full, opts)
 		const r = applyDealImport(full, rows, { ...opts, fileName: 'f.xlsx', sig: 's', custbook: null })
 		expect(r.plan.cnt).toEqual(preview.cnt)
+		expect(preview.cnt).toEqual({ valid: 1, previous: 1, duplicate: 2, conflict: 0, invalid: 0 })
 		expect(r.plan.rows.map((x) => [x.st, x.fy, x.date, x.time])).toEqual(preview.rows.map((x) => [x.st, x.fy, x.date, x.time]))
 		const sara = full.people[0]
 		expect(sara.inv).toBe(sara.invY['1405'])
@@ -116,7 +118,7 @@ describe('ایمپورت — منبعِ سالِ مالی و تاریخ = «تغ
 	})
 	it('تکمیلِ تاریخ و ساعتِ خالیِ فاکتورِ موجود (بدونِ رکوردِ تازه)', () => {
 		const full = blob()
-		const r = applyDealImport(full, [R({ 'معامله': 'A-1', 'تغییر مرحله': '12:30:00 1405/01/20' })], { ...opts, fileName: 'f', sig: 's', custbook: null })
+		const r = applyDealImport(full, [R({ 'معامله': 'A-1', 'شرکت': 'کافه رشت', 'ارزش': 100000000, 'تغییر مرحله': '12:30:00 1405/01/20' })], { ...opts, fileName: 'f', sig: 's', custbook: null })
 		expect(r.plan.dateUpdates).toEqual([{ key: '1:10', date: '1405/01/20', time: '12:30:00' }])
 		expect([full.saleDates['1405']['1:10'], full.saleTimes['1405']['1:10'], full.people[0].inv.length]).toEqual(['1405/01/20', '12:30:00', 1])
 	})
@@ -193,10 +195,12 @@ describe('قفلِ شماره، یکتایی و بستنِ مالی', () => {
 		expect(() => applyOps(f, [{ t: 'person-del', ref: { pid: 2, pname: 'نیما' } }])).toThrow(/حذف نمی‌شود/)
 		expect(f.people[1].inv[0].settle).toBe('cash')
 	})
-	it('ایمپورت: شمارهٔ موجود در دفترِ هر کارشناسی = تکراری و حذف از فایل؛ جایگزینی فاکتورِ بسته را حذف نمی‌کند', () => {
+	it('ایمپورت: شمارهٔ موجود با دادهٔ دیگر = تعارض، تکرارِ عینی = تکراری؛ جایگزینی فاکتورِ بسته را حذف نمی‌کند', () => {
 		const f = blob2()
 		const P = planDealImport([R({ 'معامله': 'B-1', 'کارشناس': 'سارا' }), R({ 'معامله': 'C-1', 'کارشناس': 'سارا' }), R({ 'معامله': 'C-1', 'کارشناس': 'سارا' })], f, { mode: 'append', rial: false })
-		expect(P.cnt).toEqual({ valid: 1, previous: 0, duplicate: 2, invalid: 0 })
+		// B-1 در دفترِ نیما با مشتری و مبلغِ دیگر → تعارض (تطبیقِ خودکار نه)؛ C-1 دو بار عیناً → یکی تکراری
+		expect(P.cnt).toEqual({ valid: 1, previous: 0, duplicate: 1, conflict: 1, invalid: 0 })
+		expect(P.rows[0].why).toContain('نامِ مشتری، کارشناس، مبلغ')
 		applyDealImport(f, [R({ 'معامله': 'Z-9', 'کارشناس': 'نیما', 'تاریخ تغییر مرحله': '1405/01/10' })], { mode: 'replace', rial: false, fileName: 'f', sig: 's', custbook: null })
 		expect(f.people[1].inv.map((d: Deal) => d.no)).toEqual(['B-1', 'Z-9'])
 	})
@@ -267,7 +271,7 @@ describe('سندِ تصویب‌شده/در انتظار/بسته: فقط‌خو
 		const f = blob3()
 		f.people[0].inv.push(deal({ id: 14, no: 'S-1', month: 2, funnel: 'advance' }))
 		const P = planDealImport([R({ 'معامله': 'S-1', 'کارشناس': 'سارا', 'تاریخ تغییر مرحله': '1405/05/02' }), R({ 'معامله': 'A-3', 'کارشناس': 'سارا', 'مرحله': 'پیشبرد' })], f, { mode: 'append', rial: false })
-		expect(P.cnt).toEqual({ valid: 1, previous: 0, duplicate: 1, invalid: 0 })
+		expect(P.cnt).toEqual({ valid: 1, previous: 0, duplicate: 1, conflict: 0, invalid: 0 })
 		applyDealImport(f, [R({ 'معامله': 'N-1', 'کارشناس': 'سارا', 'تاریخ تغییر مرحله': '1405/01/05' })], { mode: 'replace', rial: false, fileName: 'f', sig: 's', custbook: null })
 		expect(f.people[0].inv.filter((d: Deal) => isLocked(d)).map((d: Deal) => d.no)).toEqual(['A-1', 'A-2'])
 	})

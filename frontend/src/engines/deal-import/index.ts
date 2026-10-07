@@ -3,12 +3,15 @@
  * - سالِ مالی، تاریخِ کاملِ فروش، ساعت و ماهِ هر ردیف فقط از سلولِ ستونِ «تغییر مرحله» (lib/stage-change)؛
  *   ستونِ «سال مالی»، «ورود»، نامِ فایل و زمانِ سیستم منبع نیستند. سالِ مالی باید در سیستم تعریف شده باشد.
  * - فقط ۱۴۰۵ وارد دفتر می‌شود؛ سال‌های دیگر شمرده و گزارش می‌شوند ولی هیچ‌جا نوشته/حذف نمی‌شوند.
- * - idempotent: شمارهٔ فاکتورِ موجود در دفترِ همان کارشناس = تکراری (در «افزودن» همیشه؛ در «جایگزینی» مگر ماهش جایگزین شود).
+ * - idempotent: شمارهٔ موجود با همان مشتری، کارشناس، مبلغ و تاریخ = تکراری (در «جایگزینی» مگر ماهش جایگزین شود).
+ * - تعارض: همان شماره با مشتری/کارشناس/مبلغ/تاریخِ دیگر، یا بیش از یک رکوردِ هم‌شماره → هرگز خودکار تطبیق نمی‌شود؛
+ *   ردیف ثبت نمی‌شود، تاریخی تکمیل نمی‌شود و «تعارض» گزارش می‌شود (در همین فایل: هر دو ردیف کنار می‌روند).
+ * - نامِ کارشناس/لیدسازِ ناشناخته حدسی به کارشناسِ موجود وصل نمی‌شود؛ در پیش‌نمایش «نامِ تازه» علامت می‌خورد.
  * - دادهٔ تاریخی (invY سال‌های دیگر) هرگز لمس نمی‌شود.
  * applyDealImport فقط روی نسخهٔ تازهٔ سرور (داخلِ saveState) اجرا می‌شود.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { saleDateKey, saleDateOf } from '@/lib/sales-date'
+import { saleDateKey, saleDateOf, saleTimeOf } from '@/lib/sales-date'
 import { findStageChangeColumn, knownFiscalYears, parseStageChange, STAGE_ERR_FA, stageErrorText } from '@/lib/stage-change'
 import { freshS, invoiceKey, isLocked, num, MONTHS, type Deal } from '../commission/index.ts'
 import { classifyKinds, ledgerOf } from '../customer/index.ts'
@@ -41,8 +44,10 @@ const c1Norm = (v: unknown) =>
 		.replace(/[يیى]/g, 'ی').replace(/[كک]/g, 'ک').replace(/‌/g, ' ').toLowerCase()
 export const c1K = (v: unknown) => c1Norm(v).replace(/\s+/g, '')
 
-export type RowStatus = 'valid' | 'previous' | 'duplicate' | 'invalid'
-export interface PlanRow { i: number; no: string; name: string; st: RowStatus; why: string; fy: string; raw?: string; date?: string; time?: string }
+export type RowStatus = 'valid' | 'previous' | 'duplicate' | 'conflict' | 'invalid'
+export interface PlanRow { i: number; no: string; name: string; rep: string; st: RowStatus; why: string; fy: string; raw?: string; date?: string; time?: string }
+/** گزارشِ اعتبارسنجیِ هر کارشناس: شمارِ هر وضعیت + ردیف‌ها و مبلغِ ثبت‌شدنی به تفکیکِ ماه (۱ تا ۱۲) */
+export interface SellerReport { valid: number; previous: number; duplicate: number; conflict: number; invalid: number; amount: number; months: Record<number, { n: number; amount: number }> }
 export interface Plan {
  saleDateColumn: string | null
  missingSaleDates: number
@@ -62,10 +67,27 @@ export interface Plan {
 	fyRows: number
 	mode: 'append' | 'replace'
 	rial: boolean
+	bySeller: Record<string, SellerReport>
+	/** نام‌های کارشناس/لیدسازِ ثبت‌شدنی که در سیستم نیستند (کارشناسِ تازه ساخته می‌شود) → شمارِ ردیف */
+	newNames: Record<string, number>
 }
 const emptyPlan = (mode: 'append' | 'replace', rial: boolean, error: string): Plan => ({
-	error, saleDateColumn: null, missingSaleDates: 0, dateUpdates: [], rows: [], cnt: { valid: 0, previous: 0, duplicate: 0, invalid: 0 }, years: {}, fySource: 'stageChange', fyColumn: null, groups: {}, order: [], monthsInFile: {}, leadNames: {}, noRep: 0, total: 0, fyRows: 0, mode, rial,
+	error, saleDateColumn: null, missingSaleDates: 0, dateUpdates: [], rows: [], cnt: { valid: 0, previous: 0, duplicate: 0, conflict: 0, invalid: 0 }, years: {}, fySource: 'stageChange', fyColumn: null, groups: {}, order: [], monthsInFile: {}, leadNames: {}, noRep: 0, total: 0, fyRows: 0, mode, rial, bySeller: {}, newNames: {},
 })
+const sameName = (a: unknown, b: unknown) => { const x = c1K(cleanName(a)), y = c1K(cleanName(b)); return !x || !y || x === y }
+interface Side { name: string; rep: string; amount: number; saleDate: string; saleTime: string }
+/** فیلدهای ناسازگارِ دو نسخه از یک شماره؛ مبلغ/تاریخ فقط برای فاکتور (معاملهٔ بسته) سنجیده می‌شود. خالی = داوری‌نشدنی، تعارض نیست */
+function diffFields(a: Side, b: Side, invoice: boolean): string[] {
+	const out: string[] = []
+	if (!sameName(a.name, b.name)) out.push('نامِ مشتری')
+	if (a.rep !== b.rep) out.push('کارشناس')
+	if (invoice) {
+		if (Math.round(a.amount) !== Math.round(b.amount)) out.push('مبلغ')
+		if (a.saleDate && b.saleDate && a.saleDate !== b.saleDate) out.push('تاریخِ فروش')
+		else if (a.saleTime && b.saleTime && a.saleTime !== b.saleTime) out.push('ساعتِ فروش')
+	}
+	return out
+}
 
 /**
  * پیش‌نمایش (بدونِ نوشتن). people/full = نسخهٔ فعلیِ داده (فقط خواندن) برای تشخیصِ تکراری.
@@ -94,25 +116,32 @@ export function planDealImport(rowsJson: Record<string, unknown>[], full: any, o
 	const people: any[] = Array.isArray(full?.people) ? full.people : []
 	// کلید = شمارهٔ فاکتور (فقط تطبیقِ دقیق پس از یکسان‌سازیِ بی‌ضرر)، در کلِ دفترِ ۱۴۰۵؛ رکوردِ موجود همیشه نسخهٔ اصل است.
 	// فاکتور فقط معاملهٔ «بستن» است: ردیفِ باز/شکستِ همان شماره در ماهِ دیگر عکسِ لحظه‌ایِ جولیوست، فاکتورِ تکراری نیست.
-	const exist: Record<string, { rep: string; m: number; locked: boolean; won: boolean; key: string; saleDate: string }[]> = {}
+	type Exist = Side & { m: number; locked: boolean; won: boolean; key: string }
+	const exist: Record<string, Exist[]> = {}
+	const known = new Set<string>()
 	for (const p of people) {
 		const nm = cleanName(p?.name)
+		if (nm) known.add(nm)
 		for (const x of ledgerOf(p, full, TARGET_FY)) {
 			const k = invoiceKey(x?.no); if (!k) continue
-			;(exist[k] ||= []).push({ key: saleDateKey(p.id, x.id), saleDate: saleDateOf(x, full.saleDates?.[TARGET_FY], p.id), rep: nm, m: x.month == null || x.month === '' ? 3 : +x.month, locked: isLocked(x), won: (x.funnel || 'won') === 'won' })
+			;(exist[k] ||= []).push({ key: saleDateKey(p.id, x.id), saleDate: saleDateOf(x, full.saleDates?.[TARGET_FY], p.id), saleTime: saleTimeOf(x, full.saleTimes?.[TARGET_FY], p.id), name: String(x.name ?? ''), amount: num(x.amount), rep: nm, m: x.month == null || x.month === '' ? 3 : +x.month, locked: isLocked(x), won: (x.funnel || 'won') === 'won' })
 		}
 	}
-	const seenAny: Record<string, number> = {}
 	const P = emptyPlan(mode, rial, '')
 	delete P.error
 	P.fyColumn = cChange
 	P.saleDateColumn = cChange
-	const seen: Record<string, number> = {}
-	const cand: { row: PlanRow; k: string; rep: string; noRep: boolean; lead: string; d: Deal }[] = []
+	type Cand = { row: PlanRow; k: string; rep: string; noRep: boolean; lead: string; d: Deal; side: Side; conflict: string }
+	const seen: Record<string, Cand> = {}, seenAny: Record<string, Cand> = {}
+	const cand: Cand[] = []
+	const seller = (rep: string) => (P.bySeller[rep] ||= { valid: 0, previous: 0, duplicate: 0, conflict: 0, invalid: 0, amount: 0, months: {} })
+	const mark = (row: PlanRow, st: RowStatus, why: string) => { row.st = st; row.why = why; P.cnt[st]++; seller(row.rep)[st]++ }
 	rowsJson.forEach((r, ix) => {
-		const row: PlanRow = { i: ix + 2, no: cNo ? String(r[cNo] ?? '').trim() : '', name: cName ? String(r[cName] ?? '').trim() : '', st: 'valid', why: '', fy: '' }
+		let rep = cRep ? cleanName(r[cRep]) : '', noRep = false
+		if (!rep) { rep = 'بدون کارشناس'; noRep = true }
+		const row: PlanRow = { i: ix + 2, no: cNo ? String(r[cNo] ?? '').trim() : '', name: cName ? String(r[cName] ?? '').trim() : '', rep, st: 'valid', why: '', fy: '' }
 		P.rows.push(row)
-		const bad = (st: RowStatus, why: string) => { row.st = st; row.why = why; P.cnt[st]++ }
+		const bad = (st: RowStatus, why: string) => mark(row, st, why)
 		const sc = parseStageChange(r[cChange])
 		row.raw = sc.raw
 		const where = (why: string) => stageErrorText({ source: opts.source, sheet: opts.sheet, row: row.i, col: cChange, raw: sc.raw, why })
@@ -129,36 +158,52 @@ export function planDealImport(rowsJson: Record<string, unknown>[], full: any, o
 		const fk = cStage ? canonFunnel(r[cStage], cFail ? r[cFail] : '') : 'won'
 		if (fk === 'won' && v <= 0) return bad('invalid', 'ارزشِ صفر یا نامعتبر برای معاملهٔ بسته')
 		if (v < 0) v = 0
-		const k = invoiceKey(row.no)
-		if (k) {
-			const prev = fk === 'won' ? seen[k] : seenAny[k]
-			if (prev) return bad('duplicate', `شمارهٔ ${row.no} در همین فایل تکراری است (ردیف ${prev})`)
-			if (fk === 'won') seen[k] = row.i
-			seenAny[k] ||= row.i
-		}
-		let rep = cRep ? cleanName(r[cRep]) : '', noRep = false
-		if (!rep) { rep = 'بدون کارشناس'; noRep = true }
 		const reg = cReg ? cleanName(r[cReg]) : ''
 		const lead = reg && reg !== rep ? reg : ''
-		cand.push({ row, k, rep, noRep, lead, d: {
+		const c: Cand = { row, k: invoiceKey(row.no), rep, noRep, lead, conflict: '', side: { name: row.name, rep, amount: v, saleDate, saleTime }, d: {
 			id: 0, no: row.no, month: ds.m - 1, name: row.name, amount: String(v), close: lead ? 'nolead' : 'all', funnel: fk, settle: 'cash', kind: 'new', channel: 'official', leadGen: lead,
 			saleDate, saleTime, stageChangedAt: sc.raw, entry: cEntry ? String(r[cEntry] ?? '').trim() : '', src: cSrc ? String(r[cSrc] ?? '').trim() : '', lossReason: cFail ? String(r[cFail] ?? '').trim() : '', fy: TARGET_FY,
-		} })
+		} }
+		if (c.k) {
+			const prev = fk === 'won' ? seen[c.k] : seenAny[c.k]
+			if (prev) {
+				// عکسِ باز/شکست کنارِ فاکتورِ همان شماره تعارض نیست؛ دو نسخهٔ ناهمسانِ یک شماره هر دو کنار می‌روند
+				const diff = prev.d.funnel === fk ? diffFields(prev.side, c.side, fk === 'won') : []
+				if (!diff.length) return bad('duplicate', `شمارهٔ ${row.no} در همین فایل تکراری است (ردیف ${prev.row.i})`)
+				prev.conflict ||= `شمارهٔ ${prev.row.no} در ردیفِ ${row.i} همین فایل با ${diff.join('، ')} متفاوت آمده — تطبیق خودکار انجام نشد، هیچ‌کدام ثبت نشد`
+				return bad('conflict', `شمارهٔ ${row.no} در ردیفِ ${prev.row.i} همین فایل با ${diff.join('، ')} متفاوت آمده — تطبیق خودکار انجام نشد، هیچ‌کدام ثبت نشد`)
+			}
+			if (fk === 'won') seen[c.k] = c
+			seenAny[c.k] ||= c
+		}
+		cand.push(c)
 	})
 	cand.forEach((c) => (P.monthsInFile[c.d.month as number] = 1))
 	for (const c of cand) {
+		if (c.conflict) { mark(c.row, 'conflict', c.conflict); continue }
 		// رکوردهایی که می‌مانند: در «جایگزینی»، ردیفِ قفل‌نشدهٔ همین کارشناس در ماهِ جایگزین‌شده حذف می‌شود و حساب نیست
 		const live = (c.k ? exist[c.k] || [] : []).filter((e) => mode !== 'replace' || e.rep !== c.rep || !P.monthsInFile[e.m] || e.locked)
-		// فاکتور (بستن): تکراری فقط اگر فاکتورِ دیگری با همین شماره باشد؛ ردیفِ باز/شکست: اگر همین معامله هست (idempotent)
-		const hit = c.d.funnel === 'won' ? live.find((e) => e.won) : live[0]
-		if (hit && !hit.saleDate && c.d.saleDate && live.filter(e => c.d.funnel !== 'won' || e.won).length === 1) {
-            P.dateUpdates.push({ key: hit.key, date: String(c.d.saleDate), time: String(c.d.saleTime || '') })
-            c.row.st = 'duplicate'; c.row.why = 'فاکتور موجود حفظ می‌شود؛ فقط تاریخ فروشِ خالی از اکسل تکمیل می‌شود'; P.cnt.duplicate++; continue
-        }
-        if (hit) { c.row.st = 'duplicate'; c.row.why = `شمارهٔ ${c.row.no} از قبل در دفترِ «${hit.rep}» هست${hit.locked ? ' (سندِ قفل)' : ''} — نسخهٔ اصل حفظ شد، ردیفِ فایل ثبت نشد`; P.cnt.duplicate++; continue }
-		P.cnt.valid++
+		// فاکتور (بستن): فقط با فاکتورهای هم‌شماره سنجیده می‌شود؛ ردیفِ باز/شکست با هر رکوردِ هم‌شماره (idempotent)
+		const won = c.d.funnel === 'won'
+		const hits = won ? live.filter((e) => e.won) : live
+		if (won && hits.length > 1) { mark(c.row, 'conflict', `شمارهٔ ${c.row.no} در دفتر ${hits.length} فاکتور دارد (${[...new Set(hits.map((e) => e.rep))].join('، ')}) — تطبیق خودکار انجام نشد`); continue }
+		if (hits.length) {
+			const diff = [...new Set(hits.flatMap((e) => diffFields(e, c.side, won)))]
+			const hit = hits[0]
+			if (diff.length) { mark(c.row, 'conflict', `شمارهٔ ${c.row.no} در دفترِ «${hit.rep}» با ${diff.join('، ')} متفاوت است — تطبیق خودکار انجام نشد، چیزی تغییر نکرد`); continue }
+			if (won && !hit.saleDate && c.d.saleDate) {
+				P.dateUpdates.push({ key: hit.key, date: String(c.d.saleDate), time: String(c.d.saleTime || '') })
+				mark(c.row, 'duplicate', 'فاکتور موجود حفظ می‌شود؛ فقط تاریخ فروشِ خالی از اکسل تکمیل می‌شود'); continue
+			}
+			mark(c.row, 'duplicate', `شمارهٔ ${c.row.no} از قبل در دفترِ «${hit.rep}» هست${hit.locked ? ' (سندِ قفل)' : ''} — نسخهٔ اصل حفظ شد، ردیفِ فایل ثبت نشد`); continue
+		}
+		mark(c.row, 'valid', '')
+		const sr = seller(c.rep), mm = (c.d.month as number) + 1, amt = num(c.d.amount)
+		sr.amount += amt
+		const cell = (sr.months[mm] ||= { n: 0, amount: 0 }); cell.n++; cell.amount += amt
 		if (c.noRep) P.noRep++
-		if (c.lead) P.leadNames[c.lead] = (P.leadNames[c.lead] || 0) + 1
+		else if (!known.has(c.rep)) P.newNames[c.rep] = (P.newNames[c.rep] || 0) + 1
+		if (c.lead) { P.leadNames[c.lead] = (P.leadNames[c.lead] || 0) + 1; if (!known.has(c.lead)) P.newNames[c.lead] = (P.newNames[c.lead] || 0) + 1 }
 		if (!P.groups[c.rep]) { P.groups[c.rep] = []; P.order.push(c.rep) }
 		P.groups[c.rep].push(c.d)
 	}
@@ -211,7 +256,9 @@ export function applyDealImport(full: any, rowsJson: Record<string, unknown>[], 
 	let repeatN = 0
 	people.forEach((p, pi) => ledgerOf(p, full, TARGET_FY).forEach((d: Deal) => { if (added.has(d)) { d.kind = kinds.get(pi + ':' + d.id) || 'new'; if (d.kind === 'repeat') repeatN++ } }))
 	const log = Array.isArray(full.importLog) ? full.importLog : (full.importLog = [])
-	log.push({ name: opts.fileName, type: 'deal', rows: rowsJson.length, sig: opts.sig, ts: Date.now(), dup: false, routed: true, err: '', dateUpdates: P.dateUpdates.length, fy: { valid: P.cnt.valid, previous: P.cnt.previous, duplicate: P.cnt.duplicate, invalid: P.cnt.invalid, years: P.years } })
+	// گزارشِ اعتبارسنجی کنارِ همین ایمپورت می‌ماند (validate_ledger.py روی سرور می‌خواند)؛ نامِ مشتری در آن نیست
+	const flagged = P.rows.filter((x) => x.st === 'conflict' || x.st === 'duplicate' || x.st === 'invalid').slice(0, 300).map((x) => ({ i: x.i, no: x.no, rep: x.rep, st: x.st, why: x.why }))
+	log.push({ name: opts.fileName, type: 'deal', rows: rowsJson.length, sig: opts.sig, ts: Date.now(), dup: false, routed: true, err: '', dateUpdates: P.dateUpdates.length, fy: { valid: P.cnt.valid, previous: P.cnt.previous, duplicate: P.cnt.duplicate, conflict: P.cnt.conflict, invalid: P.cnt.invalid, years: P.years }, mode: opts.mode, report: { bySeller: P.bySeller, newNames: P.newNames, flagged } })
 	if (log.length > 200) full.importLog = log.slice(-200)
 	return { plan: P, created, repeatN }
 }
