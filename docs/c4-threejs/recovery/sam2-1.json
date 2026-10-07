@@ -1,0 +1,77 @@
+{
+  "iteration": 1,
+  "scores": [
+    0.6929741501808167,
+    0.8785960078239441,
+    0.6686285138130188
+  ],
+  "selected": 1,
+  "seconds": 10.346473693847656,
+  "positive": [
+    [
+      205,
+      220
+    ],
+    [
+      310,
+      210
+    ],
+    [
+      418,
+      195
+    ],
+    [
+      503,
+      199
+    ],
+    [
+      586,
+      183
+    ],
+    [
+      593,
+      239
+    ],
+    [
+      571,
+      257
+    ],
+    [
+      374,
+      298
+    ]
+  ],
+  "negative": [
+    [
+      370,
+      350
+    ],
+    [
+      521,
+      369
+    ],
+    [
+      340,
+      74
+    ],
+    [
+      650,
+      209
+    ],
+    [
+      111,
+      206
+    ],
+    [
+      548,
+      303
+    ],
+    [
+      110,
+      279
+    ]
+  ],
+  "coverage": 0.25997158885002136,
+  "visualGate": "FAIL",
+  "reason": "Rear rotor contour includes non-mechanical background/light arcs; lower tooth separation not reliably isolated."
+}

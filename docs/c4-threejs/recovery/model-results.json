@@ -1,0 +1,322 @@
+[
+  {
+    "model": "u2net",
+    "mode": "plain",
+    "frame": 70,
+    "seconds": 0.811,
+    "sourceSha256": "111eb952eaedba36e9732363cc0ca7b137d74bd4977e06b440a7bb813929c5f6",
+    "alphaCoverage": 0.2846494873926295
+  },
+  {
+    "model": "u2net",
+    "mode": "plain",
+    "frame": 18,
+    "seconds": 0.742,
+    "sourceSha256": "d8e248ac092127a14a78becb71c18657d66673023d977bf951e3bb25acc350a3",
+    "alphaCoverage": 0.34643599334995845
+  },
+  {
+    "model": "u2net",
+    "mode": "plain",
+    "frame": 28,
+    "seconds": 0.711,
+    "sourceSha256": "32066292b2a5e20df2e72ad6fd634e0615f0190f6608936ac5c5ded6319cd898",
+    "alphaCoverage": 0.32272443890274316
+  },
+  {
+    "model": "u2net",
+    "mode": "plain",
+    "frame": 35,
+    "seconds": 0.678,
+    "sourceSha256": "7cff620cf8e63b1f9d90ad0a0fb5610c40ae476558f515e3897d2b0adaa96d8d",
+    "alphaCoverage": 0.30613743419229705
+  },
+  {
+    "model": "u2net",
+    "mode": "plain",
+    "frame": 46,
+    "seconds": 0.913,
+    "sourceSha256": "f98522fe079c6b34977de4d3d731d13fa63c7fbb6214fab94e9b84754fda63a7",
+    "alphaCoverage": 0.3059850374064838
+  },
+  {
+    "model": "u2net",
+    "mode": "plain",
+    "frame": 53,
+    "seconds": 0.697,
+    "sourceSha256": "ac97578519fe29269c62ea5bdfcdeff57f11487967e9ea468d342c07d03e541c",
+    "alphaCoverage": 0.3029821280133001
+  },
+  {
+    "model": "u2net",
+    "mode": "plain",
+    "frame": 76,
+    "seconds": 0.697,
+    "sourceSha256": "d66cd54e5aef6b20bc5513b2a0a4a1b0579e8d82fd41e54e98516cc92403aee7",
+    "alphaCoverage": 0.2610937932945414
+  },
+  {
+    "model": "u2net",
+    "mode": "plain",
+    "frame": 121,
+    "seconds": 0.731,
+    "sourceSha256": "4cb5bd7dbf83ab28020fae8b1f9b03e67331e8c96f636c2e4f1c8b1323915ae0",
+    "alphaCoverage": 0.27033804377944026
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "plain",
+    "frame": 70,
+    "seconds": 2.015,
+    "sourceSha256": "111eb952eaedba36e9732363cc0ca7b137d74bd4977e06b440a7bb813929c5f6",
+    "alphaCoverage": 0.2874722914934885
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "plain",
+    "frame": 18,
+    "seconds": 2.103,
+    "sourceSha256": "d8e248ac092127a14a78becb71c18657d66673023d977bf951e3bb25acc350a3",
+    "alphaCoverage": 0.360453034081463
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "plain",
+    "frame": 28,
+    "seconds": 2.048,
+    "sourceSha256": "32066292b2a5e20df2e72ad6fd634e0615f0190f6608936ac5c5ded6319cd898",
+    "alphaCoverage": 0.32880991964533113
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "plain",
+    "frame": 35,
+    "seconds": 2.102,
+    "sourceSha256": "7cff620cf8e63b1f9d90ad0a0fb5610c40ae476558f515e3897d2b0adaa96d8d",
+    "alphaCoverage": 0.31085480742587973
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "plain",
+    "frame": 46,
+    "seconds": 2.086,
+    "sourceSha256": "f98522fe079c6b34977de4d3d731d13fa63c7fbb6214fab94e9b84754fda63a7",
+    "alphaCoverage": 0.30692712662787475
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "plain",
+    "frame": 53,
+    "seconds": 1.783,
+    "sourceSha256": "ac97578519fe29269c62ea5bdfcdeff57f11487967e9ea468d342c07d03e541c",
+    "alphaCoverage": 0.3052369077306733
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "plain",
+    "frame": 76,
+    "seconds": 1.868,
+    "sourceSha256": "d66cd54e5aef6b20bc5513b2a0a4a1b0579e8d82fd41e54e98516cc92403aee7",
+    "alphaCoverage": 0.2591299528955389
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "plain",
+    "frame": 121,
+    "seconds": 2.084,
+    "sourceSha256": "4cb5bd7dbf83ab28020fae8b1f9b03e67331e8c96f636c2e4f1c8b1323915ae0",
+    "alphaCoverage": 0.22576544749238017
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "matting",
+    "frame": 70,
+    "seconds": 2.422,
+    "sourceSha256": "111eb952eaedba36e9732363cc0ca7b137d74bd4977e06b440a7bb813929c5f6",
+    "alphaCoverage": 0.2966091715156553
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "matting",
+    "frame": 18,
+    "seconds": 2.592,
+    "sourceSha256": "d8e248ac092127a14a78becb71c18657d66673023d977bf951e3bb25acc350a3",
+    "alphaCoverage": 0.3652154336381269
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "matting",
+    "frame": 28,
+    "seconds": 2.183,
+    "sourceSha256": "32066292b2a5e20df2e72ad6fd634e0615f0190f6608936ac5c5ded6319cd898",
+    "alphaCoverage": 0.33737531172069823
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "matting",
+    "frame": 35,
+    "seconds": 2.235,
+    "sourceSha256": "7cff620cf8e63b1f9d90ad0a0fb5610c40ae476558f515e3897d2b0adaa96d8d",
+    "alphaCoverage": 0.3195552784704904
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "matting",
+    "frame": 46,
+    "seconds": 2.132,
+    "sourceSha256": "f98522fe079c6b34977de4d3d731d13fa63c7fbb6214fab94e9b84754fda63a7",
+    "alphaCoverage": 0.31297797173732333
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "matting",
+    "frame": 53,
+    "seconds": 2.457,
+    "sourceSha256": "ac97578519fe29269c62ea5bdfcdeff57f11487967e9ea468d342c07d03e541c",
+    "alphaCoverage": 0.3129537267941258
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "matting",
+    "frame": 76,
+    "seconds": 2.114,
+    "sourceSha256": "d66cd54e5aef6b20bc5513b2a0a4a1b0579e8d82fd41e54e98516cc92403aee7",
+    "alphaCoverage": 0.2653297312274868
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "matting",
+    "frame": 121,
+    "seconds": 2.022,
+    "sourceSha256": "4cb5bd7dbf83ab28020fae8b1f9b03e67331e8c96f636c2e4f1c8b1323915ae0",
+    "alphaCoverage": 0.2319790800775838
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "bright",
+    "frame": 70,
+    "seconds": 1.893,
+    "sourceSha256": "111eb952eaedba36e9732363cc0ca7b137d74bd4977e06b440a7bb813929c5f6",
+    "alphaCoverage": 0.2893356885563868
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "bright",
+    "frame": 18,
+    "seconds": 1.847,
+    "sourceSha256": "d8e248ac092127a14a78becb71c18657d66673023d977bf951e3bb25acc350a3",
+    "alphaCoverage": 0.3574847603214187
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "bright",
+    "frame": 28,
+    "seconds": 1.964,
+    "sourceSha256": "32066292b2a5e20df2e72ad6fd634e0615f0190f6608936ac5c5ded6319cd898",
+    "alphaCoverage": 0.3288930451648656
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "bright",
+    "frame": 35,
+    "seconds": 1.776,
+    "sourceSha256": "7cff620cf8e63b1f9d90ad0a0fb5610c40ae476558f515e3897d2b0adaa96d8d",
+    "alphaCoverage": 0.3128983097811028
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "bright",
+    "frame": 46,
+    "seconds": 1.828,
+    "sourceSha256": "f98522fe079c6b34977de4d3d731d13fa63c7fbb6214fab94e9b84754fda63a7",
+    "alphaCoverage": 0.306691604322527
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "bright",
+    "frame": 53,
+    "seconds": 1.746,
+    "sourceSha256": "ac97578519fe29269c62ea5bdfcdeff57f11487967e9ea468d342c07d03e541c",
+    "alphaCoverage": 0.3050048489886395
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "bright",
+    "frame": 76,
+    "seconds": 1.763,
+    "sourceSha256": "d66cd54e5aef6b20bc5513b2a0a4a1b0579e8d82fd41e54e98516cc92403aee7",
+    "alphaCoverage": 0.259181906345248
+  },
+  {
+    "model": "isnet-general-use",
+    "mode": "bright",
+    "frame": 121,
+    "seconds": 2.016,
+    "sourceSha256": "4cb5bd7dbf83ab28020fae8b1f9b03e67331e8c96f636c2e4f1c8b1323915ae0",
+    "alphaCoverage": 0.22530133000831254
+  },
+  {
+    "model": "birefnet-general-lite",
+    "mode": "plain",
+    "frame": 70,
+    "seconds": 10.312,
+    "sourceSha256": "111eb952eaedba36e9732363cc0ca7b137d74bd4977e06b440a7bb813929c5f6",
+    "alphaCoverage": 0.2795857578276531
+  },
+  {
+    "model": "birefnet-general-lite",
+    "mode": "plain",
+    "frame": 18,
+    "seconds": 9.475,
+    "sourceSha256": "d8e248ac092127a14a78becb71c18657d66673023d977bf951e3bb25acc350a3",
+    "alphaCoverage": 0.33159462454973676
+  },
+  {
+    "model": "birefnet-general-lite",
+    "mode": "plain",
+    "frame": 28,
+    "seconds": 8.713,
+    "sourceSha256": "32066292b2a5e20df2e72ad6fd634e0615f0190f6608936ac5c5ded6319cd898",
+    "alphaCoverage": 0.31292255472430036
+  },
+  {
+    "model": "birefnet-general-lite",
+    "mode": "plain",
+    "frame": 35,
+    "seconds": 8.812,
+    "sourceSha256": "7cff620cf8e63b1f9d90ad0a0fb5610c40ae476558f515e3897d2b0adaa96d8d",
+    "alphaCoverage": 0.3017317816569687
+  },
+  {
+    "model": "birefnet-general-lite",
+    "mode": "plain",
+    "frame": 46,
+    "seconds": 8.391,
+    "sourceSha256": "f98522fe079c6b34977de4d3d731d13fa63c7fbb6214fab94e9b84754fda63a7",
+    "alphaCoverage": 0.30284012191742865
+  },
+  {
+    "model": "birefnet-general-lite",
+    "mode": "plain",
+    "frame": 53,
+    "seconds": 8.718,
+    "sourceSha256": "ac97578519fe29269c62ea5bdfcdeff57f11487967e9ea468d342c07d03e541c",
+    "alphaCoverage": 0.3026600166251039
+  },
+  {
+    "model": "birefnet-general-lite",
+    "mode": "plain",
+    "frame": 76,
+    "seconds": 8.991,
+    "sourceSha256": "d66cd54e5aef6b20bc5513b2a0a4a1b0579e8d82fd41e54e98516cc92403aee7",
+    "alphaCoverage": 0.26427334441673594
+  },
+  {
+    "model": "birefnet-general-lite",
+    "mode": "plain",
+    "frame": 121,
+    "seconds": 8.938,
+    "sourceSha256": "4cb5bd7dbf83ab28020fae8b1f9b03e67331e8c96f636c2e4f1c8b1323915ae0",
+    "alphaCoverage": 0.29355430867276255
+  }
+]

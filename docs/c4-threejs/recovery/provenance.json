@@ -1,0 +1,20 @@
+{
+  "tools": {
+    "img2threejs": "fe2d0d2d1263cd8203f486bf6f4526110da42f9c",
+    "media2threejs": "1c14ada729c27dbc0e5a9c291e183f5dc2d07b71",
+    "remove-background": "e71931c020b1bb536ddac9018119e4484ad175f2",
+    "rembg-bg-removal": "3e9e829db5921e5754fd82af645f82b7357446ee",
+    "sam2": "2b90b9f5ceec907a1c18123530e92e794ad901a4"
+  },
+  "weightsSha256": {
+    "sam2.1_hiera_small.pt": "6d1aa6f30de5c92224f8172114de081d104bbd23dd9dc5c58996f0cad5dc4d38",
+    "models/u2net/u2net.onnx": "8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491",
+    "models/isnet-general-use/isnet-general-use.onnx": "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
+    "models/birefnet-general-lite/birefnet-general-lite.onnx": "5600024376f572a557870a5eb0afb1e5961636bef4e1e22132025467d0f03333"
+  },
+  "originalWebPsVerifiedUnchanged": 104,
+  "sam2": "1.0 / SAM 2.1 hiera small",
+  "torch": "2.5.1+cpu",
+  "rembg": "2.0.85",
+  "onnxruntime": "1.30.0"
+}
