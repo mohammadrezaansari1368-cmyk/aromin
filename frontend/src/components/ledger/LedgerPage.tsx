@@ -363,7 +363,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 		withdraw: () => docAct(() => withdrawDoc(session, r.d.id), 'سند به پیش‌نویس برگشت'),
 		approve: (v: ApprovalInput) => docAct(() => approveDoc(session, r.d.id, v), 'سند تصویب شد و فقط‌خواندنی است'),
 		close: () => docAct(() => closeDeals(session, [r.d.id]).then((d) => { if (!d.closed && !d.already) throw new Error('بسته نشد: سند باید تصویب‌شده باشد.') }), 'سند بستهٔ مالی شد'),
-		code: () => requestReopenCode(session, r.d.id),
+		code: (reason: string) => requestReopenCode(session, r.d.id, reason),
 		reopen: (reason: string, code?: string) => docAct(() => reopenDeal(session, r.d.id, reason, code), 'سند بازگشایی شد (دلیل در تاریخچه ثبت شد)'),
 	})
 
@@ -1118,7 +1118,7 @@ function StateBadge({ st }: { st: FinState }) {
 	return <span className={`${BADGE} ${ST_TONE[st]}`}>{st !== 'submitted' && <LockIcon className="size-3" />}{FIN_STATE_LABEL[st]}</span>
 }
 const TILE_LABEL: Record<string, string> = { c3: 'ترازنامه', c5: 'دستورِ پرداخت و معلق', c4: 'فروش ماه جاری', c2: 'قیف', w7: 'وزنِ هفت مرحله', c1: 'دفتر فاکتورها' }
-type DocOps = { submit: () => Promise<void>; withdraw: () => Promise<void>; approve: (v: ApprovalInput) => Promise<void>; close: () => Promise<void>; code: () => Promise<{ to?: string }>; reopen: (reason: string, code?: string) => Promise<void> }
+type DocOps = { submit: () => Promise<void>; withdraw: () => Promise<void>; approve: (v: ApprovalInput) => Promise<void>; close: () => Promise<void>; code: (reason: string) => Promise<{ to?: string }>; reopen: (reason: string, code?: string) => Promise<void> }
 /** عددِ صحیحِ نامنفی (ارقامِ فارسی/لاتین و جداکنندهٔ هزارگان مجاز؛ هر نویسهٔ دیگری نامعتبر) */
 const amountOk = (v: string) => !/[^\d۰-۹٬,\s]/.test(v) && /^\d{1,15}$/.test(rawDigits(v))
 
@@ -1162,7 +1162,7 @@ function DocPanel({ d, role, mine, readOnlyYear, ops, basis, fixed }: { fixed: b
 			{finance && st === 'approved' && (
 				<button type="button" className={`${BTN_GHOST} self-start`} disabled={busy} onClick={() => run(ops.close)}>بستن مالی</button>
 			)}
-			{admin && (st === 'approved' || st === 'closed') && <Reopen admin={admin} busy={busy} run={run} ops={ops} />}
+			{admin && (st === 'approved' || st === 'closed') && <Reopen busy={busy} run={run} ops={ops} />}
 			{err && <p role="alert" className="text-[12px] font-bold text-error">{err}</p>}
 		</section>
 	)
@@ -1250,24 +1250,23 @@ function ApproveForm({ basis, busy, onSubmit, fixed }: { fixed: boolean; basis: 
 	)
 }
 
-function Reopen({ admin, busy, run, ops }: { admin: boolean; busy: boolean; run: (fn: () => Promise<unknown>) => Promise<void>; ops: DocOps }) {
+function Reopen({ busy, run, ops }: { busy: boolean; run: (fn: () => Promise<unknown>) => Promise<void>; ops: DocOps }) {
 	const [reason, setReason] = useState('')
-	const [sent, setSent] = useState('')
+	const [sent, setSent] = useState(false)
 	const [code, setCode] = useState('')
 	const okReason = reason.trim().length >= 3
 	return (
 		<div className="flex flex-col gap-2 border-t border-border pt-3">
-			<label htmlFor="ro-reason" className="text-[12px] font-bold text-muted-foreground">بازگشایی (فقط با دسترسیِ مدیر) — دلیل</label>
+			<label htmlFor="ro-reason" className="text-[12px] font-bold text-muted-foreground">بازگرداندن از تصویب (فقط مدیر، با کدِ تلگرام) — دلیل</label>
 			<input id="ro-reason" value={reason} onChange={(e) => setReason(e.target.value)} className={`${INPUT} min-h-9 text-[13px]`} placeholder="دلیلِ بازگشایی" />
-			{admin ? (
-				<button type="button" className={`${BTN_GHOST} self-start`} disabled={busy || !okReason} onClick={() => run(() => ops.reopen(reason.trim()))}>بازگشایی با دسترسیِ مدیر</button>
-			) : !sent ? (
-				<button type="button" className={`${BTN_GHOST} self-start`} disabled={busy || !okReason} onClick={() => run(async () => { const r = await ops.code(); setSent(r.to || 'موبایلِ شما') })}>ارسالِ کدِ پیامکی برای بازگشایی</button>
+			{!sent ? (
+				<button type="button" className={`${BTN_GHOST} self-start`} disabled={busy || !okReason} onClick={() => run(async () => { await ops.code(reason.trim()); setSent(true) })}>ارسالِ کد به تلگرام</button>
 			) : (
 				<form className="flex flex-wrap items-center gap-2" onSubmit={(e) => { e.preventDefault(); if (code.trim()) run(() => ops.reopen(reason.trim(), code.trim())) }}>
-					<label className="w-full text-[12px] text-muted-foreground" htmlFor="ro-code">کدِ ارسال‌شده به {sent}</label>
+					<label className="w-full text-[12px] text-muted-foreground" htmlFor="ro-code">کدِ ۶رقمی به ربات تلگرامِ آرومین فرستاده شد (اعتبار ۵ دقیقه)</label>
 					<input id="ro-code" className={`${INPUT} min-h-9 w-36 text-left tracking-[0.3em]`} dir="ltr" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/[^\d۰-۹]/g, ''))} />
 					<button type="submit" className={BTN_PRIMARY} disabled={busy || !code.trim() || !okReason}>بازگشایی</button>
+					<button type="button" className={BTN_GHOST} disabled={busy} onClick={() => run(async () => { await ops.code(reason.trim()); setCode('') })}>ارسالِ دوباره</button>
 				</form>
 			)}
 		</div>

@@ -10,6 +10,7 @@ import re
 import json
 import time
 import random
+import secrets
 import shutil
 import base64
 import zipfile
@@ -1539,6 +1540,7 @@ OTP_PATTERN   = os.environ.get("NABZEKAR_PATTERN", "1959")   # کدِ الگوی
 OTP_TTL       = int(os.environ.get("OTP_TTL", "120"))        # انقضای کد (ثانیه)
 OTP_RESEND    = int(os.environ.get("OTP_RESEND", "60"))      # فاصلهٔ ارسالِ مجدد (ثانیه)
 OTP_MAX_TRIES = int(os.environ.get("OTP_MAX_TRIES", "5"))
+REOPEN_CODE_TTL = int(os.environ.get("REOPEN_CODE_TTL", "300"))   # کدِ تلگرامِ بازگشایی (ثانیه)
 _otp = {}   # mobile -> {code, exp, tries, last}
 
 
@@ -2089,25 +2091,30 @@ def c1_reopen_code(request: Request, payload: dict = Body(default={})):
     did = str((payload or {}).get("id") or "")
     if not any(_c1_locked(d) for d in (_c1_index(full).get(did) or [])):
         return {"ok": False, "error": "این سند قفل نیست."}
-    mobile = _c1_mobile(full, ident)
-    if not mobile:
-        return {"ok": False, "error": "شمارهٔ موبایلِ شما در سیستم ثبت نشده؛ از مدیر بخواهید بازگشایی کند."}
+    # کدِ تأیید به تلگرامِ ادمین (ربات وصل‌شده؛ مستقیم یا رلهٔ Composio) — جایگزینِ پیامک
+    if not tg_configured():
+        return {"ok": False, "error": "تلگرام وصل نیست؛ بدونِ کدِ تلگرام بازگشایی ممکن نیست."}
     now = time.time()
     cur = _c1_codes.get(ident["user"])
     if cur and (now - cur["last"]) < OTP_RESEND:
         return {"ok": False, "error": "کمی صبر کنید؛ کد ارسال شده (%dث)." % max(int(OTP_RESEND - (now - cur["last"])), 1)}
-    code = "%06d" % random.randint(0, 999999)
-    r = send_otp_sms(mobile, code)
-    raw = (r or {}).get("result") if isinstance(r, dict) else None
-    if not (isinstance(r, dict) and r.get("ok")) or _nabzekar_failed(raw):
-        return {"ok": False, "error": "ارسالِ پیامک ناموفق بود.", "detail": str(raw if raw is not None else (r or {}).get("error"))[:300]}
-    _c1_codes[ident["user"]] = {"code": code, "exp": now + OTP_TTL, "tries": 0, "last": now, "deal": did}
-    return {"ok": True, "to": mobile[:4] + "•••" + mobile[-3:]}
+    code = "%06d" % secrets.randbelow(1000000)
+    d0 = (_c1_index(full).get(did) or [{}])[0]
+    reason = str((payload or {}).get("reason") or "").strip()[:120]
+    text = ("🔐 کدِ بازگشاییِ سندِ مالیِ #%s: %s\nدرخواست‌دهنده: %s%s\nاعتبار: %s دقیقه. اگر این درخواست را نمی‌شناسید، کد را به کسی ندهید."
+            % (fa_digits(d0.get("no") or did), fa_digits(code), _c1_person_name(full, ident["user"]) or ident["user"],
+               ("\nدلیل: " + reason) if reason else "", fa_digits(REOPEN_CODE_TTL // 60)))
+    try:
+        tg_api("sendMessage", {"chat_id": TG_ADMIN_ID, "text": text})
+    except TgError as e:
+        return {"ok": False, "error": "ارسالِ کد به تلگرام ناموفق بود.", "detail": _tg_redact(e)[:200]}
+    _c1_codes[ident["user"]] = {"code": code, "exp": now + REOPEN_CODE_TTL, "tries": 0, "last": now, "deal": did}
+    return {"ok": True, "to": "تلگرام"}
 
 
 @app.post("/api/c1/reopen")
 def c1_reopen(request: Request, payload: dict = Body(default={})):
-    """بازگشاییِ سندِ قفل (تصویب‌شده/بسته) ← پیش‌نویس: فقط مدیر، با دلیلِ صریح؛ ممیزی + بک‌آپ."""
+    """بازگشاییِ سندِ قفل (تصویب‌شده/بسته) ← پیش‌نویس: فقط مدیر + کدِ تلگرام، با دلیلِ صریح؛ ممیزی + بک‌آپ."""
     tenant, ident, full, err = _c1_ctx(request, payload)
     if err:
         return err
@@ -2117,7 +2124,21 @@ def c1_reopen(request: Request, payload: dict = Body(default={})):
     reason = str((payload or {}).get("reason") or "").strip()[:300]
     if len(reason) < 3:
         return _c1_deny("دلیلِ بازگشایی را بنویسید.", 400)
-    via = "manager"
+    rec = _c1_codes.get(ident["user"])
+    code = re.sub(r"\D", "", str((payload or {}).get("code") or "").translate(_FA_DIG))
+    if not rec or rec.get("deal") != did:
+        return _c1_deny("ابتدا کدِ تلگرام را دریافت کنید.")
+    if time.time() > rec["exp"]:
+        _c1_codes.pop(ident["user"], None)
+        return _c1_deny("کد منقضی شده؛ دوباره بگیرید.")
+    if rec["tries"] >= OTP_MAX_TRIES:
+        _c1_codes.pop(ident["user"], None)
+        return _c1_deny("تلاشِ زیاد؛ دوباره کد بگیرید.")
+    rec["tries"] += 1
+    if not code or not _hmac.compare_digest(code, rec["code"]):
+        return _c1_deny("کد اشتباه است.")
+    _c1_codes.pop(ident["user"], None)
+    via = "telegram"
     ds = _c1_index(full).get(did) or []
     if not any(_c1_locked(d) for d in ds):
         return {"ok": True, "already": True}
