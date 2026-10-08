@@ -23,7 +23,7 @@ const assert=require('node:assert/strict')
  assert.equal(await page.getByText('مدل حقوق و تصویب پاداش',{exact:true}).count(),0)
  assert.equal(await page.getByText('پاداش تصویب‌شدهٔ مدیر',{exact:true}).count(),0)
  // C2: شمارِ هر وضعیت روی خودِ قیف (آیکون + عدد؛ نام در aria-label/tooltip)
- for(const [label,n] of [['آغاز','۶'],['واجد شرایط','۰'],['پیشبرد','۱۲'],['بستن','۲۰'],['شکست','۷']]) assert.equal(await page.getByRole('button',{name:label+': '+n,exact:true}).count(),1)
+ for(const [label,n] of [['آغاز','۶'],['واجد شرایط','۰'],['پیشبرد','۱۲'],['بستن','۲۰'],['شکست','۷']]) assert.equal(await page.locator('[data-tile="C2"]').getByRole('button',{name:label+': '+n,exact:true}).count(),1)
  for(const width of [1440,768,375,320]){
   await page.setViewportSize({width,height:1100}); await page.waitForTimeout(500); await bar.scrollIntoViewIfNeeded(); const pos=await bar.boundingBox(); await page.mouse.move(pos.x+pos.width/2,pos.y+pos.height/2)
   const dialog=page.getByRole('dialog',{name:'مراحل معامله'});await dialog.waitFor()

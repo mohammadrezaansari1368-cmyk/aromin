@@ -20,8 +20,8 @@ const FUNNEL_ICON: Record<string, string> = {
 }
 const INSIDE = 84   // پهنای کافی برای آیکون و عدد داخلِ نوار؛ کمتر از آن کنارِ نوار
 
-export function FunnelChart({ data, color = 'var(--chart-1)', hoveredIndex, onHoverChange, caption }: {
-  data: FunnelItem[]; color?: string; hoveredIndex: number | null; onHoverChange: (index: number | null) => void; caption?: string
+export function FunnelChart({ data, color = 'var(--chart-1)', colors, hoveredIndex, onHoverChange, caption }: {
+  data: FunnelItem[]; color?: string; colors?: readonly string[]; hoveredIndex: number | null; onHoverChange: (index: number | null) => void; caption?: string
 }) {
   const reduce = useSyncExternalStore(subscribeMotion, () => window.matchMedia(motionQuery).matches, () => true)
   const Path = reduce ? 'path' : motion.path
@@ -32,12 +32,13 @@ export function FunnelChart({ data, color = 'var(--chart-1)', hoveredIndex, onHo
       const w = shapes[i].width, cy = i * 54 + 30, inside = w >= INSIDE, num = fa(d.value)
       // داخل: [عدد][آیکون] وسطِ نوار؛ بیرون: کنارِ راستِ نوار (نوارِ صفر: از وسط)
       const iconX = inside ? 162 : 160 + w / 2 + 8, numX = inside ? 158 : iconX + 22
-      const ink = inside ? '#fff' : 'currentColor'
+      const segmentColor = colors?.length ? colors[i % colors.length] : color
+      const ink = inside ? (segmentColor === '#FCBF00' ? '#111' : '#fff') : 'currentColor'
       return <motion.g key={d.key} initial={reduce ? false : { opacity: 0, scaleX: .05, y: 6 }}
         whileInView={{ opacity: 1, scaleX: 1, y: 0 }} viewport={{ once: true, amount: .2 }}
-        transition={{ duration: reduce ? 0 : .45, delay: reduce ? 0 : i * .055, ease: [.22, 1, .36, 1] }} style={{ transformOrigin: '160px center' }}>
-        <Path data-seg={d.key} d={shapes[i].path} {...(reduce ? { opacity: hoveredIndex === null || hoveredIndex === i ? 1 : .48 } : { initial: { d: shapes[i].path }, animate: { d: shapes[i].path, opacity: hoveredIndex === null || hoveredIndex === i ? 1 : .48, scale: hoveredIndex === i ? 1.025 : 1 }, transition: { duration: .35, ease: [.22, 1, .36, 1] as [number, number, number, number] } })} fill={color}
-          fillOpacity={1 - i * .12} stroke="var(--chart-outline)" strokeWidth={w === 0 ? 0 : hoveredIndex === i ? 2 : .5}
+        transition={{ duration: reduce ? 0 : .35, delay: reduce ? 0 : i * .055, ease: [.22, 1, .36, 1] }} style={{ transformOrigin: '160px center' }}>
+        <Path data-seg={d.key} d={shapes[i].path} {...(reduce ? { opacity: hoveredIndex === null || hoveredIndex === i ? 1 : .48 } : { initial: { d: shapes[i].path }, animate: { d: shapes[i].path, opacity: hoveredIndex === null || hoveredIndex === i ? 1 : .48, scale: hoveredIndex === i ? 1.025 : 1 }, transition: { duration: .35, ease: [.22, 1, .36, 1] as [number, number, number, number] } })} fill={segmentColor}
+          fillOpacity={colors?.length ? 1 : 1 - i * .12} stroke="var(--chart-outline)" strokeWidth={w === 0 ? 0 : hoveredIndex === i ? 2 : .5}
           tabIndex={0} role="button" aria-label={`${d.label}: ${num}`} aria-pressed={hoveredIndex === i}
           onMouseEnter={() => onHoverChange(i)} onMouseLeave={() => onHoverChange(null)} onFocus={() => onHoverChange(i)} onBlur={() => onHoverChange(null)}
           onClick={() => onHoverChange(i)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onHoverChange(i) } if (e.key === 'Escape') onHoverChange(null) }}
@@ -55,11 +56,17 @@ export function FunnelChart({ data, color = 'var(--chart-1)', hoveredIndex, onHo
     })}
   </svg>
 }
-export default function Funnel({ data, caption }: { data: FunnelItem[]; caption?: string }) {
+export default function Funnel({ data, caption, colors, legend = false }: { data: FunnelItem[]; caption?: string; colors?: readonly string[]; legend?: boolean }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const active = hoveredIndex === null ? null : data[hoveredIndex]
   return <div>
-    <FunnelChart data={data} hoveredIndex={hoveredIndex} onHoverChange={setHoveredIndex} caption={caption} />
+    <FunnelChart data={data} colors={colors} hoveredIndex={hoveredIndex} onHoverChange={setHoveredIndex} caption={caption} />
+    {legend && <ul aria-label="راهنمای رنگ‌های قیف" className="mt-2 space-y-1">{data.map((item, i) => <li key={item.key}>
+      <button type="button" aria-pressed={hoveredIndex === i} onMouseEnter={() => setHoveredIndex(i)} onMouseLeave={() => setHoveredIndex(null)} onFocus={() => setHoveredIndex(i)} onBlur={() => setHoveredIndex(null)} onClick={() => setHoveredIndex(i)} onKeyDown={e => { if (e.key === 'Escape') setHoveredIndex(null) }} className={`flex w-full items-center gap-2 rounded px-2 py-1 text-sm focus-visible:ring-2 focus-visible:ring-ring ${hoveredIndex === i ? 'bg-muted font-bold' : ''}`}>
+        <span aria-hidden data-legend-marker className="size-3 shrink-0 rounded-full" style={{ backgroundColor: colors?.length ? colors[i % colors.length] : 'var(--chart-1)' }} />
+        <span>{item.label}</span><span className="mr-auto tabular-nums">{fa(item.value)}</span>
+      </button>
+    </li>)}</ul>}
     {/* نامِ وضعیت فقط هنگامِ hover/فوکوس؛ ارتفاعِ ثابت تا کاشی جابه‌جا نشود */}
     <p className="pointer-events-none mt-1 h-4 text-center text-[11px] font-bold text-muted-foreground" aria-live="polite">{active ? `${active.label}: ${fa(active.value)}` : ''}</p>
   </div>
