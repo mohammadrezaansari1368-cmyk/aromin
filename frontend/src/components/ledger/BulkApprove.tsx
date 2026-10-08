@@ -15,8 +15,8 @@ import { BTN, BTN_GHOST, BTN_PRIMARY, INPUT } from '@/components/ui/tokens'
 const amountOk = (v: string) => !/[^\d۰-۹٬,\s]/.test(v) && /^\d{1,15}$/.test(rawDigits(v))
 const longJ = (iso: string) => { try { return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(iso + 'T12:00:00')) } catch { return '' } }
 
-export default function BulkApprove({ count, scope, suggest, onApprove }: {
-	count: number; scope: string; suggest: { cash: number; pending: number }
+export default function BulkApprove({ count, scope, totals, confirmationKey, suggest, onApprove }: {
+	confirmationKey: string; count: number; scope: string; totals: { official: number; unofficial: number }; suggest: { cash: number; pending: number }
 	onApprove: (v: ApprovalInput) => Promise<{ approved: number }>
 }) {
 	const [open, setOpen] = useState(false)
@@ -29,13 +29,16 @@ export default function BulkApprove({ count, scope, suggest, onApprove }: {
 					تصویب اسناد
 				</span>
 			</button>
-			{open && <Wizard count={count} scope={scope} suggest={suggest} onApprove={onApprove} onClose={() => setOpen(false)} />}
+			{open && <Wizard confirmationKey={confirmationKey} count={count} scope={scope} totals={totals} suggest={suggest} onApprove={onApprove} onClose={() => setOpen(false)} />}
 		</>
 	)
 }
 
-function Wizard({ count, scope, suggest, onApprove, onClose }: { count: number; scope: string; suggest: { cash: number; pending: number }; onApprove: (v: ApprovalInput) => Promise<{ approved: number }>; onClose: () => void }) {
+function Wizard({ count, scope, totals, confirmationKey, suggest, onApprove, onClose }: { confirmationKey: string; count: number; scope: string; totals: { official: number; unofficial: number }; suggest: { cash: number; pending: number }; onApprove: (v: ApprovalInput) => Promise<{ approved: number }>; onClose: () => void }) {
 	const [step, setStep] = useState(0)
+	const [confirmedKey, setConfirmedKey] = useState('')
+	const confirmed = confirmedKey === confirmationKey
+	const setConfirmed = (value: boolean) => setConfirmedKey(value ? confirmationKey : '')
 	const [cash, setCash] = useState(() => faGroup(Math.round(suggest.cash)))
 	const [pending, setPending] = useState(() => faGroup(Math.round(suggest.pending)))
 	const [c1, setC1] = useState(false)
@@ -46,7 +49,7 @@ function Wizard({ count, scope, suggest, onApprove, onClose }: { count: number; 
 	const [done, setDone] = useState<number | null>(null)
 	const box = useRef<HTMLDivElement>(null)
 	const dj = parseJ(date)
-	const valid = [amountOk(cash), amountOk(pending), c1, !!dj, c2]
+	const valid = [confirmed, amountOk(cash), amountOk(pending), c1, !!dj, c2]
 	const N = valid.length
 	const okAll = valid.every(Boolean)
 	const go = (d: number) => setStep((s) => Math.max(0, Math.min(N, s + d)))
@@ -91,7 +94,9 @@ function Wizard({ count, scope, suggest, onApprove, onClose }: { count: number; 
 			</label>
 		</Q>
 	)
+	const summary = `آیا ${fa(count)} ردیف به مبلغ رسمی ${sep(totals.official)} تومان و مبلغ غیررسمی ${sep(totals.unofficial)} تومان برای ${scope} را تأیید می‌کنید؟`
 	const steps: ReactNode[] = [
+        confirm('ba-scope', summary, confirmed, setConfirmed),
 		money('ba-cash', 'مقدار پورسانت نقد', cash, setCash, suggest.cash),
 		money('ba-pend', 'مقدار پورسانت معلق', pending, setPending, suggest.pending),
 		confirm('ba-c1', 'با علم و آگاهی کامل صحت اطلاعات را تأیید می‌کنم', c1, setC1),
@@ -130,12 +135,14 @@ function Wizard({ count, scope, suggest, onApprove, onClose }: { count: number; 
 						<div className="mt-5 min-h-[150px]">
 							{step < N ? steps[step] : (
 								<Q title="مرور">
+                                    <p className="mb-3 text-sm font-bold" data-approval-summary>{summary}</p>
+                                    {!confirmed && <button type="button" className={BTN_GHOST} onClick={() => setStep(0)}>اطلاعات تغییر کرده؛ تأیید دوبارهٔ ردیف‌ها</button>}
 									<dl className="divide-y divide-border rounded-lg border border-border text-[13px]">
 										{[['مقدار پورسانت نقد', sep(+rawDigits(cash) || 0) + ' تومان'], ['مقدار پورسانت معلق', sep(+rawDigits(pending) || 0) + ' تومان'], ['تاریخ ثبت سند', dj ? fa(dj.j) : '—'], ['صحتِ اطلاعات', c1 ? 'تأیید شد' : '—'], ['ثبت در سیستمِ مالی', c2 ? 'تأیید شد' : '—']].map(([k, v], i) => (
-											<div key={k} className="flex items-center justify-between gap-3 px-3 py-2"><dt className="text-muted-foreground">{k}</dt><dd className="flex items-center gap-2 font-bold tabular-nums">{v}<button type="button" onClick={() => setStep(i < 2 ? i : i === 2 ? 3 : i === 3 ? 2 : 4)} className="text-[11.5px] font-bold text-primary-ink underline-offset-4 hover:underline">ویرایش</button></dd></div>
+											<div key={k} className="flex items-center justify-between gap-3 px-3 py-2"><dt className="text-muted-foreground">{k}</dt><dd className="flex items-center gap-2 font-bold tabular-nums">{v}<button type="button" onClick={() => setStep(i < 2 ? i + 1 : i === 2 ? 4 : i === 3 ? 3 : 5)} className="text-[11.5px] font-bold text-primary-ink underline-offset-4 hover:underline">ویرایش</button></dd></div>
 										))}
 									</dl>
-									<p className="mt-3 text-[12px] text-muted-foreground">پس از تصویب، این {fa(count)} سند فقط‌خواندنی می‌شوند و فقط با دسترسیِ مدیر یا کدِ پیامکی (با دلیل) باز می‌شوند.</p>
+									<p className="mt-3 text-[12px] text-muted-foreground">پس از تصویب، این {fa(count)} سند فقط‌خواندنی می‌شوند و فقط با دسترسیِ مدیر (با دلیل) باز می‌شوند.</p>
 								</Q>
 							)}
 						</div>

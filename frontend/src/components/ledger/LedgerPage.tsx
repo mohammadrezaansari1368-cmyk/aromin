@@ -340,7 +340,9 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 
 	/* ---- کارشناسان و سالِ مالی (نوارِ کنترلِ ادغام‌شده در دفتر) ---- */
 	const canApprove = finance || isAdmin(session.role)
-	const approvable = useMemo(() => (viewFy === LEDGER_FY ? monthRows.filter((r) => funnelOf(r.d) === 'won' && !isLocked(r.d)).map((r) => r.d.id) : []), [monthRows, viewFy])
+	const approvableRows = useMemo(() => (viewFy === LEDGER_FY ? monthRows.filter((r) => funnelOf(r.d) === 'won' && !isLocked(r.d)) : []), [monthRows, viewFy])
+	const approvable = approvableRows.map(r => r.d.id)
+	const approvalTotals = approvableRows.reduce((a, r) => { a[r.d.channel === 'unofficial' ? 'unofficial' : 'official'] += num(r.d.amount); return a }, { official: 0, unofficial: 0 })
 	const scopeLabel = `${single ? single.name : 'همهٔ کارشناسان'} · ${gm === 'all' ? 'همه‌ی ماه‌ها' : MONTHS[+gm]} ${fa(LEDGER_FY)}`
 	const bulkApprove = async (v: ApprovalInput) => { const d = await approveBatch(session, approvable, v); await load(); return d }
 
@@ -536,7 +538,10 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 					<SalesTrend deals={allRows.map(r => ({ ...r.d, saleDate: r.saleDate }))} />
 				</Tile>
 				<Tile key="c2" title="قیف" code="C2">
-					<Funnel data={funnelReach(T.funnel).map(s => ({ ...s, label: FUNNEL.find(f => f.k === s.key)!.t }))} />
+					<Funnel data={funnelReach(T.funnel).map(s => ({ ...s, label: 'رسیده به ' + FUNNEL.find(f => f.k === s.key)!.t }))} />
+                    <div className="grid grid-cols-2 gap-1 text-xs" aria-label="تعداد معاملات در وضعیت فعلی">
+                     {FUNNEL.map(f => <span key={f.k}>{f.t} (فعلی): <b>{fa(T.funnel[f.k]?.n || 0)}</b></span>)}
+                    </div>
 					<p className="mt-2 text-xs text-muted-foreground">تعداد رسیده به هر مرحله · شکست: {fa(T.funnel.lost.n)}</p>
 				</Tile>
 				<Tile key="w7" title="وزنِ هفت مرحلهٔ پورسانت" code="C7" className="md:col-span-2 xl:col-span-4">
@@ -554,7 +559,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 						<h2 className="text-[15px] font-extrabold text-foreground">دفتر فاکتورها</h2>
 						<span className="text-[11.5px] text-muted-foreground">بروز شده با اپ جدید</span>
 					</div>
-					{canApprove && <BulkApprove count={approvable.length} scope={scopeLabel} suggest={{ cash: T.payNow, pending: T.payCheck + T.payPend }} onApprove={bulkApprove} />}
+					{canApprove && <BulkApprove confirmationKey={JSON.stringify([approvable, approvalTotals, scopeLabel])} totals={approvalTotals} count={approvable.length} scope={scopeLabel} suggest={{ cash: T.payNow, pending: T.payCheck + T.payPend }} onApprove={bulkApprove} />}
 				</header>
 				<ControlStrip
 					full={full} people={people} years={years} viewFy={viewFy} setViewFy={(y) => { setViewFy(y); setCur({ r: 0, c: 0 }) }} gm={gm} setGm={setGm}
@@ -729,7 +734,7 @@ function stageTitle(d: Deal) {
 function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col: ColK; dup: Set<string>; kindFix: (r: Row) => string; onNA: (r: Row, n: NA) => void; canEdit: boolean; onDel: (r: Row) => void }) {
 	const d = r.d
 	const naOfRow = useContext(NaCtx)
-	const { openDocument } = useContext(StagePatchCtx)
+	const { openDocument, patch } = useContext(StagePatchCtx)
 	switch (col) {
 		case 'name': {
 			const st = finStateOf(d)
@@ -750,9 +755,13 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 		}
 		case 'stage': {
    const fk = funnelOf(d), progress = salesProgress(d)
-   return <span data-sales-progress={progress.percent} className="flex w-full min-w-0 flex-col gap-1" title={stageTitle(d)}>
+   return <span data-sales-progress={progress.percent} className="group/stages flex w-full min-w-0 flex-col gap-1" title={stageTitle(d)}>
     <span className="flex items-center gap-1.5"><span className={`${BADGE} ${FUN_TONE[fk] || FUN_TONE.advance}`}>{funLabel(fk)}</span><b className="text-primary-ink tabular-nums">{fa(progress.percent)}٪</b><span className="mr-auto text-xs">{fa(progress.stages.length)}/{fa(STAGES.length)}</span></span>
     <StageBar d={d} />
+    <select aria-label="انتخاب مرحله قیف فروش" value={fk} disabled={!canEdit} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()} onChange={e => patch(r, { funnel: e.target.value })}
+     className="min-h-7 w-full rounded border border-border bg-card text-xs opacity-0 focus:opacity-100 group-hover/stages:opacity-100 group-focus-within/stages:opacity-100 [@media(hover:none)]:opacity-100 disabled:cursor-not-allowed">
+     {FUNNEL.map(f => <option key={f.k} value={f.k}>{f.t}</option>)}
+    </select>
    </span>
   }
 		case 'settle': {
@@ -1108,7 +1117,7 @@ function DocPanel({ d, role, mine, readOnlyYear, ops, basis, fixed }: { fixed: b
 			{finance && st === 'approved' && (
 				<button type="button" className={`${BTN_GHOST} self-start`} disabled={busy} onClick={() => run(ops.close)}>بستن مالی</button>
 			)}
-			{(st === 'approved' || st === 'closed') && <Reopen admin={admin} busy={busy} run={run} ops={ops} />}
+			{admin && (st === 'approved' || st === 'closed') && <Reopen admin={admin} busy={busy} run={run} ops={ops} />}
 			{err && <p role="alert" className="text-[12px] font-bold text-error">{err}</p>}
 		</section>
 	)
@@ -1203,7 +1212,7 @@ function Reopen({ admin, busy, run, ops }: { admin: boolean; busy: boolean; run:
 	const okReason = reason.trim().length >= 3
 	return (
 		<div className="flex flex-col gap-2 border-t border-border pt-3">
-			<label htmlFor="ro-reason" className="text-[12px] font-bold text-muted-foreground">بازگشایی (فقط با دسترسیِ مدیر یا کدِ پیامکی) — دلیل</label>
+			<label htmlFor="ro-reason" className="text-[12px] font-bold text-muted-foreground">بازگشایی (فقط با دسترسیِ مدیر) — دلیل</label>
 			<input id="ro-reason" value={reason} onChange={(e) => setReason(e.target.value)} className={`${INPUT} min-h-9 text-[13px]`} placeholder="دلیلِ بازگشایی" />
 			{admin ? (
 				<button type="button" className={`${BTN_GHOST} self-start`} disabled={busy || !okReason} onClick={() => run(() => ops.reopen(reason.trim()))}>بازگشایی با دسترسیِ مدیر</button>

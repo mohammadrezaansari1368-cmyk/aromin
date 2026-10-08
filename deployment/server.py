@@ -2084,6 +2084,8 @@ def c1_reopen_code(request: Request, payload: dict = Body(default={})):
     tenant, ident, full, err = _c1_ctx(request, payload)
     if err:
         return err
+    if ident["role"] not in KB_ADMIN_ROLES:
+        return _c1_deny("بازگرداندن تصویب اسناد فقط با دسترسی مدیر مجاز است.")
     did = str((payload or {}).get("id") or "")
     if not any(_c1_locked(d) for d in (_c1_index(full).get(did) or [])):
         return {"ok": False, "error": "این سند قفل نیست."}
@@ -2105,31 +2107,17 @@ def c1_reopen_code(request: Request, payload: dict = Body(default={})):
 
 @app.post("/api/c1/reopen")
 def c1_reopen(request: Request, payload: dict = Body(default={})):
-    """بازگشاییِ سندِ قفل (تصویب‌شده/بسته) ← پیش‌نویس: فقط مدیر یا کدِ پیامکی، با دلیلِ صریح؛ ممیزی + بک‌آپ."""
+    """بازگشاییِ سندِ قفل (تصویب‌شده/بسته) ← پیش‌نویس: فقط مدیر، با دلیلِ صریح؛ ممیزی + بک‌آپ."""
     tenant, ident, full, err = _c1_ctx(request, payload)
     if err:
         return err
+    if ident["role"] not in KB_ADMIN_ROLES:
+        return _c1_deny("بازگرداندن تصویب اسناد فقط با دسترسی مدیر مجاز است.")
     did = str((payload or {}).get("id") or "")
     reason = str((payload or {}).get("reason") or "").strip()[:300]
     if len(reason) < 3:
         return _c1_deny("دلیلِ بازگشایی را بنویسید.", 400)
     via = "manager"
-    if ident["role"] not in KB_ADMIN_ROLES:
-        rec = _c1_codes.get(ident["user"])
-        code = re.sub(r"\D", "", str((payload or {}).get("code") or "").translate(_FA_DIG))
-        if not rec or rec.get("deal") != did:
-            return _c1_deny("ابتدا کدِ پیامکی را دریافت کنید.")
-        if time.time() > rec["exp"]:
-            _c1_codes.pop(ident["user"], None)
-            return _c1_deny("کد منقضی شده؛ دوباره بگیرید.")
-        if rec["tries"] >= OTP_MAX_TRIES:
-            _c1_codes.pop(ident["user"], None)
-            return _c1_deny("تلاشِ زیاد؛ دوباره کد بگیرید.")
-        rec["tries"] += 1
-        if not code or not _hmac.compare_digest(code, rec["code"]):
-            return _c1_deny("کد اشتباه است.")
-        _c1_codes.pop(ident["user"], None)
-        via = "sms"
     ds = _c1_index(full).get(did) or []
     if not any(_c1_locked(d) for d in ds):
         return {"ok": True, "already": True}
