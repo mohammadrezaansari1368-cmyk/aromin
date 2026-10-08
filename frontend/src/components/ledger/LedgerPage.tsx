@@ -28,13 +28,18 @@ import { motion } from 'motion/react'
 import { RowOrderContext, RowGrip, useRowOrder } from '@/components/ui/use-row-order'
 import { orderRows } from '@/components/ui/row-order'
 import { createPortal } from 'react-dom'
-import SalesTrend from './SalesTrend'
 import { saleDateOf, saleTimeOf } from '@/lib/sales-date'
 import { financeControl, rolesPatch } from '@/lib/ledger-roles'
 import { dealDate, funnelDays, isStagnant } from '@/lib/ledger-analysis'
 import Funnel from '@/components/ui/funnel-chart'
 import { coachingFromJozve, type CoachItem, type CoachTone } from '@/lib/sales-coaching'
 
+
+const AROMIN_FUNNEL_COLORS = [
+  "#004991",
+  "#910D6A",
+  "#FCBF00",
+] as const;
 
 /* ---------- انواع ---------- */
 const rowOrderKey = (r: Row) => String(r.p.id) + ':' + r.d.id
@@ -534,7 +539,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 			<RowOrderContext.Provider value={rowOrder}><span className="sr-only" aria-live="polite">{rowOrder.message}</span><StagePatchCtx.Provider value={{ patch, canEdit, openDocument: r => setStageFor(r.key), openStages: (row, anchor) => { if (Date.now() - stageDismissed.current < 500) return; const b = anchor.getBoundingClientRect(); setStageHover(old => old?.row.key === row.key ? old : { row, top: Math.max(8, Math.min(b.bottom, window.innerHeight - 560)), left: Math.max(8, Math.min(b.left, window.innerWidth - 648)) }) } }}><NaCtx.Provider value={naOf}>
 			<Sortable id="ledger.tiles" className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4" itemClass={(c) => (((c.props as { className?: string }).className || '').match(/(md|xl):col-span-\d/g) || []).join(' ') + ' flex flex-col [&>*]:flex-1'}
 				server={layoutSrv} labelOf={(k) => TILE_LABEL[k.replace(/^\.\$/, '')] || k}>
-				<Tile key="c3" title="ترازنامه" code="C3">
+				<Tile key="c3" title="ترازنامه" code="C3" month={gm}>
 					<Fig k="فروشِ ناخالص" v={sep(T.gross)} />
 					<Fig k="مبنای پورسانت" v={sep(T.eligible)} />
 					<Fig k="پورسانت" v={sep(T.payout)} strong />
@@ -544,10 +549,13 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 					<p className="mt-1 text-[11.5px] text-muted-foreground">قابلِ پرداختِ همین حالا (نقد)</p>
 					<Split parts={[{ k: 'نقد', v: T.payNow, c: 'bg-success' }, { k: 'چک (پس از وصول)', v: T.payCheck, c: 'bg-warning' }, { k: 'معلق', v: T.payPend, c: 'bg-error' }]} />
 				</Tile>
-				<Tile key="c4" title="فروش روزانهٔ ماه جاری" code="C4" className="md:col-span-2">
-					<SalesTrend deals={allRows.map(r => ({ ...r.d, saleDate: r.saleDate }))} />
+				<Tile key="c4" title="قیف فروش ماه انتخاب‌شده" code="C4" month={gm} className="md:col-span-2">
+                    <p className="mb-2 text-xs text-muted-foreground">{gm === 'all' ? 'همهٔ ماه‌ها' : MONTHS[+gm]} · {fa(viewFy)} · تعداد فعلی معاملات</p>
+                    <Funnel colors={AROMIN_FUNNEL_COLORS} legend data={FUNNEL.filter(f => f.k !== 'lost').map(f => ({ key: f.k, label: f.t, value: T.funnel[f.k]?.n || 0 }))} />
+                    {!monthRows.length && <p role="status" className="mt-2 text-sm text-muted-foreground">در این دوره معامله‌ای ثبت نشده است.</p>}
+                    <p data-funnel-loss className="mt-2 text-xs text-muted-foreground">شکست: {fa(T.funnel.lost?.n || 0)}</p>
 				</Tile>
-				<Tile key="c2" title="قیف" code="C2">
+				<Tile key="c2" title="قیف" code="C2" month={gm}>
                     <Funnel data={FUNNEL.map(f => ({ key: f.k, label: f.t, value: T.funnel[f.k]?.n || 0 }))} caption="تعداد معاملات در وضعیت فعلی · دوره و کارشناس انتخاب‌شده" />
 				</Tile>
 				<Tile key="w7" title="وزنِ هفت مرحلهٔ پورسانت" code="C7" className="md:col-span-2 xl:col-span-4">
@@ -656,9 +664,9 @@ function SaveBadge({ st, retry }: { st: ReturnType<typeof ledgerStatus>; retry: 
 	const t = st.state === 'saving' ? 'MariaDB — در حالِ ذخیره…' : st.state === 'pending' ? 'MariaDB — در صفِ ذخیره' : 'MariaDB — ذخیره شد'
 	return <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-bold ring-1 ring-inset ${st.state === 'idle' ? 'text-success ring-success/30' : 'text-muted-foreground ring-border'}`} aria-live="polite"><span className={`size-1.5 rounded-full ${st.state === 'idle' ? 'bg-success' : 'bg-muted-foreground'}`} />{t}</span>
 }
-function Tile({ title, code, children }: { title: string; code: string; className?: string; children: ReactNode }) {
+function Tile({ title, code, children, month }: { month?: string; title: string; code: string; className?: string; children: ReactNode }) {
 	return (
-		<section className={`${CARD} flex h-full flex-col p-4 pt-5`}>
+		<section data-tile={code} data-selected-month={month} className={`${CARD} flex h-full flex-col p-4 pt-5`}>
 			<header className="mb-3 flex items-center justify-between gap-2"><h3 className="text-[13px] font-extrabold text-foreground">{title}</h3><span className="text-[10.5px] font-bold text-muted-foreground">{code}</span></header>
 			<div className="flex flex-1 flex-col">{children}</div>
 		</section>
@@ -1117,7 +1125,7 @@ const ST_TONE: Record<FinState, string> = { draft: '', submitted: 'bg-warning/10
 function StateBadge({ st }: { st: FinState }) {
 	return <span className={`${BADGE} ${ST_TONE[st]}`}>{st !== 'submitted' && <LockIcon className="size-3" />}{FIN_STATE_LABEL[st]}</span>
 }
-const TILE_LABEL: Record<string, string> = { c3: 'ترازنامه', c5: 'دستورِ پرداخت و معلق', c4: 'فروش ماه جاری', c2: 'قیف', w7: 'وزنِ هفت مرحله', c1: 'دفتر فاکتورها' }
+const TILE_LABEL: Record<string, string> = { c3: 'ترازنامه', c5: 'دستورِ پرداخت و معلق', c4: 'قیف فروش ماه انتخاب‌شده', c2: 'قیف', w7: 'وزنِ هفت مرحله', c1: 'دفتر فاکتورها' }
 type DocOps = { submit: () => Promise<void>; withdraw: () => Promise<void>; approve: (v: ApprovalInput) => Promise<void>; close: () => Promise<void>; code: (reason: string) => Promise<{ to?: string }>; reopen: (reason: string, code?: string) => Promise<void> }
 /** عددِ صحیحِ نامنفی (ارقامِ فارسی/لاتین و جداکنندهٔ هزارگان مجاز؛ هر نویسهٔ دیگری نامعتبر) */
 const amountOk = (v: string) => !/[^\d۰-۹٬,\s]/.test(v) && /^\d{1,15}$/.test(rawDigits(v))

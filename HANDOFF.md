@@ -1,5 +1,7 @@
 # HANDOFF — «تا اینجا انجام دادم»
 
+2026-10-08 · Codex · feat/month-synced-motion-funnel: تأیید کاربر چهار مرحله I→Q→A→C (رنگ آبی/بنفش/زرد/آبی)، شکست جدا. از main 8e2ddc3 (3.9.50) ادامه؛ C4 جای SalesTrend ماه امروز از T ماهانهٔ مشترک gm استفاده می‌کند؛ C2/C3 همان منبع قبلی، بدون state/API تازه. empty/all/zero، ماه‌های متوالی، عدم remount، رنگ/legend/hover، reduced motion و light/dark 320–1440 با تست month-sync تأیید؛ 142 unit passed/1 skipped، build/typecheck/lint موفق. بدون deploy، تغییر DB یا ادغام main.
+
 2026-10-08 · Codex · feat/month-synced-motion-funnel (در حال تکمیل): gm در LedgerPage منبع ماه (all یا 0–11)؛ C2/C3 از T با GM مشترک استفاده می‌کنند، C4 فعلی SalesTrend از allRows و ماه امروز استفاده می‌کند. پشتیبانی اختیاری colors/legend در Funnel موجود اضافه شد؛ رفتار C2 بدون تغییر. رنگ، راهنما، hover، تغییر هندسه، reduced-motion و 320–1440 در مرورگر تأیید؛ 142 unit passed/1 skipped. اتصال C4 معطل تعیین معنای ۳ لایه از ۵ وضعیت توسط کاربر است؛ هیچ نگاشت تجاری حدس زده نشده، هیچ deploy انجام نشده.
 
 2026-10-08 · Codex · 3.9.47: اصلاح طبق درخواست جدید: نوار وزنی هر ردیف با انتخاب نقش‌های موجود روی hover/کیبورد/کلیک؛ dropdown قیف حذف، انتخاب حسابدار برای تیک مالی اجباری، قواعد لیدساز/قفل/دسترسی حفظ. قیف تعداد فعلی (شامل صفر و شکست) و عرض متناسب دارد؛ C8 و فقط سطر پاداش C3 حذف شدند. 136 unit passed/1 skipped؛ typecheck/build/lint و مرورگر 320–1440 موفق. بدون تغییر DB یا deploy.
