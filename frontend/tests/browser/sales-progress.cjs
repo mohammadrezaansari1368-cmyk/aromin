@@ -6,6 +6,7 @@ const assert=require('node:assert/strict')
  const all=['lead','pre','funnel','follow','close','post','fin']
  let id=0
  const deals=[['start',6],['qualify',0],['advance',12],['won',20],['lost',7]].flatMap(([funnel,n])=>Array.from({length:n},()=>({id:++id,no:String(id),name:'آزمایش',funnel,stages:all,month:6,amount:'10000000',settle:'cash',mgrShare:true})))
+ deals[1].finBy='مالی آزمایشی'
  const S={weights:{lead:5,pre:10,funnel:20,follow:15,close:35,post:10,fin:5},officialDeduct:10,months:{}}
  const full={fy:'1405',people:[{id:1,name:'آزمایش',role:'sales',S,inv:deals,invY:{1405:deals}},{id:2,name:'مالی آزمایشی',role:'finance',S,inv:[],invY:{1405:[]}}],years:{1405:{}}}
  const writes=[]
@@ -14,6 +15,10 @@ const assert=require('node:assert/strict')
  await page.goto((process.env.TEST_URL || 'http://127.0.0.1:5186')+'/tests/browser/index.html')
  const bar=page.locator('[data-order-row="1:1"] [data-sales-progress]')
  await bar.waitFor()
+ assert.equal(await bar.getAttribute('data-sales-progress'),'100')
+ const assigned=page.locator('[data-order-row="1:2"] [data-sales-progress]')
+ assert.equal(await assigned.getAttribute('data-sales-progress'),'95')
+ assert.equal(await assigned.locator('[data-sales-stage="fin"]').getAttribute('data-complete'),'false')
  assert.equal(await page.getByRole('combobox',{name:'انتخاب مرحله قیف فروش'}).count(),0)
  assert.equal(await page.getByText('مدل حقوق و تصویب پاداش',{exact:true}).count(),0)
  assert.equal(await page.getByText('پاداش تصویب‌شدهٔ مدیر',{exact:true}).count(),0)
