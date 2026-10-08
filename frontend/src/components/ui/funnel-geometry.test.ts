@@ -5,6 +5,11 @@ describe('funnel geometry', () => {
   expect(funnelGeometry([100, 50, 25]).map(x => x.width)).toEqual([280, 140, 70])
   expect(funnelGeometry([10, 100])[0].width).toBe(28)
  })
+ it('shows current counts including an empty stage without collapsing its neighbors', () => {
+  const shapes = funnelGeometry([6, 0, 12, 20, 7])
+  expect(shapes.map(s => s.width)).toEqual([84, 0, 168, 280, 98])
+  expect(shapes[0].path).toContain('194.44')
+ })
  it('handles zero, tiny, negative and nonfinite values without clipping', () => {
   expect(funnelGeometry([100, .01, 0, -1, NaN]).map(x => x.width)).toEqual([280, 8, 0, 0, 0])
   expect(funnelGeometry([])).toEqual([])

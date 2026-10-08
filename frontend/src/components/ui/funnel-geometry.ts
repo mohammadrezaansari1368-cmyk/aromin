@@ -8,7 +8,7 @@ export function funnelGeometry(values: number[]) {
   const max = Math.max(1, ...clean)
   const widths = clean.map(v => v === 0 ? 0 : Math.max(8, 280 * v / max))
   return widths.map((width, i) => {
-    const bottom = Math.min(width, widths[i + 1] ?? width * .72)
+    const bottom = width * .82
     const y = i * 54 + 8
     return { width, path: `M ${160 - width / 2} ${y} L ${160 + width / 2} ${y} L ${160 + bottom / 2} ${y + 44} L ${160 - bottom / 2} ${y + 44} Z` }
   })

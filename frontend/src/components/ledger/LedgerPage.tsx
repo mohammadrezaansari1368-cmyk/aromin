@@ -27,18 +27,18 @@ import BulkApprove from '@/components/ledger/BulkApprove'
 import { motion } from 'motion/react'
 import { RowOrderContext, RowGrip, useRowOrder } from '@/components/ui/use-row-order'
 import { orderRows } from '@/components/ui/row-order'
-import CompensationSettings from './CompensationSettings'
+import { createPortal } from 'react-dom'
 import SalesTrend from './SalesTrend'
 import { saleDateOf, saleTimeOf } from '@/lib/sales-date'
-import { financeControl, rolesPatch, salesProgress } from '@/lib/ledger-roles'
+import { financeControl, rolesPatch } from '@/lib/ledger-roles'
 import { dealDate, funnelDays, isStagnant } from '@/lib/ledger-analysis'
 import Funnel from '@/components/ui/funnel-chart'
-import { funnelReach } from '@/components/ui/funnel-geometry'
+
 
 /* ---------- انواع ---------- */
 const rowOrderKey = (r: Row) => String(r.p.id) + ':' + r.d.id
 interface Row { saleDate: string; saleTime: string; key: string; pi: number; p: any; d: Deal; S: CommS; ref: Ref }
-const StagePatchCtx = createContext<{ patch: (r: Row, p: Partial<Deal>) => void; canEdit: (r: Row) => boolean; openDocument: (r: Row) => void }>({ patch: () => {}, canEdit: () => false, openDocument: () => {} })
+const StagePatchCtx = createContext<{ patch: (r: Row, p: Partial<Deal>) => void; canEdit: (r: Row) => boolean; openDocument: (r: Row) => void; openStages: (r: Row, anchor: HTMLElement) => void }>({ patch: () => {}, canEdit: () => false, openDocument: () => {}, openStages: () => {} })
 type ColK = 'name' | 'amount' | 'stage' | 'settle' | 'next' | 'owner' | 'leadGen' | 'date' | 'change' | 'kind' | 'channel' | 'basis' | 'follow' | 'no' | 'month' | 'act'
 interface Col { k: ColK; t: string; w: number; edit?: 'text' | 'money' | 'select' | 'stage'; sort?: boolean; tier: 1 | 2 | 3 }
 interface Filters { no: string; q: string; funnel: string; settle: string; kind: string; channel: string; leadGen: string; fin: string; att: Att | 'kindfix' | 'follow' | 'stagnant' | ''; sort: string; dir: 1 | -1 }
@@ -367,9 +367,12 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 		people.forEach((p) => ledgerOf(p, full, LEDGER_FY).forEach((d: Deal) => { const n = String(d.leadGen || '').trim(); if (n) set.add(n) }))
 		return [...set].filter(n => !people.some(p => p.name === n && !isActivePerson(p)))
 	}, [people, full])
+	const stageDismissed = useRef(0)
+	const closeStageHover = () => { stageDismissed.current = Date.now(); setStageHover(null) }
+	const [stageHover, setStageHover] = useState<{ row: Row; top: number; left: number } | null>(null)
 	const finNames = useMemo(() => {
 		const out: string[] = []
-		people.filter(isActivePerson).forEach((p) => { if (p.role === 'finance') { const n = String(p.name || '').trim(); if (n && !out.includes(n)) out.push(n) } })
+		people.filter(isActivePerson).forEach((p) => { if (p.role === 'finance' || p.role === 'accmgr') { const n = String(p.name || '').trim(); if (n && !out.includes(n)) out.push(n) } })
 		people.forEach((p) => ledgerOf(p, full, LEDGER_FY).forEach((d: Deal) => { const n = financeOf(d).trim(); if (n && !out.includes(n)) out.push(n) }))
 		return out.filter(n => !people.some(p => p.name === n && !isActivePerson(p)))
 	}, [people, full])
@@ -521,13 +524,13 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 				</div>
 			)}
 
-			<RowOrderContext.Provider value={rowOrder}><span className="sr-only" aria-live="polite">{rowOrder.message}</span><StagePatchCtx.Provider value={{ patch, canEdit, openDocument: r => setStageFor(r.key) }}><NaCtx.Provider value={naOf}>
+			<RowOrderContext.Provider value={rowOrder}><span className="sr-only" aria-live="polite">{rowOrder.message}</span><StagePatchCtx.Provider value={{ patch, canEdit, openDocument: r => setStageFor(r.key), openStages: (row, anchor) => { if (Date.now() - stageDismissed.current < 500) return; const b = anchor.getBoundingClientRect(); setStageHover(old => old?.row.key === row.key ? old : { row, top: Math.max(8, Math.min(b.bottom, window.innerHeight - 560)), left: Math.max(8, Math.min(b.left, window.innerWidth - 648)) }) } }}><NaCtx.Provider value={naOf}>
 			<Sortable id="ledger.tiles" className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4" itemClass={(c) => (((c.props as { className?: string }).className || '').match(/(md|xl):col-span-\d/g) || []).join(' ') + ' flex flex-col [&>*]:flex-1'}
 				server={layoutSrv} labelOf={(k) => TILE_LABEL[k.replace(/^\.\$/, '')] || k}>
 				<Tile key="c3" title="ترازنامه" code="C3">
 					<Fig k="فروشِ ناخالص" v={sep(T.gross)} />
 					<Fig k="مبنای پورسانت" v={sep(T.eligible)} />
-					<Fig k="پورسانت" v={sep(T.payout)} strong /><Fig k="پاداش تصویب‌شدهٔ مدیر" v={sep(T.approvedBonus)} />
+					<Fig k="پورسانت" v={sep(T.payout)} strong />
 				</Tile>
 				<Tile key="c5" title="دستورِ پرداخت و معلق" code="C5·C6">
 					<p className="text-[26px] font-extrabold leading-none text-success tabular-nums">{sep(T.payNow)}</p>
@@ -538,16 +541,12 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 					<SalesTrend deals={allRows.map(r => ({ ...r.d, saleDate: r.saleDate }))} />
 				</Tile>
 				<Tile key="c2" title="قیف" code="C2">
-					<Funnel data={funnelReach(T.funnel).map(s => ({ ...s, label: 'رسیده به ' + FUNNEL.find(f => f.k === s.key)!.t }))} />
-                    <div className="grid grid-cols-2 gap-1 text-xs" aria-label="تعداد معاملات در وضعیت فعلی">
-                     {FUNNEL.map(f => <span key={f.k}>{f.t} (فعلی): <b>{fa(T.funnel[f.k]?.n || 0)}</b></span>)}
-                    </div>
-					<p className="mt-2 text-xs text-muted-foreground">تعداد رسیده به هر مرحله · شکست: {fa(T.funnel.lost.n)}</p>
+                    <Funnel data={FUNNEL.map(f => ({ key: f.k, label: f.t, value: T.funnel[f.k]?.n || 0 }))} />
+                    <p className="mt-2 text-xs text-muted-foreground">تعداد معاملات در وضعیت فعلی · دوره و کارشناس انتخاب‌شده</p>
 				</Tile>
 				<Tile key="w7" title="وزنِ هفت مرحلهٔ پورسانت" code="C7" className="md:col-span-2 xl:col-span-4">
 					<StageWeights weights={wt} basis={T.byStage} />
 				</Tile>
-			{single && isAdmin(session.role) && <Tile key="compensation" title="مدل حقوق و تصویب پاداش" code="C8"><CompensationSettings key={String(single.id) + ':' + single.comp} person={single} session={session} refresh={load} /></Tile>}
 <Tile key="recommendations" title="نقاط قوت و پیشنهاد بهبود فروش" code="C9" className="md:col-span-2 xl:col-span-4">
  <p className="text-sm leading-7">نقطهٔ قوت: {fa(T.funnel.won.n)} معاملهٔ بسته‌شده. فرصت بهبود: {fa(attCounts.stagnant.n)} معامله با توقف بیش از ۴۰ روز و {fa(attCounts.follow.n)} پیگیری تکمیل‌نشده.</p>
  <p className="text-xs text-muted-foreground">ابتدا معاملات متوقف و پیگیری‌های تکمیل‌نشده را بررسی کنید؛ تاریخ‌های نامشخص در محاسبهٔ توقف وارد نمی‌شوند.</p>
@@ -633,6 +632,9 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 			</Sortable>
 			</NaCtx.Provider></StagePatchCtx.Provider></RowOrderContext.Provider>
 
+            {stageHover && createPortal(<div role="dialog" aria-label="مراحل معامله" dir="rtl" onKeyDown={e => { if (e.key === 'Escape') closeStageHover() }} style={{ top: stageHover.top, left: `max(8px, min(${stageHover.left}px, calc(100vw - 648px)))`, width: 'min(640px, calc(100vw - 16px))', maxHeight: 'min(550px, calc(100vh - 16px))' }} className="fixed z-[80] overflow-auto rounded-lg border border-border bg-card shadow-xl">
+              <DocumentEditor key={stageHover.row.key} stagesOnly row={stageHover.row} finNames={finNames} role={session.role} canEdit={canEdit(stageHover.row)} readOnlyYear={viewFy !== LEDGER_FY} mine={canDup || stageHover.row.pi === selfIdx} ops={docOps(stageHover.row)} onClose={closeStageHover} onSave={p => { patch(stageHover.row, p); closeStageHover() }} onFinance={async person => { await setFinanceBy(session, stageHover.row.d.id, person); await load() }} />
+            </div>, document.body)}
 			{toast && (
 				<div role="status" className={`fixed bottom-5 left-1/2 z-50 flex max-w-[92vw] -translate-x-1/2 items-center gap-3 rounded-lg px-4 py-2.5 text-[13px] font-bold shadow-card ring-1 ring-inset ${toast.tone === 'err' ? 'bg-error text-primary-foreground ring-error' : 'bg-foreground text-background ring-foreground'}`}>
 					<span>{toast.t}</span>
@@ -719,22 +721,21 @@ const Chip = ({ on, tone, click, n, t, sub }: { on: boolean; tone: string; click
 )
 
 /* ---------- نمایشِ خانه‌ها (بدونِ کنترلِ فرم؛ کنترل فقط هنگامِ ویرایش) ---------- */
-function StageBar({ d }: { d: Deal }) {
- const { stages } = salesProgress(d)
- return <span className="flex w-full gap-1" aria-label="مراحل پیشرفت فروش">
-  {STAGES.map(s => <span key={s.k} data-sales-stage={s.k} data-complete={stages.includes(s.k)} className={`flex-1 text-center text-xs ${stages.includes(s.k) ? 'text-primary-ink' : 'text-muted-foreground'}`} title={`${s.t} (${fa(DEFAULT_WEIGHTS[s.k])}٪)`}>
-   <span aria-hidden>{stages.includes(s.k) ? '✓' : '○'}</span><span className="sr-only">{s.t}: {stages.includes(s.k) ? 'انجام‌شده' : 'انجام‌نشده'}</span>
-  </span>)}
- </span>
+function selectedProgress(d: Deal, weights = DEFAULT_WEIGHTS) {
+ const stages: StageKey[] = stagesOf(d).filter(k => k !== 'fin')
+ if (String(d.finBy || '').trim()) stages.push('fin')
+ return { stages, percent: stages.reduce((n, k) => n + weights[k], 0) }
 }
-function stageTitle(d: Deal) {
- const { stages } = salesProgress(d)
- return STAGES.map(s => `${stages.includes(s.k) ? '✓' : '○'} ${s.t} (${fa(DEFAULT_WEIGHTS[s.k])}٪)`).join('\n')
+function StageBar({ d }: { d: Deal }) {
+ const { stages } = selectedProgress(d)
+ return <span className="flex w-full gap-0.5" aria-label="مراحل هفت‌گانه">
+  {STAGES.map(s => <span key={s.k} data-sales-stage={s.k} data-complete={stages.includes(s.k)} style={{ flex: DEFAULT_WEIGHTS[s.k] }} className={`h-3 rounded-sm ${stages.includes(s.k) ? 'bg-primary' : 'bg-muted'}`} title={`${s.t} (${fa(DEFAULT_WEIGHTS[s.k])}٪)`}><span className="sr-only">{s.t}</span></span>)}
+ </span>
 }
 function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col: ColK; dup: Set<string>; kindFix: (r: Row) => string; onNA: (r: Row, n: NA) => void; canEdit: boolean; onDel: (r: Row) => void }) {
 	const d = r.d
 	const naOfRow = useContext(NaCtx)
-	const { openDocument, patch } = useContext(StagePatchCtx)
+	const { openDocument, openStages } = useContext(StagePatchCtx)
 	switch (col) {
 		case 'name': {
 			const st = finStateOf(d)
@@ -753,15 +754,12 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 			const a = num(d.amount)
 			return <span className="flex flex-col items-start gap-0.5"><span className={`text-[13.5px] font-extrabold tabular-nums ${a ? '' : 'text-muted-foreground'}`}>{faGroup(d.amount) || '۰'}</span><span className="text-[11px] text-muted-foreground">{a ? mil(a) : ''}</span></span>
 		}
-		case 'stage': {
-   const fk = funnelOf(d), progress = salesProgress(d)
-   return <span data-sales-progress={progress.percent} className="group/stages flex w-full min-w-0 flex-col gap-1" title={stageTitle(d)}>
+        case 'stage': {
+   const fk = funnelOf(d), progress = selectedProgress(d, r.S.weights || DEFAULT_WEIGHTS)
+   return <span data-sales-progress={progress.percent} role="button" tabIndex={0} aria-label="انتخاب مراحل هفت‌گانه" onMouseEnter={e => openStages(r, e.currentTarget)} onClick={e => { e.stopPropagation(); openStages(r, e.currentTarget) }} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openStages(r, e.currentTarget) } }} className="flex w-full min-w-0 cursor-pointer flex-col gap-1">
     <span className="flex items-center gap-1.5"><span className={`${BADGE} ${FUN_TONE[fk] || FUN_TONE.advance}`}>{funLabel(fk)}</span><b className="text-primary-ink tabular-nums">{fa(progress.percent)}٪</b><span className="mr-auto text-xs">{fa(progress.stages.length)}/{fa(STAGES.length)}</span></span>
     <StageBar d={d} />
-    <select aria-label="انتخاب مرحله قیف فروش" value={fk} disabled={!canEdit} onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()} onChange={e => patch(r, { funnel: e.target.value })}
-     className="min-h-7 w-full rounded border border-border bg-card text-xs opacity-0 focus:opacity-100 group-hover/stages:opacity-100 group-focus-within/stages:opacity-100 [@media(hover:none)]:opacity-100 disabled:cursor-not-allowed">
-     {FUNNEL.map(f => <option key={f.k} value={f.k}>{f.t}</option>)}
-    </select>
+    <span className="text-xs text-muted-foreground">{d.finBy ? `تأیید مالی: ${d.finBy}` : 'بدون تأیید مالی'}</span>
    </span>
   }
 		case 'settle': {
@@ -988,7 +986,7 @@ const GridRow = memo(function GridRow({ r, ri, y, h, tpl, cols, curC, editCol, d
 const rowSel = (sel: boolean, edit: ColK | null, staging: boolean) => (edit || staging ? { backgroundImage: 'linear-gradient(hsl(var(--primary) / .07), hsl(var(--primary) / .07))' } : sel ? { backgroundImage: 'linear-gradient(hsl(var(--primary) / .04), hsl(var(--primary) / .04))' } : {})
 
 /* ---------- نقش‌ها (الگوی Checkbox Todo List) + بستنِ مالی (الگوی Checkbox11) — پنلِ چسبیده به پایینِ جدول؛ Enter ذخیره، Esc انصراف ---------- */
-function DocumentEditor({ row, finNames, role, canEdit, readOnlyYear, mine, ops, onSave, onFinance, onClose }: { row: Row; finNames: string[]; role: string; canEdit: boolean; readOnlyYear: boolean; mine: boolean; ops: DocOps; onSave: (p: Partial<Deal>) => void; onFinance: (person: string) => Promise<void>; onClose: () => void }) {
+function DocumentEditor({ stagesOnly = false, row, finNames, role, canEdit, readOnlyYear, mine, ops, onSave, onFinance, onClose }: { stagesOnly?: boolean; row: Row; finNames: string[]; role: string; canEdit: boolean; readOnlyYear: boolean; mine: boolean; ops: DocOps; onSave: (p: Partial<Deal>) => void; onFinance: (person: string) => Promise<void>; onClose: () => void }) {
  const d = row.d, W = row.S.weights || DEFAULT_WEIGHTS
  // پیش‌نویسِ محلی: بستنِ بخشِ جمع‌شونده state را نگه می‌دارد و payload فقط تغییرات است (rolesPatch)
  const [st, setSt] = useState<StageKey[]>(stagesOf(d))
@@ -1015,11 +1013,11 @@ function DocumentEditor({ row, finNames, role, canEdit, readOnlyYear, mine, ops,
   } catch (e) { setMsg((e as Error).message || 'ذخیره نشد.') } finally { setBusy(false) }
  }
  const sid = `roles-${d.id}`
- return <section className="border-t border-border bg-card p-4" aria-label="سندِ مالی و نقش‌ها">
+ return <section className="border-t border-border bg-card p-4" aria-label={stagesOnly ? "انتخاب مراحل هفت‌گانه" : "سندِ مالی و نقش‌ها"}>
   <div className="flex justify-between"><b>{d.name || d.no}</b><button type="button" className={BTN_GHOST} onClick={onClose}>بستن</button></div>
-  <DocPanel fixed={row.p.comp === 'fixed'} d={d} role={role} readOnlyYear={readOnlyYear} mine={mine} ops={ops} basis={rowBasis(d, row.S).basis} />
+  {!stagesOnly && <DocPanel fixed={row.p.comp === 'fixed'} d={d} role={role} readOnlyYear={readOnlyYear} mine={mine} ops={ops} basis={rowBasis(d, row.S).basis} />}
   {/* بخشِ جمع‌شونده پایینِ پنل؛ پیش‌فرض بسته؛ <details> محتوا را در DOM نگه می‌دارد (بدونِ reset) و با کیبورد باز/بسته می‌شود */}
-  <details className="group mt-4 rounded-md ring-1 ring-border">
+  <details open={stagesOnly || undefined} className="group mt-4 rounded-md ring-1 ring-border">
    <summary className={`flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-[13px] ${FOCUS}`}>
     <b>نقش‌ها، وزن‌ها، مشارکت مدیر و تأیید مالی</b>
     <span className="text-[12px] text-muted-foreground tabular-nums">نقش {fa(done)}/{fa(STAGES.length)}{mgr ? ' · مشارکت مدیر' : ''}</span>
@@ -1030,9 +1028,9 @@ function DocumentEditor({ row, finNames, role, canEdit, readOnlyYear, mine, ops,
      <legend className="text-[13px] font-bold">مرحله و وزن‌های ۷گانه</legend>
      <ul className="mt-2 space-y-1.5">
       {STAGES.map((s) => {
-       const other = otherOf(d, s.k, finTarget), on = st.includes(s.k) && !other, id = `${sid}-${s.k}`
+       const other = otherOf(d, s.k, finTarget), on = s.k === 'fin' ? finOn : st.includes(s.k) && !other, id = `${sid}-${s.k}`
        return <li key={s.k} className={`flex min-h-10 items-center gap-3 rounded-md border px-3 py-1.5 ${on ? 'border-primary/35 bg-primary/[0.06]' : 'border-border'}`}>
-        <input id={id} type="checkbox" className="size-4 shrink-0" checked={on} disabled={!!other} onChange={(e) => setSt((x) => (e.target.checked ? [...x, s.k] : x.filter((k) => k !== s.k)))} />
+        <input id={id} type="checkbox" className="size-4 shrink-0" checked={on} disabled={s.k === 'fin' ? !fc.editable : !!other} onChange={(e) => s.k === 'fin' ? setFinOn(e.target.checked) : setSt((x) => (e.target.checked ? [...x, s.k] : x.filter((k) => k !== s.k)))} />
         <label htmlFor={id} className="flex min-w-0 flex-1 items-baseline justify-between gap-2 text-[13px]">
          <span className="min-w-0">{s.t}{other && <span className="block text-[11.5px] text-muted-foreground">سهمِ این مرحله با «{other}»</span>}</span>
          <span className="shrink-0 tabular-nums text-muted-foreground">{fa(W[s.k])}٪</span>
@@ -1045,7 +1043,7 @@ function DocumentEditor({ row, finNames, role, canEdit, readOnlyYear, mine, ops,
     </fieldset>
     <fieldset className="flex min-w-0 flex-col gap-2" disabled={!fc.editable || readOnlyYear}>
      <legend className="text-[13px] font-bold">تأیید مالی و حسابدار</legend>
-     <label className="inline-flex items-center gap-2 text-[13px]"><input type="checkbox" className="size-4" checked={finOn} onChange={(e) => setFinOn(e.target.checked)} />تأیید مالی و صحتِ داده</label>
+
      <label className="flex flex-col gap-1 text-[12px] font-bold text-muted-foreground">حسابدار (تأییدکنندهٔ مالی)
       <select className={`${INPUT} min-h-10`} value={finP} disabled={!finOn} onChange={(e) => setFinP(e.target.value)}>
        <option value="">— انتخاب کنید</option>
@@ -1057,7 +1055,7 @@ function DocumentEditor({ row, finNames, role, canEdit, readOnlyYear, mine, ops,
     </fieldset>
    </div>
    <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
-    <button type="button" className={BTN_PRIMARY} disabled={busy || !dirty} onClick={save}>{busy ? 'در حالِ ذخیره…' : 'ذخیرهٔ نقش‌ها و تأیید مالی'}</button>
+    <button type="button" className={BTN_PRIMARY} disabled={busy || (!dirty && !(finOn && !finTarget))} onClick={save}>{busy ? 'در حالِ ذخیره…' : 'ذخیرهٔ نقش‌ها و تأیید مالی'}</button>
     {msg && <span role="alert" className="text-[12px] text-error">{msg}</span>}
    </div>
   </details>
