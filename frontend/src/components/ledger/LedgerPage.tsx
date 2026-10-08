@@ -33,6 +33,7 @@ import { saleDateOf, saleTimeOf } from '@/lib/sales-date'
 import { financeControl, rolesPatch } from '@/lib/ledger-roles'
 import { dealDate, funnelDays, isStagnant } from '@/lib/ledger-analysis'
 import Funnel from '@/components/ui/funnel-chart'
+import { coachingFromJozve, type CoachItem, type CoachTone } from '@/lib/sales-coaching'
 
 
 /* ---------- انواع ---------- */
@@ -275,6 +276,12 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 		}
 		return c
 	}, [monthRows, dup, kindFix])
+
+	/* ---- C9: قوت، ضعف و پیشنهاد بر اساسِ جزوه (همان دوره و کارشناس؛ تیمِ همان دوره برای مقایسهٔ میانگینِ فاکتور) ---- */
+	const coach = useMemo(() => {
+		const team = people.flatMap((p) => ledgerOf(p, full, viewFy) as Deal[]).filter((d) => gm === 'all' || monthOf(d) === +gm)
+		return coachingFromJozve({ deals: monthRows.map((r) => r.d), teamDeals: scope === ALL ? undefined : team, stagnant: attCounts.stagnant.n, follow: attCounts.follow.n })
+	}, [people, full, viewFy, gm, monthRows, scope, attCounts])
 
 	/* ---- ویرایش (محلی فوری + صفِ ذخیره) و بازگردانی ---- */
 	const [toast, setToast] = useState<{ t: string; undo?: () => void; tone?: 'ok' | 'err' } | null>(null)
@@ -541,15 +548,13 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 					<SalesTrend deals={allRows.map(r => ({ ...r.d, saleDate: r.saleDate }))} />
 				</Tile>
 				<Tile key="c2" title="قیف" code="C2">
-                    <Funnel data={FUNNEL.map(f => ({ key: f.k, label: f.t, value: T.funnel[f.k]?.n || 0 }))} />
-                    <p className="mt-2 text-xs text-muted-foreground">تعداد معاملات در وضعیت فعلی · دوره و کارشناس انتخاب‌شده</p>
+                    <Funnel data={FUNNEL.map(f => ({ key: f.k, label: f.t, value: T.funnel[f.k]?.n || 0 }))} caption="تعداد معاملات در وضعیت فعلی · دوره و کارشناس انتخاب‌شده" />
 				</Tile>
 				<Tile key="w7" title="وزنِ هفت مرحلهٔ پورسانت" code="C7" className="md:col-span-2 xl:col-span-4">
 					<StageWeights weights={wt} basis={T.byStage} />
 				</Tile>
 <Tile key="recommendations" title="نقاط قوت و پیشنهاد بهبود فروش" code="C9" className="md:col-span-2 xl:col-span-4">
- <p className="text-sm leading-7">نقطهٔ قوت: {fa(T.funnel.won.n)} معاملهٔ بسته‌شده. فرصت بهبود: {fa(attCounts.stagnant.n)} معامله با توقف بیش از ۴۰ روز و {fa(attCounts.follow.n)} پیگیری تکمیل‌نشده.</p>
- <p className="text-xs text-muted-foreground">ابتدا معاملات متوقف و پیگیری‌های تکمیل‌نشده را بررسی کنید؛ تاریخ‌های نامشخص در محاسبهٔ توقف وارد نمی‌شوند.</p>
+ <Coaching items={coach} />
  </Tile>
 {/* C1 — میزِ کار (نوارِ کنترلِ سال/ماه/کارشناس در خودِ دفتر ادغام شده) — خودش هم کاشیِ قابلِ جابه‌جایی است */}
 			<section key="c1" className={`${CARD} relative md:col-span-2 xl:col-span-4`} aria-label="C1 دفترِ فاکتورها">
@@ -1083,6 +1088,25 @@ function Chip7({ id, icon, label, sub, on, other = '', disabled = false, onChang
 		<span className="text-[10px] font-extrabold leading-none tabular-nums">{sub}</span>
 		{other && <span className="absolute -left-1 -top-1 grid size-4 place-items-center rounded-full bg-secondary text-[9px] font-bold text-secondary-foreground" aria-hidden>{other.trim().charAt(0)}</span>}
 	</span>
+}
+/* C9 — سه ستونِ فشرده با آیکون؛ هر مورد مرجعِ جزوه را دارد */
+const COACH_COL: { tone: CoachTone; t: string; icon: string; cls: string; empty: string }[] = [
+	{ tone: 'strength', t: 'نقاط قوت', icon: 'M22 11.08V12a10 10 0 1 1-5.93-9.14|M22 4 12 14.01l-3-3', cls: 'text-success bg-success/10 ring-success/25', empty: 'هنوز معیارِ قوتِ قابل‌سنجش نیست.' },
+	{ tone: 'weakness', t: 'نقاط ضعف', icon: 'M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z|M12 9v4|M12 17h.01', cls: 'text-warning bg-warning/10 ring-warning/25', empty: 'ضعفِ قابل‌سنجشی دیده نشد.' },
+	{ tone: 'action', t: 'پیشنهاد بهبود', icon: 'M9 18h6|M10 22h4|M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z', cls: 'text-primary-ink bg-primary/10 ring-primary/25', empty: 'پیشنهادِ تازه‌ای نیست.' },
+]
+function Coaching({ items }: { items: CoachItem[] }) {
+	return <div className="grid gap-3 md:grid-cols-3">
+		{COACH_COL.map((c) => {
+			const list = items.filter((x) => x.tone === c.tone)
+			return <section key={c.tone} aria-label={c.t} className="min-w-0 rounded-2xl bg-muted/30 p-3 ring-1 ring-border">
+				<h3 className="mb-2 flex items-center gap-2 text-[13px] font-extrabold"><span className={`grid size-7 place-items-center rounded-lg ring-1 ${c.cls}`}><Glyph d={c.icon} /></span>{c.t}<span className="text-[11px] font-bold text-muted-foreground tabular-nums">{fa(list.length)}</span></h3>
+				{list.length ? <ul className="space-y-1.5">{list.map((x) => <li key={x.id} className="rounded-xl bg-card px-2.5 py-2 text-[12.5px] leading-6 ring-1 ring-border">
+					{x.text}<span className="mt-0.5 block text-[10.5px] font-bold text-muted-foreground">{x.ref}</span>
+				</li>)}</ul> : <p className="text-[12px] text-muted-foreground">{c.empty}</p>}
+			</section>
+		})}
+	</div>
 }
 function otherOf(d: Deal, k: StageKey, finBy: string) {
 	return k === 'lead' && d.leadGen ? String(d.leadGen) : k === 'post' && d.supportGen && d.supportSla ? String(d.supportGen) : k === 'fin' && finBy ? finBy : ''

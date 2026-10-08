@@ -1,6 +1,7 @@
 import { funnelOf, num, type Deal } from '@/engines/commission'
 import { saleDateOf } from './sales-date'
 import { parseJ, todayJ } from './jalali'
+import { parseStageChange } from './stage-change'
 
 export function dealDate(value: unknown): string {
  const text = String(value || '').trim().split(/[ T]/)[0]
@@ -8,7 +9,9 @@ export function dealDate(value: unknown): string {
 }
 /** Elapsed registration-to-stage-change days; ongoing deals without a change use today. */
 export function funnelDays(d: Deal, today = todayJ()): number | null {
- const start = parseJ(dealDate(d.entry)), end = parseJ(dealDate(d.stageChangedAt) || today)
+ // «تغییر مرحله»ِ Joolio «HH:MM:SS YYYY/MM/DD» است (تاریخ کلمهٔ دوم)؛ همان پارسرِ مشترک، وگرنه تاریخِ ساده
+ const sc = parseStageChange(d.stageChangedAt)
+ const start = parseJ(dealDate(d.entry)), end = parseJ((sc.ok ? sc.date : dealDate(d.stageChangedAt)) || today)
  if (!start || !end) return null
  const days = Math.round((Date.parse(end.iso) - Date.parse(start.iso)) / 86400000)
  return days >= 0 ? days : null

@@ -6,6 +6,7 @@ describe('ledger dates and stagnation', () => {
  it('normalizes Persian dates and never fabricates missing dates', () => { expect(dealDate('۱۴۰۵/۶/۵')).toBe('1405/06/05'); expect(dealDate('')).toBe('') })
  it('measures actual Jalali elapsed days and strict >40 boundary', () => {
   expect(funnelDays(d({stageChangedAt:'1405/07/10'}))).toBe(40)
+  expect(funnelDays(d({stageChangedAt:'16:32:51 1405/07/10'}))).toBe(40)   // قالبِ Joolio: ساعت اول
   expect(isStagnant(d({stageChangedAt:'1405/07/10'}))).toBe(false)
   expect(isStagnant(d({stageChangedAt:'1405/07/11'}))).toBe(true)
   expect(isStagnant(d({entry:''}), '1405/07/15')).toBe(false)
