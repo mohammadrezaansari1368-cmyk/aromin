@@ -2081,6 +2081,14 @@ def c1_close(request: Request, payload: dict = Body(default={})):
     return {"ok": True, "closed": closed, "already": already, "skipped": skipped}
 
 
+def _c1_reopen_ids(payload):
+    """یک سند (id) یا گروهی (ids)؛ کلیدِ کد = همین مجموعه، تا کد فقط برای همان اسناد معتبر باشد."""
+    raw = (payload or {}).get("ids")
+    ids = raw if isinstance(raw, list) else [(payload or {}).get("id")]
+    out = sorted({str(x).strip() for x in ids if str(x or "").strip()})
+    return out[:2000]
+
+
 @app.post("/api/c1/reopen-code")
 def c1_reopen_code(request: Request, payload: dict = Body(default={})):
     tenant, ident, full, err = _c1_ctx(request, payload)
@@ -2088,9 +2096,11 @@ def c1_reopen_code(request: Request, payload: dict = Body(default={})):
         return err
     if ident["role"] not in KB_ADMIN_ROLES:
         return _c1_deny("بازگرداندن تصویب اسناد فقط با دسترسی مدیر مجاز است.")
-    did = str((payload or {}).get("id") or "")
-    if not any(_c1_locked(d) for d in (_c1_index(full).get(did) or [])):
-        return {"ok": False, "error": "این سند قفل نیست."}
+    ids = _c1_reopen_ids(payload)
+    idx = _c1_index(full)
+    locked = [i for i in ids if any(_c1_locked(d) for d in (idx.get(i) or []))]
+    if not locked:
+        return {"ok": False, "error": "سندِ تصویب‌شده‌ای برای بازگرداندن نیست." if len(ids) != 1 else "این سند قفل نیست."}
     # کدِ تأیید به تلگرامِ ادمین (ربات وصل‌شده؛ مستقیم یا رلهٔ Composio) — جایگزینِ پیامک
     if not tg_configured():
         return {"ok": False, "error": "تلگرام وصل نیست؛ بدونِ کدِ تلگرام بازگشایی ممکن نیست."}
@@ -2099,34 +2109,35 @@ def c1_reopen_code(request: Request, payload: dict = Body(default={})):
     if cur and (now - cur["last"]) < OTP_RESEND:
         return {"ok": False, "error": "کمی صبر کنید؛ کد ارسال شده (%dث)." % max(int(OTP_RESEND - (now - cur["last"])), 1)}
     code = "%06d" % secrets.randbelow(1000000)
-    d0 = (_c1_index(full).get(did) or [{}])[0]
+    nos = [str((idx.get(i) or [{}])[0].get("no") or i) for i in locked]
+    what = ("سندِ مالیِ #%s" % fa_digits(nos[0])) if len(nos) == 1 else ("%s سندِ مالی (#%s%s)" % (fa_digits(len(nos)), fa_digits("، #".join(nos[:8])), "، …" if len(nos) > 8 else ""))
     reason = str((payload or {}).get("reason") or "").strip()[:120]
-    text = ("🔐 کدِ بازگشاییِ سندِ مالیِ #%s: %s\nدرخواست‌دهنده: %s%s\nاعتبار: %s دقیقه. اگر این درخواست را نمی‌شناسید، کد را به کسی ندهید."
-            % (fa_digits(d0.get("no") or did), fa_digits(code), _c1_person_name(full, ident["user"]) or ident["user"],
+    text = ("🔐 کدِ بازگرداندنِ تصویبِ %s: %s\nدرخواست‌دهنده: %s%s\nاعتبار: %s دقیقه. اگر این درخواست را نمی‌شناسید، کد را به کسی ندهید."
+            % (what, fa_digits(code), _c1_person_name(full, ident["user"]) or ident["user"],
                ("\nدلیل: " + reason) if reason else "", fa_digits(REOPEN_CODE_TTL // 60)))
     try:
         tg_api("sendMessage", {"chat_id": TG_ADMIN_ID, "text": text})
     except TgError as e:
         return {"ok": False, "error": "ارسالِ کد به تلگرام ناموفق بود.", "detail": _tg_redact(e)[:200]}
-    _c1_codes[ident["user"]] = {"code": code, "exp": now + REOPEN_CODE_TTL, "tries": 0, "last": now, "deal": did}
-    return {"ok": True, "to": "تلگرام"}
+    _c1_codes[ident["user"]] = {"code": code, "exp": now + REOPEN_CODE_TTL, "tries": 0, "last": now, "deal": ",".join(ids)}
+    return {"ok": True, "to": "تلگرام", "count": len(locked)}
 
 
 @app.post("/api/c1/reopen")
 def c1_reopen(request: Request, payload: dict = Body(default={})):
-    """بازگشاییِ سندِ قفل (تصویب‌شده/بسته) ← پیش‌نویس: فقط مدیر + کدِ تلگرام، با دلیلِ صریح؛ ممیزی + بک‌آپ."""
+    """بازگرداندنِ تصویب (یک سند یا گروهی) ← پیش‌نویس: فقط مدیر + کدِ تلگرامِ همان اسناد، با دلیلِ صریح؛ یک بک‌آپ + ممیزیِ هر سند."""
     tenant, ident, full, err = _c1_ctx(request, payload)
     if err:
         return err
     if ident["role"] not in KB_ADMIN_ROLES:
         return _c1_deny("بازگرداندن تصویب اسناد فقط با دسترسی مدیر مجاز است.")
-    did = str((payload or {}).get("id") or "")
+    ids = _c1_reopen_ids(payload)
     reason = str((payload or {}).get("reason") or "").strip()[:300]
     if len(reason) < 3:
         return _c1_deny("دلیلِ بازگشایی را بنویسید.", 400)
     rec = _c1_codes.get(ident["user"])
     code = re.sub(r"\D", "", str((payload or {}).get("code") or "").translate(_FA_DIG))
-    if not rec or rec.get("deal") != did:
+    if not ids or not rec or rec.get("deal") != ",".join(ids):
         return _c1_deny("ابتدا کدِ تلگرام را دریافت کنید.")
     if time.time() > rec["exp"]:
         _c1_codes.pop(ident["user"], None)
@@ -2139,19 +2150,20 @@ def c1_reopen(request: Request, payload: dict = Body(default={})):
         return _c1_deny("کد اشتباه است.")
     _c1_codes.pop(ident["user"], None)
     via = "telegram"
-    ds = _c1_index(full).get(did) or []
-    if not any(_c1_locked(d) for d in ds):
-        return {"ok": True, "already": True}
+    idx = _c1_index(full)
+    targets = [d for i in ids for d in (idx.get(i) or []) if _c1_locked(d)]
+    if not targets:
+        return {"ok": True, "already": True, "via": via, "reopened": 0}
     _c1_backup(tenant, full, "pre-reopen")
     entry = {"by": _c1_person_name(full, ident["user"]), "user": ident["user"], "ts": int(time.time() * 1000), "via": via, "reason": reason}
-    for d in ds:
+    for d in targets:
         prev = {"state": d.get("finState"), "approval": d.get("finApproval"), "closed": d.get("finClosed")}
         for f in ("finClosed", "finState", "finApproval"):
             d.pop(f, None)
-        d["finReopen"] = (d.get("finReopen") or []) + [entry]
+        d["finReopen"] = (d.get("finReopen") or []) + [dict(entry)]
         _c1_audit(d, "reopen", ident, full, via=via, reason=reason, previous=prev)
     _c1_save(tenant, full)
-    return {"ok": True, "via": via}
+    return {"ok": True, "via": via, "reopened": len({str(d.get("id")) for d in targets})}
 
 
 # ---------------- چیدمانِ کاشی‌ها برای هر کاربر (جدولِ جدا؛ بلابِ کسب‌وکار دست نمی‌خورد) ----------------

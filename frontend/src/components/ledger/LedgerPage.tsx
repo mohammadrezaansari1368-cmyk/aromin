@@ -15,7 +15,7 @@ import {
 import { classifyKinds, custNorm, ledgerOf } from '@/engines/customer/index.ts'
 import { cleanName } from '@/engines/deal-import/index.ts'
 import { fetchFull } from '@/lib/forecastStore'
-import { approveBatch, approveDoc, closeDeals, setFinanceBy, flushLedger, LEDGER_FY, ledgerStatus, loadLayout, onLedgerStatus, queueOp, reopenDeal, requestReopenCode, saveLayout, submitDocs, withdrawDoc, type ApprovalInput, type Ref } from '@/lib/ledgerStore'
+import { approveBatch, approveDoc, closeDeals, setFinanceBy, flushLedger, LEDGER_FY, ledgerStatus, loadLayout, onLedgerStatus, queueOp, reopenDeal, reopenMany, requestReopenCode, requestReopenCodeMany, saveLayout, submitDocs, withdrawDoc, type ApprovalInput, type Ref } from '@/lib/ledgerStore'
 import { canSeeAll } from '@/lib/performance'
 import { isActivePerson } from '@/lib/people'
 import { currentTenant } from '@/lib/data'
@@ -24,6 +24,7 @@ import Sortable, { arrangeOrder, loadOrder, saveOrder } from '@/components/ui/so
 import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, FOCUS, INPUT } from '@/components/ui/tokens'
 import { parseJ, todayJ } from '@/lib/jalali'
 import BulkApprove from '@/components/ledger/BulkApprove'
+import BulkReopen from '@/components/ledger/BulkReopen'
 import { motion } from 'motion/react'
 import { RowOrderContext, RowGrip, useRowOrder } from '@/components/ui/use-row-order'
 import { orderRows } from '@/components/ui/row-order'
@@ -352,6 +353,12 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 	const approvalTotals = approvableRows.reduce((a, r) => { a[r.d.channel === 'unofficial' ? 'unofficial' : 'official'] += num(r.d.amount); return a }, { official: 0, unofficial: 0 })
 	const scopeLabel = `${single ? single.name : 'همهٔ کارشناسان'} · ${gm === 'all' ? 'همه‌ی ماه‌ها' : MONTHS[+gm]} ${fa(LEDGER_FY)}`
 	const bulkApprove = async (v: ApprovalInput) => { const d = await approveBatch(session, approvable, v); await load(); return d }
+	// «بازگرداندن تصویب» (فقط مدیر): همهٔ اسنادِ تصویب‌شده/بستهٔ همین دوره و کارشناس، با یک کدِ تلگرام
+	const reopenRows = useMemo(() => (viewFy === LEDGER_FY && isAdmin(session.role) ? monthRows.filter((r) => isLocked(r.d)) : []), [monthRows, viewFy, session.role])
+	const reopenIds = reopenRows.map((r) => r.d.id)
+	const reopenTotals = reopenRows.reduce((a, r) => { a[r.d.channel === 'unofficial' ? 'unofficial' : 'official'] += num(r.d.amount); return a }, { official: 0, unofficial: 0 })
+	const bulkReopenCode = (reason: string) => requestReopenCodeMany(session, reopenIds, reason)
+	const bulkReopen = async (reason: string, code: string) => { const d = await reopenMany(session, reopenIds, reason, code); await load(); return d }
 
 	/* ---- چرخهٔ سند: ارسال · تصویب · بستن · بازگشایی (فقط سرور می‌نویسد؛ هر خطا به‌صورتِ متن برمی‌گردد) ---- */
 	const docAct = async (fn: () => Promise<unknown>, ok: string) => {
@@ -563,7 +570,8 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 						<h2 className="text-[15px] font-extrabold text-foreground">دفتر فاکتورها</h2>
 						<span className="text-[11.5px] text-muted-foreground">بروز شده با اپ جدید</span>
 					</div>
-					{canApprove && <BulkApprove confirmationKey={JSON.stringify([approvable, approvalTotals, scopeLabel])} totals={approvalTotals} count={approvable.length} scope={scopeLabel} suggest={{ cash: T.payNow, pending: T.payCheck + T.payPend }} onApprove={bulkApprove} />}
+					<div className="flex flex-wrap items-center gap-2">{canApprove && <BulkApprove confirmationKey={JSON.stringify([approvable, approvalTotals, scopeLabel])} totals={approvalTotals} count={approvable.length} scope={scopeLabel} suggest={{ cash: T.payNow, pending: T.payCheck + T.payPend }} onApprove={bulkApprove} />}
+					{isAdmin(session.role) && <BulkReopen confirmationKey={JSON.stringify([reopenIds, reopenTotals, scopeLabel])} count={reopenIds.length} scope={scopeLabel} totals={reopenTotals} onCode={bulkReopenCode} onReopen={bulkReopen} />}</div>
 				</header>
 				<ControlStrip
 					full={full} people={people} years={years} viewFy={viewFy} setViewFy={(y) => { setViewFy(y); setCur({ r: 0, c: 0 }) }} gm={gm} setGm={setGm}
@@ -1017,7 +1025,15 @@ function DocumentEditor({ stagesOnly = false, row, finNames, role, canEdit, read
   } catch (e) { setMsg((e as Error).message || 'ذخیره نشد.') } finally { setBusy(false) }
  }
  const sid = `roles-${d.id}`
- return <section className="border-t border-border bg-card p-4" aria-label={stagesOnly ? "انتخاب مراحل هفت‌گانه" : "سندِ مالی و نقش‌ها"}>
+ // پنلِ سند زیرِ کلِ جدول باز می‌شود؛ با دفترِ پُر بیرون از دید می‌ماند → خودکار به دید بیاید و فوکوس بگیرد
+ const box = useRef<HTMLElement>(null)
+ useEffect(() => {
+  if (stagesOnly || !box.current) return
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  box.current.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' })
+  box.current.focus({ preventScroll: true })
+ }, [stagesOnly])
+ return <section ref={box} tabIndex={-1} className="scroll-mt-4 border-t border-border bg-card p-4 outline-none" aria-label={stagesOnly ? "انتخاب مراحل هفت‌گانه" : "سندِ مالی و نقش‌ها"}>
   <div className="flex justify-between"><b>{d.name || d.no}</b><button type="button" className={BTN_GHOST} onClick={onClose}>بستن</button></div>
   {!stagesOnly && <DocPanel fixed={row.p.comp === 'fixed'} d={d} role={role} readOnlyYear={readOnlyYear} mine={mine} ops={ops} basis={rowBasis(d, row.S).basis} />}
   {/* بخشِ جمع‌شونده پایینِ پنل؛ پیش‌فرض بسته؛ <details> محتوا را در DOM نگه می‌دارد (بدونِ reset) و با کیبورد باز/بسته می‌شود */}

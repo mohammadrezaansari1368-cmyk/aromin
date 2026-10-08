@@ -226,6 +226,9 @@ export const closeDeals = (session: Session, ids: number[]) => c1Call(session, '
 export const requestReopenCode = (session: Session, id: number, reason = '') => c1Call(session, 'reopen-code', { id, reason }) as Promise<{ to?: string }>
 /** بازگشایی ← پیش‌نویس: فقط مدیر، با کدِ تلگرام و دلیلِ اجباری */
 export const reopenDeal = (session: Session, id: number, reason: string, code?: string) => c1Call(session, 'reopen', { id, reason, code: code || '' }) as Promise<{ via: string }>
+/** بازگرداندنِ گروهیِ تصویب (دکمهٔ کلی؛ فقط مدیر): یک کدِ تلگرام فقط برای همین مجموعه */
+export const requestReopenCodeMany = (session: Session, ids: number[], reason = '') => c1Call(session, 'reopen-code', { ids, reason }) as Promise<{ to?: string; count?: number }>
+export const reopenMany = (session: Session, ids: number[], reason: string, code: string) => c1Call(session, 'reopen', { ids, reason, code }) as Promise<{ via: string; reopened?: number }>
 
 /* ---------- چیدمانِ کاشی‌ها برای هر کاربر روی سرور ---------- */
 export async function loadLayout(session: Session, list: string): Promise<string[] | null> {

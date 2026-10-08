@@ -38,7 +38,7 @@ class ReopenPermissions(unittest.TestCase):
                                        patch.object(server, 'send_otp_sms') , patch.object(server, '_c1_backup'), patch.object(server, '_c1_save'), patch.object(server, '_c1_audit')]
             with ps[0], ps[1], ps[2], ps[3], ps[4], ps[5] as sms, ps[6] as backup, ps[7] as save, ps[8] as audit:
                 r = server.c1_reopen_code(None, {'id': '1', 'reason': 'اصلاح مبلغ'})
-                self.assertEqual(r, {'ok': True, 'to': 'تلگرام'})
+                self.assertEqual(r, {'ok': True, 'to': 'تلگرام', 'count': 1})
                 sms.assert_not_called()
                 self.assertEqual(sent[0][0], 'sendMessage')
                 self.assertEqual(sent[0][1]['chat_id'], server.TG_ADMIN_ID)
@@ -73,3 +73,33 @@ class ReopenPermissions(unittest.TestCase):
             r = server.c1_reopen_code(None, {'id': '1'})
             self.assertFalse(r['ok'])
             self.assertNotIn('test', server._c1_codes)
+
+    def test_bulk_reopen_one_code_for_exactly_that_group(self):
+        """دکمهٔ کلی: یک کدِ تلگرام برای همان گروهِ اسناد؛ فقط تصویب‌شده‌ها برمی‌گردند؛ یک بک‌آپ، ممیزیِ هر سند."""
+        server._c1_codes.clear()
+        a = {'id': 1, 'no': '7001', 'finState': 'approved', 'finApproval': {'by': 'm'}, 'finBy': 'acc'}
+        b = {'id': 2, 'no': '7002', 'finState': 'closed', 'finClosed': {'by': 'm'}}
+        c = {'id': 3, 'no': '7003'}
+        ident = {'user': 'test', 'role': 'manager'}
+        sent = []
+        with patch.object(server, '_c1_ctx', return_value=('test', ident, {}, None)), patch.object(server, '_c1_index', return_value={'1': [a], '2': [b], '3': [c]}), \
+                patch.object(server, '_c1_person_name', return_value='manager'), patch.object(server, 'tg_configured', return_value=True), \
+                patch.object(server, 'tg_api', side_effect=lambda m, f: sent.append(f) or {'ok': True}), patch.object(server, '_c1_backup') as backup, \
+                patch.object(server, '_c1_save') as save, patch.object(server, '_c1_audit') as audit:
+            r = server.c1_reopen_code(None, {'ids': [3, 2, 1], 'reason': 'اصلاح دوره'})
+            self.assertEqual((r['ok'], r['count']), (True, 2))
+            self.assertIn('۲ سندِ مالی', sent[0]['text'])
+            code = server._c1_codes['test']['code']
+            # کد فقط برای همان مجموعه؛ مجموعهٔ دیگر رد می‌شود
+            self.assertEqual(server.c1_reopen(None, {'ids': [1], 'reason': 'اصلاح دوره', 'code': code}).status_code, 403)
+            save.assert_not_called()
+            r = server.c1_reopen(None, {'ids': [1, 2, 3], 'reason': 'اصلاح دوره', 'code': code})
+            self.assertEqual((r['via'], r['reopened']), ('telegram', 2))
+            backup.assert_called_once(); save.assert_called_once()
+            self.assertEqual(audit.call_count, 2)
+            self.assertNotIn('finState', a); self.assertNotIn('finClosed', b); self.assertEqual(a['finBy'], 'acc')
+            self.assertEqual(c, {'id': 3, 'no': '7003'})
+
+
+if __name__ == '__main__':
+    unittest.main()
