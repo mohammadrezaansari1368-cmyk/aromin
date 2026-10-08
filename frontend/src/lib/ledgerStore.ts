@@ -222,9 +222,9 @@ export const approveDoc = (session: Session, id: number, v: ApprovalInput) => c1
 export const approveBatch = (session: Session, ids: number[], v: ApprovalInput) => c1Call(session, 'approve-batch', { ids, ...v }) as Promise<{ approved: number; already: number; skipped: string[] }>
 /** بستنِ مالی (فقط کارشناسِ مالی، فقط سندِ تصویب‌شده؛ idempotent) */
 export const closeDeals = (session: Session, ids: number[]) => c1Call(session, 'close', { ids }) as Promise<{ closed: number; already: number; skipped: string[] }>
-/** ارسالِ کدِ پیامکی برای بازگشایی */
-export const requestReopenCode = (session: Session, id: number) => c1Call(session, 'reopen-code', { id }) as Promise<{ to?: string }>
-/** بازگشایی ← پیش‌نویس: مدیر بدونِ کد؛ بقیه با کدِ پیامکی؛ دلیل اجباری */
+/** ارسالِ کدِ بازگشایی به تلگرامِ ادمین (ربات وصل‌شده) */
+export const requestReopenCode = (session: Session, id: number, reason = '') => c1Call(session, 'reopen-code', { id, reason }) as Promise<{ to?: string }>
+/** بازگشایی ← پیش‌نویس: فقط مدیر، با کدِ تلگرام و دلیلِ اجباری */
 export const reopenDeal = (session: Session, id: number, reason: string, code?: string) => c1Call(session, 'reopen', { id, reason, code: code || '' }) as Promise<{ via: string }>
 
 /* ---------- چیدمانِ کاشی‌ها برای هر کاربر روی سرور ---------- */
