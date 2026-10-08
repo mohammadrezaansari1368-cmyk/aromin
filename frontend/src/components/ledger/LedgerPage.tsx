@@ -735,8 +735,7 @@ const Chip = ({ on, tone, click, n, t, sub }: { on: boolean; tone: string; click
 
 /* ---------- نمایشِ خانه‌ها (بدونِ کنترلِ فرم؛ کنترل فقط هنگامِ ویرایش) ---------- */
 function selectedProgress(d: Deal, weights = DEFAULT_WEIGHTS) {
- const stages: StageKey[] = stagesOf(d).filter(k => k !== 'fin')
- if (String(d.finBy || '').trim()) stages.push('fin')
+ const stages = stagesOf(d)
  return { stages, percent: stages.reduce((n, k) => n + weights[k], 0) }
 }
 function StageBar({ d }: { d: Deal }) {
