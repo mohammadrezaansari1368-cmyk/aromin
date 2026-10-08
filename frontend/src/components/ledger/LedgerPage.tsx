@@ -991,21 +991,20 @@ function DocumentEditor({ stagesOnly = false, row, finNames, role, canEdit, read
  // پیش‌نویسِ محلی: بستنِ بخشِ جمع‌شونده state را نگه می‌دارد و payload فقط تغییرات است (rolesPatch)
  const [st, setSt] = useState<StageKey[]>(stagesOf(d))
  const [mgr, setMgr] = useState(!!d.mgrShare)
- const [finOn, setFinOn] = useState(!!String(d.finBy || '').trim())
+ // حسابدار = صاحبِ مرحلهٔ «تأیید مالی و صحت داده»: با انتخابش تیکِ فروشنده برداشته و وزن به حسابدار می‌رسد (همان stagesOf/financeOf)
  const [finP, setFinP] = useState(String(d.finBy || ''))
  const [busy, setBusy] = useState(false)
  const [msg, setMsg] = useState('')
  const editRoles = canEdit && !isLocked(d) && !readOnlyYear
  const fc = financeControl(role, d)
  const patch = rolesPatch(d, { stages: st, mgrShare: mgr })
- const finTarget = finOn ? finP.trim() : ''
+ const finTarget = finP.trim()
  const finChanged = finTarget !== String(d.finBy || '').trim()
  const dirty = Object.keys(patch).length > 0 || finChanged
  const names = !d.finBy || finNames.includes(String(d.finBy)) ? finNames : [...finNames, String(d.finBy)]
  const approver = String((d.finApproval as { by?: string } | undefined)?.by || '')
  const done = STAGES.filter((s) => st.includes(s.k) && !otherOf(d, s.k, finTarget)).length
  const save = async () => {
-  if (finOn && !finTarget) { setMsg('شخصِ تأیید مالی را انتخاب کنید.'); return }
   setBusy(true); setMsg('')
   try {
    if (finChanged) await onFinance(finTarget)
@@ -1017,49 +1016,73 @@ function DocumentEditor({ stagesOnly = false, row, finNames, role, canEdit, read
   <div className="flex justify-between"><b>{d.name || d.no}</b><button type="button" className={BTN_GHOST} onClick={onClose}>بستن</button></div>
   {!stagesOnly && <DocPanel fixed={row.p.comp === 'fixed'} d={d} role={role} readOnlyYear={readOnlyYear} mine={mine} ops={ops} basis={rowBasis(d, row.S).basis} />}
   {/* بخشِ جمع‌شونده پایینِ پنل؛ پیش‌فرض بسته؛ <details> محتوا را در DOM نگه می‌دارد (بدونِ reset) و با کیبورد باز/بسته می‌شود */}
-  <details open={stagesOnly || undefined} className="group mt-4 rounded-md ring-1 ring-border">
-   <summary className={`flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-[13px] ${FOCUS}`}>
-    <b>نقش‌ها، وزن‌ها، مشارکت مدیر و تأیید مالی</b>
-    <span className="text-[12px] text-muted-foreground tabular-nums">نقش {fa(done)}/{fa(STAGES.length)}{mgr ? ' · مشارکت مدیر' : ''}</span>
-    <span className={`mr-auto text-[12px] ${financeOf(d) ? 'text-success' : 'text-muted-foreground'}`}>{financeOf(d) ? '✓ تأیید مالی: ' + financeOf(d) : 'بدون تأیید مالی'}</span>
+  <details open={stagesOnly || undefined} className="group mt-3 rounded-2xl bg-muted/30 ring-1 ring-border">
+   <summary className={`flex min-h-10 cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl px-3 py-1.5 text-[12.5px] ${FOCUS}`}>
+    <span className="flex gap-0.5" aria-hidden>{STAGES.map((s) => <i key={s.k} className={`block h-1.5 w-3 rounded-full ${st.includes(s.k) && !otherOf(d, s.k, finTarget) ? 'bg-primary' : otherOf(d, s.k, finTarget) ? 'bg-secondary/60' : 'bg-border'}`} />)}</span>
+    <b className="text-[12.5px]">نقش‌ها</b>
+    <span className="text-muted-foreground tabular-nums">نقش {fa(done)}/{fa(STAGES.length)}{mgr ? ' · مشارکت مدیر' : ''}</span>
+    <span className={`mr-auto ${financeOf(d) ? 'text-success' : 'text-muted-foreground'}`}>{financeOf(d) ? '✓ تأیید مالی: ' + financeOf(d) : 'بدون تأیید مالی'}</span>
    </summary>
-   <div className="grid gap-4 border-t border-border p-4 lg:grid-cols-[minmax(0,1fr)_300px]">
-    <fieldset className="min-w-0" disabled={!editRoles}>
-     <legend className="text-[13px] font-bold">مرحله و وزن‌های ۷گانه</legend>
-     <ul className="mt-2 space-y-1.5">
-      {STAGES.map((s) => {
-       const other = otherOf(d, s.k, finTarget), on = s.k === 'fin' ? finOn : st.includes(s.k) && !other, id = `${sid}-${s.k}`
-       return <li key={s.k} className={`flex min-h-10 items-center gap-3 rounded-md border px-3 py-1.5 ${on ? 'border-primary/35 bg-primary/[0.06]' : 'border-border'}`}>
-        <input id={id} type="checkbox" className="size-4 shrink-0" checked={on} disabled={s.k === 'fin' ? !fc.editable : !!other} onChange={(e) => s.k === 'fin' ? setFinOn(e.target.checked) : setSt((x) => (e.target.checked ? [...x, s.k] : x.filter((k) => k !== s.k)))} />
-        <label htmlFor={id} className="flex min-w-0 flex-1 items-baseline justify-between gap-2 text-[13px]">
-         <span className="min-w-0">{s.t}{other && <span className="block text-[11.5px] text-muted-foreground">سهمِ این مرحله با «{other}»</span>}</span>
-         <span className="shrink-0 tabular-nums text-muted-foreground">{fa(W[s.k])}٪</span>
-        </label>
-       </li>
-      })}
-     </ul>
-     <label className="mt-3 inline-flex items-center gap-2 text-[13px]"><input type="checkbox" className="size-4" checked={mgr} onChange={(e) => setMgr(e.target.checked)} />مشارکتِ مدیر در بستن (نصفِ وزنِ بستن)</label>
-     {!editRoles && <p className="mt-2 text-[12px] text-muted-foreground">{isLocked(d) ? 'سند قفل است؛ نقش‌ها فقط‌خواندنی‌اند.' : 'اجازهٔ ویرایشِ نقش‌ها را ندارید.'}</p>}
+   <div className="flex flex-wrap items-center gap-1 border-t border-border px-3 py-2.5">
+    <fieldset className="contents" disabled={!editRoles}>
+     <legend className="sr-only">مرحله و وزن‌های ۷گانه</legend>
+     {STAGES.map((s) => {
+      const other = otherOf(d, s.k, finTarget), on = st.includes(s.k) && !other, id = `${sid}-${s.k}`
+      return <Chip7 key={s.k} id={id} icon={STAGE_ICON[s.k]} label={s.t} sub={`${fa(W[s.k])}٪`} on={on} other={other} disabled={!!other}
+       onChange={(v) => setSt((x) => (v ? [...x, s.k] : x.filter((k) => k !== s.k)))} />
+     })}
+     <span className="mx-0.5 h-8 w-px bg-border" aria-hidden />
+     <Chip7 id={`${sid}-mgr`} icon={ICON_CROWN} label="مشارکتِ مدیر در بستن (نصفِ وزنِ بستن)" sub="½" on={mgr} onChange={setMgr} />
     </fieldset>
-    <fieldset className="flex min-w-0 flex-col gap-2" disabled={!fc.editable || readOnlyYear}>
-     <legend className="text-[13px] font-bold">تأیید مالی و حسابدار</legend>
-
-     <label className="flex flex-col gap-1 text-[12px] font-bold text-muted-foreground">حسابدار (تأییدکنندهٔ مالی)
-      <select className={`${INPUT} min-h-10`} value={finP} disabled={!finOn} onChange={(e) => setFinP(e.target.value)}>
-       <option value="">— انتخاب کنید</option>
+    <fieldset className="contents" disabled={!fc.editable || readOnlyYear}>
+     <legend className="sr-only">تأیید مالی و حسابدار</legend>
+     <label title="حسابدار (تأییدکنندهٔ مالی) — وزنِ «تأیید مالی و صحت داده» به او می‌رسد" className={`flex h-12 items-center gap-1 rounded-xl px-2 ring-1 transition ${finTarget ? 'bg-secondary/10 text-secondary-ink ring-secondary/40' : 'bg-card text-muted-foreground ring-border'}`}>
+      <Glyph d={ICON_CALC} />
+      <select aria-label="حسابدار (تأییدکنندهٔ مالی)" className="h-9 max-w-[6.5rem] cursor-pointer truncate rounded-lg bg-transparent text-[12.5px] font-bold outline-none disabled:cursor-not-allowed" value={finP} onChange={(e) => setFinP(e.target.value)}>
+       <option value="">حسابدار…</option>
        {names.map((n) => <option key={n} value={n}>{n}</option>)}
       </select>
      </label>
-     {fc.why && <p className="text-[12px] text-muted-foreground">{fc.why}</p>}
-     {approver && <p className="text-[12px] text-muted-foreground">تصویب‌کنندهٔ سند (کاربرِ ثبت‌کننده): <b>{approver}</b></p>}
     </fieldset>
-   </div>
-   <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
-    <button type="button" className={BTN_PRIMARY} disabled={busy || (!dirty && !(finOn && !finTarget))} onClick={save}>{busy ? 'در حالِ ذخیره…' : 'ذخیرهٔ نقش‌ها و تأیید مالی'}</button>
-    {msg && <span role="alert" className="text-[12px] text-error">{msg}</span>}
+    <button type="button" aria-label="ذخیرهٔ نقش‌ها و تأیید مالی" title="ذخیرهٔ نقش‌ها و تأیید مالی" className={`mr-auto grid size-11 place-items-center rounded-xl bg-gradient-to-b from-primary to-active text-primary-foreground shadow-md shadow-primary/25 transition hover:brightness-110 disabled:opacity-40 disabled:shadow-none ${FOCUS}`} disabled={busy || !dirty} onClick={save}>
+     {busy ? <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none" aria-hidden /> : <Glyph d={ICON_SAVE} />}
+    </button>
+    {(msg || fc.why || approver || !editRoles) && <p className="basis-full text-[11.5px] leading-5 text-muted-foreground">
+     {msg && <span role="alert" className="text-error">{msg} </span>}
+     {!editRoles && (isLocked(d) ? 'سند قفل است؛ نقش‌ها فقط‌خواندنی‌اند. ' : 'اجازهٔ ویرایشِ نقش‌ها را ندارید. ')}
+     {fc.why && fc.why + ' '}
+     {approver && <>تصویب‌کنندهٔ سند: <b>{approver}</b></>}
+    </p>}
    </div>
   </details>
  </section>
+}
+/* آیکون‌های کوچکِ نقش‌ها (خطی، ۲۴×۲۴) */
+const STAGE_ICON: Record<StageKey, string> = {
+	lead: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2|M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0|M19 8v6|M22 11h-6',
+	pre: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z|M14 2v6h6|M16 13H8|M16 17H8',
+	funnel: 'M22 3H2l8 9.46V19l4 2v-8.54z',
+	follow: 'M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z',
+	close: 'M22 11.08V12a10 10 0 1 1-5.93-9.14|M22 4 12 14.01l-3-3',
+	post: 'M3 18v-6a9 9 0 0 1 18 0v6|M21 19a2 2 0 0 1-2 2h-1v-6h3z|M3 19a2 2 0 0 0 2 2h1v-6H3z',
+	fin: 'M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z|M9 12l2 2 4-4',
+}
+const ICON_CROWN = 'M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z|M5 20h14'
+const ICON_CALC = 'M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z|M8 6h8|M8 11h.01|M12 11h.01|M16 11h.01|M8 15h.01|M12 15h.01|M16 15h.01|M8 19h8'
+const ICON_SAVE = 'M20 6 9 17l-5-5'
+function Glyph({ d }: { d: string }) {
+	return <svg viewBox="0 0 24 24" className="size-[18px] shrink-0" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden>{d.split('|').map((p) => <path key={p} d={p} />)}</svg>
+}
+/** کاشیِ کوچکِ آیکونی برای هر نقش: کلِ کاشی خودِ checkbox است؛ نامِ کامل در aria-label و tooltip؛ صاحبِ دیگر با حرفِ اولِ نامش */
+function Chip7({ id, icon, label, sub, on, other = '', disabled = false, onChange }: { id: string; icon: string; label: string; sub: string; on: boolean; other?: string; disabled?: boolean; onChange: (v: boolean) => void }) {
+	const tip = other ? `${label} — سهمِ این مرحله با «${other}»` : label
+	return <span title={tip} className={`relative grid h-12 w-10 shrink-0 place-items-center content-center gap-0.5 rounded-xl transition has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring ${on ? 'bg-gradient-to-b from-primary/25 to-primary/5 text-primary-ink shadow-sm ring-1 ring-primary/40' : other ? 'border border-dashed border-secondary/50 bg-secondary/5 text-secondary-ink' : 'bg-card text-muted-foreground ring-1 ring-border hover:text-foreground'}`}>
+		<input id={id} type="checkbox" aria-label={tip} checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)}
+			className="absolute inset-0 z-10 size-full cursor-pointer appearance-none rounded-xl opacity-0 disabled:cursor-not-allowed" />
+		<Glyph d={icon} />
+		<span className="text-[10px] font-extrabold leading-none tabular-nums">{sub}</span>
+		{other && <span className="absolute -left-1 -top-1 grid size-4 place-items-center rounded-full bg-secondary text-[9px] font-bold text-secondary-foreground" aria-hidden>{other.trim().charAt(0)}</span>}
+	</span>
 }
 function otherOf(d: Deal, k: StageKey, finBy: string) {
 	return k === 'lead' && d.leadGen ? String(d.leadGen) : k === 'post' && d.supportGen && d.supportSla ? String(d.supportGen) : k === 'fin' && finBy ? finBy : ''

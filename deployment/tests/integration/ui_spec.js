@@ -34,7 +34,6 @@ async page => {
     const closedNow = !(await det.evaluate((d) => d.open))
     await det.locator('summary').focus(); await page.keyboard.press('Enter'); await idle(150)
     ok('closing/reopening keeps unsaved edits (no reset)', closedNow && (await pre.isChecked()))
-    await det.getByLabel('تأیید مالی و صحتِ داده').check()
     await det.getByLabel('حسابدار (تأییدکنندهٔ مالی)').selectOption('نورا آزمون')
     const w = await det.innerText()
     ok('weights shown (5/10/20/15/35/10/5) with labels', ['۵٪', '۱۰٪', '۲۰٪', '۱۵٪', '۳۵٪'].every((x) => w.includes(x)), w.slice(0, 200))
