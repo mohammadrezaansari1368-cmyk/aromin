@@ -3,7 +3,7 @@ const assert=require('node:assert/strict')
 ;(async()=>{
  const browser=await chromium.launch(),page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message))
  await page.route('https://fonts.googleapis.com/**',r=>r.fulfill({body:''}))
- await page.goto('http://127.0.0.1:5188/tests/browser/index.html?view=funnel&brand=1')
+ await page.goto((process.env.TEST_URL||'http://127.0.0.1:5188')+'/tests/browser/index.html?view=funnel&brand=1')
  const paths=page.locator('[data-seg]'),legend=page.getByRole('list',{name:'راهنمای رنگ‌های قیف'}),colors=['#004991','#910D6A','#FCBF00']
  for(const width of [320,375,768,1440]){
   await page.setViewportSize({width,height:900});await paths.first().waitFor();assert.equal(await paths.count(),3)
