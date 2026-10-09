@@ -9,8 +9,8 @@ import { isActivePerson } from '@/lib/people'
  * هیچ عددی ساخته نمی‌شود؛ هر جا داده نیست N/A.
  */
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import ContributionSkyline from '@/components/ui/contribution-skyline'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import PerformanceWorkspace from './PerformanceWorkspace'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { Session } from '@/lib/auth'
 import { tokenHex, useTheme } from '@/lib/theme'
@@ -36,30 +36,6 @@ const STATUS_TONE = { Matched: 'bg-success/12 text-success ring-success/30', Mis
 const HOW_FA: Record<LinkHow, string> = { manual: 'دستی', strong: 'قطعی', weak: 'حدسی — بررسی کنید', none: 'پیدا نشد' }
 
 /* ---------------- بلوک‌ها ---------------- */
-/** رنگ‌های اپ برای ContributionSkyline (متغیرهای --color-* که کامپوننت می‌خواند؛ روشن/تیره و تمِ فعال) */
-const SKYLINE_THEME = { '--color-background': 'hsl(var(--card))', '--color-foreground': 'hsl(var(--text))', '--color-border': 'hsl(var(--border))', '--color-muted-foreground': 'hsl(var(--muted-foreground))' } as CSSProperties
-/** پالتِ نقشهٔ فعالیت از سه رنگِ برند (بنفش #910D6A، آبی #004991، طلایی #FCBF00) — چهار پله، روشن و تیره */
-const SKYLINE_PALETTES = {
-	purple: { light: ['#f3d6e9', '#d77fbb', '#b3348a', '#6e0a50'], dark: ['#3a1830', '#6e0a50', '#b3348a', '#e07bbe'] },
-	blue: { light: ['#d3e2f4', '#7fb2f0', '#2a6fbf', '#004991'], dark: ['#142840', '#004991', '#2a6fbf', '#7fb2f0'] },
-	gold: { light: ['#fff4cc', '#ffe07a', '#fcbf00', '#a87d00'], dark: ['#3a3010', '#8a6a00', '#fcbf00', '#ffe07a'] },
-} as const
-type BrandTheme = keyof typeof SKYLINE_PALETTES
-const readBrand = () => { const r = document.documentElement.dataset; return { theme: (r.theme && r.theme in SKYLINE_PALETTES ? r.theme : 'purple') as BrandTheme, mode: r.mode === 'dark' ? 'dark' : 'light' } }
-/** تم و حالتِ فعال (data-theme / data-mode)؛ با هر تغییر پالتِ تازه ← بازرنگ‌آمیزیِ نرمِ کانواس */
-function useSkylinePalette() {
-	const [b, setB] = useState(readBrand)
-	useEffect(() => {
-		const mo = new MutationObserver(() => setB((prev) => { const n = readBrand(); return n.theme === prev.theme && n.mode === prev.mode ? prev : n }))
-		mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-mode'] })
-		return () => mo.disconnect()
-	}, [])
-	return useMemo(() => { const p = SKYLINE_PALETTES[b.theme]; return { light: [...p.light], dark: [...p.dark] } }, [b])
-}
-function SkylineTile() {
-	const palette = useSkylinePalette()
-	return <div dir="ltr" style={SKYLINE_THEME}><ContributionSkyline palette={palette} /></div>
-}
 function Card({ title, sub, actions, children, className = '', code }: { title?: ReactNode; sub?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; code?: string }) {
 	return (
 		<section className={`@container h-full ${CARD} ${CARD_PAD} ${className}`}>
@@ -277,7 +253,7 @@ export function ETiles({ ds, f }: { ds: Dataset; f: Filter }) {
 				</dl>
 			</Card>
 			<Card key="E2" code="E2" title="حضور و دیرکرد" sub="Attendance & Late Analytics">
-				<Hero value={t.late ? (t.deductible / t.late) * 100 : t.people ? 0 : null} label="سهمِ قابل‌کسر از کلِ دیرکرد" from={c.accent} to={c.err} />
+				<Kpi k="دیرکرد قابل کسر (دقیقه؛ کمتر بهتر)" v={t.late ? fa(t.deductible) : NA} tone={t.deductible ? 'warn' : undefined} />
 				<dl className="mt-3">
 					<Metric k="تعداد دیرکرد" v={fa(t.lateCount)} tone={t.lateCount ? 'warn' : undefined} />
 					<Metric k="مجموع دیرکرد" v={tm(t.late)} />
@@ -319,7 +295,7 @@ function Dashboard({ ds, f, set }: { ds: Dataset; f: Filter; set: (f: Filter) =>
 	const rated = series.filter((s) => s.rate !== null)
 	const byPerson = ds.people.filter((p) => personIn(p, f)).map((p) => {
 		const pt = totals({ ...ds, people: [p] }, { ...f, person: '', team: '' })
-		return { name: p.displayName.split(' ').slice(0, 2).join(' '), hours: Math.round((pt.minutes / 60) * 10) / 10, deductible: Math.round((pt.deductible / 60) * 10) / 10, session: pt.sessionOT == null ? 0 : Math.round((pt.sessionOT / 60) * 10) / 10, hasS: pt.sessionOT != null }
+		return { name: p.displayName, hours: Math.round((pt.minutes / 60) * 10) / 10, deductible: Math.round((pt.deductible / 60) * 10) / 10, session: pt.sessionOT == null ? 0 : Math.round((pt.sessionOT / 60) * 10) / 10, hasS: pt.sessionOT != null }
 	})
 	const reconData = series.filter((s) => s.matched + s.missing + s.mismatch > 0).map((s) => ({ date: s.date, تطبیق: s.matched, 'وظیفه ثبت نشده': s.missing, ناهمخوان: s.mismatch }))
 	const otData = series.filter((s) => s.hasOT).map((s) => ({ date: s.date, اضافه‌کار: Math.round((s.overtime / 60) * 10) / 10 }))
@@ -637,7 +613,7 @@ function People({ ds, f, set, session }: { ds: Dataset; f: Filter; set: (f: Filt
 }
 
 /* ---------------- گزارش تطبیق وظیفه و حضور (فقط Task ↔ Attendance) ---------------- */
-function Recon({ ds, f, set }: { ds: Dataset; f: Filter; set: (f: Filter) => void }) {
+function Recon({ ds, f, set, sharedScope = false }: { ds: Dataset; f: Filter; set: (f: Filter) => void; sharedScope?: boolean }) {
 	const ref = useRef<HTMLDivElement>(null)
 	const rows = reconRows(ds, f)
 	const sessions = sessionRows(ds, f)
@@ -651,14 +627,14 @@ function Recon({ ds, f, set }: { ds: Dataset; f: Filter; set: (f: Filter) => voi
 				title="گزارش تطبیق وظیفه و حضور"
 				sub={'کلید: شخص + تاریخ · حضور از دستگاهِ حضور، وظایف از سیستمِ وظایفِ اپ · دوره: ' + period}
 				actions={<ExportBtns disabled={!rows.length && !sessions.length} onExcel={() => exportRecon(rows, sessions, period)} onPrint={() => printSection(ref.current)} />}>
-				<Filters ds={ds} f={f} set={set} show={['date', 'person', 'team', 'status', 'task', 'q']} />
+				<Filters ds={ds} f={f} set={set} show={sharedScope ? ['status', 'task', 'q'] : ['date', 'person', 'team', 'status', 'task', 'q']} />
 				{noTasks ? (
 					<div className="mt-4"><Empty title="دادهٔ وظایف برای این افراد در سیستم نیست (N/A)">وظایف از همان ایمپورتِ جولیو در اپ خوانده می‌شود؛ بعد از ایمپورتِ وظایف، این گزارش خودکار پر می‌شود.</Empty></div>
 				) : (
 					<>
 						<div className="my-4 flex flex-wrap gap-2 text-[12px]">
-							<span className="rounded-full bg-muted px-3 py-1 font-bold">{fa(rows.length)} ردیف</span>
-							{(Object.keys(cnt) as (keyof typeof cnt)[]).map((k) => <span key={k} className={`rounded-full px-3 py-1 font-bold ring-1 ${STATUS_TONE[k]}`}>{STATUS_FA[k]}: {fa(cnt[k])}</span>)}
+							<span className="rounded-full bg-muted px-3 py-1 font-bold">{fa(rows.length)} شخص‌ـ‌روز</span>
+							{(Object.keys(cnt) as (keyof typeof cnt)[]).map((k) => <button type="button" key={k} onClick={() => set({ ...f, status: f.status === k ? '' : k })} className={`rounded-full px-3 py-1 font-bold ring-1 ${STATUS_TONE[k]}`}>{STATUS_FA[k]}: {fa(cnt[k])}</button>)}
 						</div>
 						<Table head={['شخص', 'تاریخ', 'روز', 'حضور', 'کارکرد', 'وظایف', 'انجام‌شده', 'وضعیت', 'توضیح']} empty={!rows.length}>
 							{rows.map((r) => (
@@ -906,8 +882,9 @@ export function ReportsPerf({ session, go, initial = 'summary' }: { session: Ses
 }
 
 /* ---------------- صفحه: «عملکرد» (یکی‌شدهٔ تب‌های E و N) ---------------- */
-export default function PerformancePage({ session, initial = 'dash', go, setPanel }: { session: Session; initial?: PerfView; go?: (id: string) => void; setPanel?: (panel: string | null) => void }) {
-	const { ds, loading, err } = usePerformance(session)
+function ExistingPerformance({ session, initial = 'dash', go, setPanel, sharedFilter, scopeNames, embedded = false }: { sharedFilter?: Filter; scopeNames?: string[]; embedded?: boolean; session: Session; initial?: PerfView; go?: (id: string) => void; setPanel?: (panel: string | null) => void }) {
+	const { ds: sourceDs, loading, err } = usePerformance(session)
+    const ds = sourceDs && scopeNames ? { ...sourceDs, people: sourceDs.people.filter(p => !!p.person && scopeNames.includes(p.person)) } : sourceDs
 	const all = canSeeAll(session)
 	const [view, setView] = useState<PerfView>(initial)
 	const [f, setF] = useState<Filter>(EMPTY_FILTER)
@@ -916,7 +893,8 @@ export default function PerformancePage({ session, initial = 'dash', go, setPane
 	useEffect(() => { setPanel?.(view === 'activity' ? 'p-kpi' : null) }, [view, setPanel])
 	useEffect(() => () => setPanel?.(null), [setPanel])
 	// کارمند هرگز فیلترِ شخص/تیمِ دیگری نمی‌گیرد (حتی از state) — دیتاستش هم فقط خودِ اوست
-	const safeF = all ? f : { ...f, person: '', team: '' }
+	const sf = sharedFilter ? { ...sharedFilter, status: f.status, task: f.task, q: f.q, person: ds?.people.find(p => p.person === sharedFilter.person)?.sheetName || (sharedFilter.person ? '__unmapped__' : '') } : f
+    const safeF = all ? sf : { ...sf, person: '', team: '' }
 	const views: { id: PerfView; label: string }[] = [
 		{ id: 'dash', label: all ? 'داشبورد مدیریتی' : 'داشبورد من' },
 		{ id: 'people', label: all ? 'عملکرد افراد' : 'عملکرد من' },
@@ -925,6 +903,7 @@ export default function PerformancePage({ session, initial = 'dash', go, setPane
 		...(all ? [{ id: 'data' as PerfView, label: 'نگاشت اشخاص' }] : []),
 	]
 	const body = () => {
+        if (err) return <Empty title={err}>دادهٔ شخص دیگری جایگزین نمی‌شود.</Empty>
 		if (view === 'activity') return <p className="px-1 text-[12.5px] text-muted-foreground">ورودیِ عملکرد، سنجش با استاندارد، امتیاز و جایزه، ردیاب وظیفه، مقایسهٔ تیم و ساعت تلاش مؤثر — از موتورِ اصلی (همان دسترسی‌ها).</p>
 		if (loading || !ds) return <div className="h-40 animate-pulse rounded-2xl bg-muted/50" aria-busy="true" />
 		if (view === 'data' && all) return <MappingPanel ds={ds} session={session} go={go} />
@@ -935,12 +914,12 @@ export default function PerformancePage({ session, initial = 'dash', go, setPane
 				</Empty>
 			)
 		if (view === 'people') return <People ds={ds} f={safeF} set={setF} session={session} />
-		if (view === 'recon') return <Recon ds={ds} f={safeF} set={setF} />
+		if (view === 'recon') return <Recon ds={ds} f={safeF} set={setF} sharedScope={!!sharedFilter} />
 		return <Dashboard ds={ds} f={safeF} set={setF} />
 	}
 	return (
 		<div dir="rtl" className={`flex flex-col gap-5 ${view === 'activity' ? 'mb-5' : ''}`}>
-			<div className="no-print flex flex-wrap items-center justify-between gap-3">
+			<div className={`no-print flex flex-wrap items-center justify-between gap-3 ${embedded ? 'hidden' : ''}`}>
 				<div role="tablist" aria-label="بخش‌های عملکرد" className="flex max-w-full gap-1 overflow-x-auto rounded-2xl bg-muted/60 p-1">
 					{views.map((v) => (
 						<button key={v.id} role="tab" aria-selected={view === v.id} onClick={() => setView(v.id)}
@@ -956,10 +935,15 @@ export default function PerformancePage({ session, initial = 'dash', go, setPane
 			</div>
 			{err && <p className="no-print rounded-xl bg-warning/12 px-4 py-2.5 text-[12px] text-warning ring-1 ring-warning/35">{err}</p>}
 			{body()}
-			{/* N21 — نقشهٔ فعالیتِ سالانه (دوبعدی/سه‌بعدی)؛ فعلاً دادهٔ نمونهٔ خودِ کامپوننت، به دادهٔ سیستم وصل نیست */}
-			{view === 'dash' && <Card code="N21" title="نقشهٔ فعالیتِ سالانه" sub="نمای دوبعدی و سه‌بعدی · دادهٔ نمونه (هنوز به دادهٔ سیستم وصل نیست)">
-				<SkylineTile />
-			</Card>}
+
 		</div>
 	)
+}
+
+export default function PerformancePage({ session, go, setPanel }: { session: Session; initial?: PerfView; go?: (id: string) => void; setPanel?: (panel: string | null) => void }) {
+ return <PerformanceWorkspace session={session}
+  renderReview={(f,names) => <ExistingPerformance session={session} initial="recon" go={go} sharedFilter={f} scopeNames={names} embedded />}
+  renderSettings={() => <><PerfSettingsCard session={session} /><ExistingPerformance session={session} initial="data" go={go} embedded /></>}
+  renderLegacy={() => <ExistingPerformance session={session} initial="activity" go={go} setPanel={setPanel} />}
+ />
 }

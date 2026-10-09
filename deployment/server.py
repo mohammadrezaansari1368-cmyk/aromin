@@ -1885,6 +1885,57 @@ def _c1_ctx(request, payload):
     return tenant, ident, full, None
 
 
+# Read-only performance workspace: scope checked for every projection and export page.
+@app.get('/api/performance/{view}')
+def performance_read(view: str, request: Request, tenant: str = Query(default='team'), person: str = Query(default=''), unit: str = Query(default=''), start: str = Query(default=''), end: str = Query(default=''), metric: str = Query(default='tasks'), offset: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=200)):
+    import aromin_performance as perf
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    ident = kb_identity(request, tenant)
+    if not ident:
+        return JSONResponse({'ok':False,'error':'ورود معتبر نیست.'},status_code=401)
+    full = _tenant_full(tenant) or {}
+    users, _ = _kb_directory(tenant)
+    try:
+        allowed = perf.directory(full, ident, users)
+        selected = perf.select(allowed, person, unit)
+        if view == 'directory':
+            return {'ok':True,'people':[perf.public_person(p) for p in allowed],'role':ident['role'],'updatedAt':full.get('ts'),'scope':'organization' if ident['role']=='manager' else 'unit' if ident['role'] in ('salesmgr','accmgr') else 'self'}
+        if view == 'source':
+            return {'ok':True,'full':{'performanceScoped':True,'organizationScope':ident['role']=='manager','people':[{**{k:p[k] for k in ('id','name','role','inactive') if k in p}, 'perf':{k:(p.get('perf') or {})[k] for k in ('dailyTasks','dayStatus','dayType') if k in (p.get('perf') or {})}} for p in allowed]}}
+        if view not in ('summary','daily','details'): return JSONResponse({'ok':False,'error':'مسیر نامعتبر'},status_code=404)
+        start, end = perf.date_key(start), perf.date_key(end)
+        if not start or not end or start>end: raise ValueError('بازه شمسی معتبر را انتخاب کنید.')
+        def stamp_to_j(ts):
+            dt=datetime.fromtimestamp(float(ts)/1000,ZoneInfo('Asia/Tehran'))
+            return '%04d/%02d/%02d' % tuple(_jalali(dt.year,dt.month,dt.day))
+        all_rows, issues = perf.records(full,selected,stamp_to_j)
+        rows=perf.in_period(all_rows,start,end)
+        if view == 'details':
+            selected_rows=[r for r in rows if r['metric']==metric]
+            selected_rows.sort(key=lambda r:(r['date'],r['id']))
+            return {'ok':True,'rows':selected_rows[offset:offset+limit],'total':len(selected_rows),'offset':offset,'limit':limit}
+        if view == 'daily':
+            if not person: raise ValueError('برای نمای سالانه یک شخص را انتخاب کنید.')
+            if metric not in ('tasks','contracts','finance_documents'): raise ValueError('شاخص نامعتبر')
+            days={}
+            for r in rows:
+                if r['metric']==metric: days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
+            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند','issues':issues,'updatedAt':full.get('ts')}
+        entries=[]
+        for p in selected:
+            pid=str(p['id']); own=[r for r in rows if r['personId']==pid]; warnings=[i for i in issues if i['personId']==pid]
+            entries.append({**perf.public_person(p),'metrics':perf.metrics(perf.UNITS.get(p.get('role'),'other'),own,warnings,start,end,full.get('ts')),'tasks':sum(r['value'] for r in own if r['metric']=='tasks') if any(r['metric']=='tasks' for r in own) else None,'issues':warnings})
+        groups=[]
+        for u in ('sales','support','finance'):
+            members=[p for p in selected if perf.UNITS.get(p.get('role'))==u]; pids={str(p['id']) for p in members}
+            if members: groups.append({'unit':u,'people':len(members),'metrics':perf.metrics(u,[r for r in rows if r['personId'] in pids],[i for i in issues if i['personId'] in pids],start,end,full.get('ts'))})
+        return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['داده حضور فقط در مرورگر واردکننده است.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف دارای تاریخ اعتبار در منابع عملکرد یافت نشد.']}
+    except PermissionError as e:
+        return JSONResponse({'ok':False,'error':str(e)},status_code=403)
+    except ValueError as e:
+        return JSONResponse({'ok':False,'error':str(e)},status_code=400)
+
 def _c1_audit(d, action, ident, full, **extra):
     e = {"action": action, "by": _c1_person_name(full, ident["user"]), "user": ident["user"], "role": ident["role"], "ts": int(time.time() * 1000)}
     e.update(extra)

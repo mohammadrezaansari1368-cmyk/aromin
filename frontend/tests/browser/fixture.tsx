@@ -7,7 +7,7 @@ import ImportPage from '../../src/components/ImportPage'
 import PerformancePage from '../../src/components/performance/PerformancePage'
 import Funnel from '../../src/components/ui/funnel-chart'
 const query = new URLSearchParams(location.search)
-const session = { user: 'test', name: 'آزمایش', pass: 'test-only', role: query.get('role') === 'sales' ? 'sales' as const : 'manager' as const }
+const session = { user: query.get('user') || 'test', name: 'آزمایش', pass: 'test-only', role: query.get('role') === 'sales' ? 'sales' as const : 'manager' as const }
 function ChartFixture() {
  const brand = query.get('brand') === '1'
  const colors = ['#004991', '#910D6A', '#FCBF00'] as const
