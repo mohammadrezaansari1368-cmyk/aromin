@@ -573,13 +573,13 @@ type StorePerson = { name: string; role?: string; perf?: Record<string, unknown>
  * همهٔ نماها از همین تابع می‌خوانند. محدودیتِ دسترسی **قبل از تحلیل** اعمال می‌شود:
  * برای کارمند فقط شیت(های)ی که به شخصِ خودش نگاشت شده پردازش می‌شود و بقیه اصلاً وارد محاسبه نمی‌شوند.
  */
-export function buildDataset(session: Session, full: { people?: StorePerson[] } | null, roleName: (r: string) => string = (r) => r): Dataset {
+export function buildDataset(session: Session, full: { people?: StorePerson[]; performanceScoped?: boolean; organizationScope?: boolean } | null, roleName: (r: string) => string = (r) => r): Dataset {
 	const settings = loadSettings()
 	const R = rules(settings)
 	const file = loadAttendance()
 	const overrides = loadOverrides()
 	const scopeAll = canSeeAll(session)
-	const self = session.name
+	const self = full?.performanceScoped && !isAdmin(session.role) ? full.people?.[0]?.name || session.name : session.name
 	const allPeople = (full?.people || []).filter((p) => p && p.name)
 	const peopleNames = allPeople.map((p) => p.name) // فقط برای نگاشتِ نامِ شیت (بدونِ داده)
 	const byName = new Map(allPeople.map((p) => [p.name, p]))
@@ -597,16 +597,17 @@ export function buildDataset(session: Session, full: { people?: StorePerson[] } 
 			// scope قبل از پردازش
 			if (!scopeAll && link.person !== self) continue
 			const sp = link.person ? byName.get(link.person) : undefined
+            if (full?.performanceScoped && (!sp || !['manual', 'strong'].includes(link.personHow))) continue
 			const store = sp && (scopeAll || sp.name === self) ? storeTasksOf(sp) : null
-			const ownerTasks = link.owner ? allTasks.filter((t) => ownerKey({ name: t.person, pid: t.pid }) === link.owner || (!t.pid && !!link.ownerName && stripTitle(t.person) === stripTitle(link.ownerName))) : null
+			const ownerTasks = link.owner && (!full?.performanceScoped || ['manual', 'strong'].includes(link.ownerHow)) ? allTasks.filter((t) => ownerKey({ name: t.person, pid: t.pid }) === link.owner || (!t.pid && !!link.ownerName && stripTitle(t.person) === stripTitle(link.ownerName))) : null
 			const p = processSheet(raw, name, R, link, store, taskFiles.length ? ownerTasks : null, overrides, sp?.role ? roleName(sp.role) : 'بدون تیم')
-			if (p && p.rows.length) { p.inactive = !!sp?.inactive; out.push(p); if (!p.person) unmatched++ }
+			if (p && p.rows.length) { if (full?.performanceScoped && sp) p.displayName = sp.name; p.inactive = !!sp?.inactive; out.push(p); if (!p.person) unmatched++ }
 		}
 	}
 	const teams = Array.from(new Set(out.map((p) => p.team)))
 	return {
-		people: out, unmatched, file: scopeAll ? file : file ? { fileName: file.fileName, loadedAt: file.loadedAt, sheets: {} } : null, R, settings, scopeAll, self,
-		taskFiles: scopeAll ? taskFiles : [], stats: scopeAll ? stats : { missingIds: 0, tasks: 0, employees: 0, outside: 0, owners: [] }, peopleNames: scopeAll ? allPeople.filter(isActivePerson).map(p => p.name) : [], teams,
+		people: out, unmatched, file: scopeAll && (!full?.performanceScoped || full.organizationScope) ? file : file ? { fileName: file.fileName, loadedAt: file.loadedAt, sheets: {} } : null, R, settings, scopeAll, self,
+		taskFiles: scopeAll && (!full?.performanceScoped || full.organizationScope) ? taskFiles : [], stats: scopeAll && (!full?.performanceScoped || full.organizationScope) ? stats : { missingIds: 0, tasks: 0, employees: 0, outside: 0, owners: [] }, peopleNames: scopeAll ? allPeople.filter(isActivePerson).map(p => p.name) : [], teams,
 	}
 }
 
