@@ -255,6 +255,10 @@ select:not([multiple]):not([size]):disabled { opacity: .6; cursor: not-allowed; 
 /* Bklit chart tokens inherit the existing three-brand light/dark design system. */
 :root {
   --chart-background: hsl(var(--card));
+  --legend-foreground: hsl(var(--text));
+  --legend-muted: hsl(var(--muted));
+  --legend-muted-foreground: hsl(var(--muted-foreground));
+  --legend-track: hsl(var(--border));
   --chart-foreground: hsl(var(--text));
   --chart-foreground-muted: hsl(var(--muted-foreground));
   --chart-label: hsl(var(--muted-foreground));

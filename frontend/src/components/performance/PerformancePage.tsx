@@ -9,7 +9,8 @@ import { isActivePerson } from '@/lib/people'
  * هیچ عددی ساخته نمی‌شود؛ هر جا داده نیست N/A.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import ContributionSkyline from '@/components/ui/contribution-skyline'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { Session } from '@/lib/auth'
 import { tokenHex, useTheme } from '@/lib/theme'
@@ -35,6 +36,30 @@ const STATUS_TONE = { Matched: 'bg-success/12 text-success ring-success/30', Mis
 const HOW_FA: Record<LinkHow, string> = { manual: 'دستی', strong: 'قطعی', weak: 'حدسی — بررسی کنید', none: 'پیدا نشد' }
 
 /* ---------------- بلوک‌ها ---------------- */
+/** رنگ‌های اپ برای ContributionSkyline (متغیرهای --color-* که کامپوننت می‌خواند؛ روشن/تیره و تمِ فعال) */
+const SKYLINE_THEME = { '--color-background': 'hsl(var(--card))', '--color-foreground': 'hsl(var(--text))', '--color-border': 'hsl(var(--border))', '--color-muted-foreground': 'hsl(var(--muted-foreground))' } as CSSProperties
+/** پالتِ نقشهٔ فعالیت از سه رنگِ برند (بنفش #910D6A، آبی #004991، طلایی #FCBF00) — چهار پله، روشن و تیره */
+const SKYLINE_PALETTES = {
+	purple: { light: ['#f3d6e9', '#d77fbb', '#b3348a', '#6e0a50'], dark: ['#3a1830', '#6e0a50', '#b3348a', '#e07bbe'] },
+	blue: { light: ['#d3e2f4', '#7fb2f0', '#2a6fbf', '#004991'], dark: ['#142840', '#004991', '#2a6fbf', '#7fb2f0'] },
+	gold: { light: ['#fff4cc', '#ffe07a', '#fcbf00', '#a87d00'], dark: ['#3a3010', '#8a6a00', '#fcbf00', '#ffe07a'] },
+} as const
+type BrandTheme = keyof typeof SKYLINE_PALETTES
+const readBrand = () => { const r = document.documentElement.dataset; return { theme: (r.theme && r.theme in SKYLINE_PALETTES ? r.theme : 'purple') as BrandTheme, mode: r.mode === 'dark' ? 'dark' : 'light' } }
+/** تم و حالتِ فعال (data-theme / data-mode)؛ با هر تغییر پالتِ تازه ← بازرنگ‌آمیزیِ نرمِ کانواس */
+function useSkylinePalette() {
+	const [b, setB] = useState(readBrand)
+	useEffect(() => {
+		const mo = new MutationObserver(() => setB((prev) => { const n = readBrand(); return n.theme === prev.theme && n.mode === prev.mode ? prev : n }))
+		mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-mode'] })
+		return () => mo.disconnect()
+	}, [])
+	return useMemo(() => { const p = SKYLINE_PALETTES[b.theme]; return { light: [...p.light], dark: [...p.dark] } }, [b])
+}
+function SkylineTile() {
+	const palette = useSkylinePalette()
+	return <div dir="ltr" style={SKYLINE_THEME}><ContributionSkyline palette={palette} /></div>
+}
 function Card({ title, sub, actions, children, className = '', code }: { title?: ReactNode; sub?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; code?: string }) {
 	return (
 		<section className={`@container h-full ${CARD} ${CARD_PAD} ${className}`}>
@@ -931,6 +956,10 @@ export default function PerformancePage({ session, initial = 'dash', go, setPane
 			</div>
 			{err && <p className="no-print rounded-xl bg-warning/12 px-4 py-2.5 text-[12px] text-warning ring-1 ring-warning/35">{err}</p>}
 			{body()}
+			{/* N21 — نقشهٔ فعالیتِ سالانه (دوبعدی/سه‌بعدی)؛ فعلاً دادهٔ نمونهٔ خودِ کامپوننت، به دادهٔ سیستم وصل نیست */}
+			{view === 'dash' && <Card code="N21" title="نقشهٔ فعالیتِ سالانه" sub="نمای دوبعدی و سه‌بعدی · دادهٔ نمونه (هنوز به دادهٔ سیستم وصل نیست)">
+				<SkylineTile />
+			</Card>}
 		</div>
 	)
 }

@@ -29,18 +29,14 @@ import { motion } from 'motion/react'
 import { RowOrderContext, RowGrip, useRowOrder } from '@/components/ui/use-row-order'
 import { orderRows } from '@/components/ui/row-order'
 import { createPortal } from 'react-dom'
+import SalesTrend from './SalesTrend'
 import { saleDateOf, saleTimeOf } from '@/lib/sales-date'
 import { financeControl, rolesPatch } from '@/lib/ledger-roles'
 import { dealDate, funnelDays, isStagnant } from '@/lib/ledger-analysis'
-import Funnel from '@/components/ui/funnel-chart'
+import StageFunnel from '@/components/ledger/StageFunnel'
+import { funnelReach } from '@/components/ui/funnel-geometry'
 import { coachingFromJozve, type CoachItem, type CoachTone } from '@/lib/sales-coaching'
 
-
-const AROMIN_FUNNEL_COLORS = [
-  "#004991",
-  "#910D6A",
-  "#FCBF00",
-] as const;
 
 /* ---------- انواع ---------- */
 const rowOrderKey = (r: Row) => String(r.p.id) + ':' + r.d.id
@@ -556,14 +552,11 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 					<p className="mt-1 text-[11.5px] text-muted-foreground">قابلِ پرداختِ همین حالا (نقد)</p>
 					<Split parts={[{ k: 'نقد', v: T.payNow, c: 'bg-success' }, { k: 'چک (پس از وصول)', v: T.payCheck, c: 'bg-warning' }, { k: 'معلق', v: T.payPend, c: 'bg-error' }]} />
 				</Tile>
-				<Tile key="c4" title="قیف فروش ماه انتخاب‌شده" code="C4" month={gm} className="md:col-span-2">
-                    <p className="mb-2 text-xs text-muted-foreground">{gm === 'all' ? 'همهٔ ماه‌ها' : MONTHS[+gm]} · {fa(viewFy)} · تعداد فعلی معاملات</p>
-                    <Funnel colors={AROMIN_FUNNEL_COLORS} legend data={FUNNEL.filter(f => f.k !== 'lost').map(f => ({ key: f.k, label: f.t, value: T.funnel[f.k]?.n || 0 }))} />
-                    {!monthRows.length && <p role="status" className="mt-2 text-sm text-muted-foreground">در این دوره معامله‌ای ثبت نشده است.</p>}
-                    <p data-funnel-loss className="mt-2 text-xs text-muted-foreground">شکست: {fa(T.funnel.lost?.n || 0)}</p>
+				<Tile key="c4" title="فروش روزانهٔ ماه جاری" code="C4" className="md:col-span-2">
+					<SalesTrend deals={allRows.map(r => ({ ...r.d, saleDate: r.saleDate }))} />
 				</Tile>
 				<Tile key="c2" title="قیف" code="C2" month={gm}>
-                    <Funnel data={FUNNEL.map(f => ({ key: f.k, label: f.t, value: T.funnel[f.k]?.n || 0 }))} caption="تعداد معاملات در وضعیت فعلی · دوره و کارشناس انتخاب‌شده" />
+                    <StageFunnel data={funnelReach(T.funnel).map(r => ({ label: FUNNEL_EN[r.key], value: r.value }))} lost={T.funnel.lost?.n || 0} />
 				</Tile>
 				<Tile key="w7" title="وزنِ هفت مرحلهٔ پورسانت" code="C7" className="md:col-span-2 xl:col-span-4">
 					<StageWeights weights={wt} basis={T.byStage} />
@@ -1140,7 +1133,9 @@ const ST_TONE: Record<FinState, string> = { draft: '', submitted: 'bg-warning/10
 function StateBadge({ st }: { st: FinState }) {
 	return <span className={`${BADGE} ${ST_TONE[st]}`}>{st !== 'submitted' && <LockIcon className="size-3" />}{FIN_STATE_LABEL[st]}</span>
 }
-const TILE_LABEL: Record<string, string> = { c3: 'ترازنامه', c5: 'دستورِ پرداخت و معلق', c4: 'قیف فروش ماه انتخاب‌شده', c2: 'قیف', w7: 'وزنِ هفت مرحله', c1: 'دفتر فاکتورها' }
+/** C2 — نوشته‌های قیف به انگلیسی (درخواستِ کاربر) */
+const FUNNEL_EN: Record<string, string> = { start: 'Start', qualify: 'Qualified', advance: 'Advance', won: 'Won' }
+const TILE_LABEL: Record<string, string> = { c3: 'ترازنامه', c5: 'دستورِ پرداخت و معلق', c4: 'فروش ماه جاری', c2: 'قیف', w7: 'وزنِ هفت مرحله', c1: 'دفتر فاکتورها' }
 type DocOps = { submit: () => Promise<void>; withdraw: () => Promise<void>; approve: (v: ApprovalInput) => Promise<void>; close: () => Promise<void>; code: (reason: string) => Promise<{ to?: string }>; reopen: (reason: string, code?: string) => Promise<void> }
 /** عددِ صحیحِ نامنفی (ارقامِ فارسی/لاتین و جداکنندهٔ هزارگان مجاز؛ هر نویسهٔ دیگری نامعتبر) */
 const amountOk = (v: string) => !/[^\d۰-۹٬,\s]/.test(v) && /^\d{1,15}$/.test(rawDigits(v))

@@ -9,6 +9,7 @@ export default {
   theme: {
     extend: {
       colors: {
+        legend: Object.fromEntries(['foreground', 'muted', 'muted-foreground', 'track'].map(name => [name, `var(--legend-${name})`])),
         chart: Object.fromEntries(['background', 'foreground', 'foreground-muted', 'label', 'line-primary', 'line-secondary', 'crosshair', 'grid', 'indicator-color', 'indicator-secondary-color', 'marker-background', 'marker-border', 'marker-foreground', 'marker-badge-background', 'marker-badge-foreground', 'segment-background', 'segment-line', 'brush-border', 'tooltip-background', 'tooltip-foreground', 'tooltip-muted'].map(name => [name, `var(--chart-${name})`])),
         border: t('border'),
         background: t('bg'),
