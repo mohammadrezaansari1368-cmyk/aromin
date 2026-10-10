@@ -40,6 +40,8 @@ except Exception:
 
 from migrate import run_migrations
 import aromin_publish as pub
+import aromin_identity as idmap
+import aromin_attendance as att
 import uuid
 from pathlib import Path as FilePath
 from fastapi.responses import FileResponse
@@ -950,6 +952,7 @@ def _s3_ready():
     a, sc, _ = s3keys()
     return bool(a and sc)
 KB_ADMIN_ROLES = ("manager", "salesmgr", "accmgr")          # همان isAdmin اپ
+ATT_ADMIN_ROLES = KB_ADMIN_ROLES + ("finance",)   # = canSeeAll (performance.ts): write + org-wide attendance/identity
 KB_EXT = {".txt": "text/plain", ".md": "text/markdown", ".json": "application/json", ".html": "text/html", ".htm": "text/html",
           ".csv": "text/csv", ".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
 KB_MAX_BYTES = 10 * 1024 * 1024
@@ -1885,6 +1888,356 @@ def _c1_ctx(request, payload):
     return tenant, ident, full, None
 
 
+# ---------------- حضور سروری (WP-B) + نگاشت هویت (WP-A) ----------------
+# All routes require kb_identity; writes and identity need ATT_ADMIN_ROLES. Registered before GET /api/performance/{view}.
+class _AttFail(Exception):
+    def __init__(self, code, msg, **extra):
+        super().__init__(msg)
+        self.code, self.msg, self.extra = code, msg, extra
+
+
+def _att_deny(code, msg, **extra):
+    return JSONResponse({"ok": False, "error": msg, **extra}, status_code=code)
+
+
+def _att_ctx(request, tenant, write=False):
+    """(ident, full, people, err). 401/403 are decided before any DB access."""
+    ident = kb_identity(request, tenant)
+    if not ident:
+        return None, None, None, _att_deny(401, "ورود معتبر نیست.")
+    if write and ident["role"] not in ATT_ADMIN_ROLES:
+        return None, None, None, _att_deny(403, "فقط مدیران و مالی به حضور و نگاشت هویت دسترسی نوشتن دارند.")
+    full = _tenant_full(tenant) or {}
+    try:
+        people = idmap.people_of(full)
+    except ValueError as e:
+        return None, None, None, _att_deny(400, str(e))
+    return ident, full, people, None
+
+
+def _att_now():
+    return datetime.datetime.now().replace(microsecond=0)
+
+
+def _att_iso(v):
+    return v.isoformat() if hasattr(v, "isoformat") else v
+
+
+def _att_batch(b):
+    return {"id": b["id"], "fileName": b["file_name"], "sha256": b["file_sha256"], "source": b["source"], "uploadedBy": b["uploaded_by"],
+            "createdAt": _att_iso(b["created_at"]), "periodFrom": b["period_from"], "periodTo": b["period_to"], "sheets": b["sheets"],
+            "days": b["days"], "inserted": b["inserted"], "updated": b["updated"], "unchanged": b["unchanged"],
+            "skipped": json.loads(b["skipped"] or "[]")}
+
+
+def _alias_write(t, tenant, existing, row, now):
+    if existing:
+        t.x("UPDATE identity_aliases SET raw_value=%s,source=%s,person_id=%s,status=%s,confidence=%s,candidates=%s,decided_by=%s,decided_at=%s,updated_at=%s WHERE id=%s AND tenant=%s",
+            (row["raw_value"], row["source"], row["person_id"], row["status"], row["confidence"], row["candidates"], row["decided_by"], row["decided_at"], now, existing["id"], tenant))
+    else:
+        t.x("INSERT INTO identity_aliases (tenant,kind,alias_key,raw_value,source,person_id,status,confidence,candidates,decided_by,decided_at,created_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (tenant, row["kind"], row["alias_key"], row["raw_value"], row["source"], row["person_id"], row["status"], row["confidence"], row["candidates"], row["decided_by"], row["decided_at"], now, now))
+
+
+def _in(values):
+    return ",".join(["%s"] * len(values))
+
+
+@app.post("/api/performance/attendance")
+def attendance_upload(request: Request, payload: dict = Body(default={})):
+    tenant = str((payload or {}).get("tenant") or "team")
+    ident, full, people, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    try:
+        parsed = att.parse_payload(payload)
+    except att.TooLarge as e:
+        return _att_deny(413, str(e))
+    except ValueError as e:
+        return _att_deny(400, str(e))
+    sheet_cards = {s["sheet_name"]: s["card_no"] for s in parsed["sheets"]}
+    days = [dict(d, card_no=s["card_no"], sheet_name=s["sheet_name"], person_name=s["person_name"]) for s in parsed["sheets"] for d in s["days"]]
+    now = _att_now()
+    try:
+        with _SaTx() as t:
+            old = t.one("SELECT * FROM attendance_batches WHERE tenant=%s AND file_sha256=%s FOR UPDATE", (tenant, parsed["sha256"]))
+            if old:
+                return {"ok": True, "duplicate": True, "batch": _att_batch(old), "sheetCards": sheet_cards}
+            if not parsed["sheets"]:
+                raise _AttFail(400, "هیچ شیتِ معتبری (تاریخ + شماره کارت) در فایل نیست.", skipped=parsed["skipped"])
+            cards = sorted(sheet_cards.values())
+            rows = t.x("SELECT card_no,date_j,row_sha256 FROM attendance_days WHERE tenant=%s AND card_no IN (" + _in(cards) + ") FOR UPDATE", [tenant] + cards).fetchall()
+            plan = att.plan_upsert({(r["card_no"], r["date_j"]): r["row_sha256"] for r in rows}, days)
+            pf, pt = att.period(days)
+            t.x("INSERT INTO attendance_batches (tenant,file_sha256,file_name,source,uploaded_by,period_from,period_to,sheets,days,inserted,updated,unchanged,skipped,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (tenant, parsed["sha256"], parsed["file_name"], parsed["source"], ident["user"], pf, pt, len(parsed["sheets"]), len(days),
+                 len(plan["insert"]), len(plan["update"]), plan["unchanged"], json.dumps(parsed["skipped"], ensure_ascii=False), now))
+            bid = t.cur.lastrowid
+            for d in plan["insert"]:
+                t.x("INSERT INTO attendance_days (tenant,card_no,date_j,sheet_name,person_name,punches,present_min,note,raw_json,row_sha256,batch_id,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (tenant, d["card_no"], d["date_j"], d["sheet_name"], d["person_name"], json.dumps(d["punches"]), d["present_min"], d["note"], d["raw_json"], d["row_sha256"], bid, now))
+            for d in plan["update"]:
+                t.x("UPDATE attendance_days SET sheet_name=%s,person_name=%s,punches=%s,present_min=%s,note=%s,raw_json=%s,row_sha256=%s,batch_id=%s,updated_at=%s WHERE tenant=%s AND card_no=%s AND date_j=%s",
+                    (d["sheet_name"], d["person_name"], json.dumps(d["punches"]), d["present_min"], d["note"], d["raw_json"], d["row_sha256"], bid, now, tenant, d["card_no"], d["date_j"]))
+            unmapped = []
+            for s in parsed["sheets"]:
+                raw = s["person_name"] or s["sheet_name"]
+                ex = t.one("SELECT * FROM identity_aliases WHERE tenant=%s AND kind='card' AND alias_key=%s FOR UPDATE", (tenant, s["card_no"]))
+                row = idmap.merge_alias(ex, "card", s["card_no"], raw, "attendance", idmap.match(raw, people), now=now)
+                if row:
+                    _alias_write(t, tenant, ex, row, now)
+                status = (row or ex)["status"]
+                if status != "confirmed":
+                    unmapped.append({"cardNo": s["card_no"], "sheetName": s["sheet_name"], "rawName": raw, "status": status})
+            batch = t.one("SELECT * FROM attendance_batches WHERE id=%s", (bid,))
+    except _AttFail as e:
+        return _att_deny(e.code, e.msg, **e.extra)
+    except pymysql.err.IntegrityError:
+        old = q("SELECT * FROM attendance_batches WHERE tenant=%s AND file_sha256=%s", (tenant, parsed["sha256"]))
+        if not old:
+            raise
+        return {"ok": True, "duplicate": True, "batch": _att_batch(old[0]), "sheetCards": sheet_cards}
+    return JSONResponse({"ok": True, "duplicate": False, "batch": _att_batch(batch), "skipped": parsed["skipped"], "unmapped": unmapped,
+                         "sheetCards": sheet_cards}, status_code=201)
+
+
+@app.get("/api/performance/attendance")
+def attendance_read(request: Request, tenant: str = "team", start: str = "", end: str = "", person: str = ""):
+    import aromin_performance as perf
+    ident, full, people, err = _att_ctx(request, tenant)
+    if err:
+        return err
+    s, e = att.norm_date(start) if start else "", att.norm_date(end) if end else ""
+    if s is None or e is None or (s and e and s > e):
+        return _att_deny(400, "بازه شمسی معتبر را انتخاب کنید.")
+    admin = ident["role"] in ATT_ADMIN_ROLES
+    if admin:
+        allowed = {p["id"] for p in people}
+    else:
+        users, _ = _kb_directory(tenant)
+        try:
+            allowed = {str(p["id"]) for p in perf.directory(full, ident, users)}
+        except PermissionError as ex:
+            return _att_deny(403, str(ex))
+        except ValueError as ex:
+            return _att_deny(400, str(ex))
+    if person and str(person) not in allowed:
+        return _att_deny(403 if not admin else 404, "شخص خارج از دامنه مجاز است.")
+    with _SaTx() as t:
+        aliases = t.x("SELECT * FROM identity_aliases WHERE tenant=%s AND kind='card'", (tenant,)).fetchall()
+        cards = att.scope_cards(admin and not person, {str(person)} if person else allowed, aliases)
+        days, ovs = [], []
+        if cards is None or cards:
+            where, args = "tenant=%s", [tenant]
+            if cards is not None:
+                where += " AND card_no IN (" + _in(sorted(cards)) + ")"
+                args += sorted(cards)
+            dw, da = where, list(args)
+            if s:
+                dw += " AND date_j>=%s"; da.append(s)
+            if e:
+                dw += " AND date_j<=%s"; da.append(e)
+            days = t.x("SELECT * FROM attendance_days WHERE " + dw + " ORDER BY card_no,date_j", da).fetchall()
+            ovs = t.x("SELECT * FROM attendance_overrides WHERE " + dw, da).fetchall()
+        st = t.one("SELECT settings FROM attendance_settings WHERE tenant=%s", (tenant,))
+        batches = t.x("SELECT * FROM attendance_batches WHERE tenant=%s ORDER BY id DESC", (tenant,)).fetchall() if admin else None
+    settings = dict(att.DEFAULT_SETTINGS, **(json.loads(st["settings"]) if st else {}))
+    pf, pt = att.period(days)
+    out = {"ok": True, "scope": "organization" if admin else "self", "settings": settings, "settingsStored": bool(st),
+           "cards": att.compose(days, ovs, {a["alias_key"]: a for a in aliases}, {p["id"]: p for p in people}, admin),
+           "period": {"from": pf, "to": pt}, "updatedAt": _att_iso(max((d["updated_at"] for d in days), default=None))}
+    if admin:
+        out["batches"] = [_att_batch(b) for b in batches]
+    return out
+
+
+@app.delete("/api/performance/attendance")
+def attendance_delete(request: Request, tenant: str = "team", batch: str = "", all: str = "", overrides: str = ""):
+    ident, _, _, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    if not batch and all != "1":
+        return _att_deny(400, "batch یا all=1 لازم است.")
+    with _SaTx() as t:
+        if batch:
+            if not str(batch).isdigit():
+                return _att_deny(400, "شناسه نامعتبر است.")
+            if not t.one("SELECT id FROM attendance_batches WHERE tenant=%s AND id=%s FOR UPDATE", (tenant, int(batch))):
+                return _att_deny(404, "پیدا نشد.")
+            days = t.x("DELETE FROM attendance_days WHERE tenant=%s AND batch_id=%s", (tenant, int(batch))).rowcount
+            batches = t.x("DELETE FROM attendance_batches WHERE tenant=%s AND id=%s", (tenant, int(batch))).rowcount
+            ovs = 0
+        else:
+            days = t.x("DELETE FROM attendance_days WHERE tenant=%s", (tenant,)).rowcount
+            batches = t.x("DELETE FROM attendance_batches WHERE tenant=%s", (tenant,)).rowcount
+            ovs = t.x("DELETE FROM attendance_overrides WHERE tenant=%s", (tenant,)).rowcount if overrides == "1" else 0
+    return {"ok": True, "removedDays": days, "removedBatches": batches, "removedOverrides": ovs}
+
+
+def _att_override_item(item):
+    card = idmap.normalize_key("card", (item or {}).get("cardNo"))
+    date = att.norm_date((item or {}).get("date"))
+    if not card or not date:
+        raise ValueError("شماره کارت یا تاریخ نامعتبر است.")
+    return card, date, att.validate_override(item.get("fields"))
+
+
+def _att_override_put(t, tenant, card, date, fields, if_absent, user, now):
+    """→ 'written' | 'skipped'. Import code never writes overrides; only this path does."""
+    ex = t.one("SELECT fields FROM attendance_overrides WHERE tenant=%s AND card_no=%s AND date_j=%s FOR UPDATE", (tenant, card, date))
+    if if_absent and ex:
+        return "skipped"
+    if fields is None:
+        t.x("DELETE FROM attendance_overrides WHERE tenant=%s AND card_no=%s AND date_j=%s", (tenant, card, date))
+    elif ex:
+        t.x("UPDATE attendance_overrides SET fields=%s,updated_by=%s,updated_at=%s WHERE tenant=%s AND card_no=%s AND date_j=%s",
+            (att.canonical(fields), user, now, tenant, card, date))
+    else:
+        t.x("INSERT INTO attendance_overrides (tenant,card_no,date_j,fields,updated_by,updated_at) VALUES (%s,%s,%s,%s,%s,%s)",
+            (tenant, card, date, att.canonical(fields), user, now))
+    return "written"
+
+
+@app.put("/api/performance/attendance/overrides")
+def attendance_override(request: Request, payload: dict = Body(default={})):
+    tenant = str((payload or {}).get("tenant") or "team")
+    ident, _, _, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    try:
+        card, date, fields = _att_override_item(payload)
+    except ValueError as e:
+        return _att_deny(400, str(e))
+    with _SaTx() as t:
+        r = _att_override_put(t, tenant, card, date, fields, payload.get("ifAbsent") is True, ident["user"], _att_now())
+    return {"ok": True, "skipped": True} if r == "skipped" else {"ok": True, "override": fields}
+
+
+@app.put("/api/performance/attendance/overrides/batch")
+def attendance_override_batch(request: Request, payload: dict = Body(default={})):
+    tenant = str((payload or {}).get("tenant") or "team")
+    ident, _, _, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return _att_deny(400, "items باید فهرست باشد.")
+    if len(items) > 2000:
+        return _att_deny(413, "حداکثر ۲۰۰۰ مورد در هر درخواست.")
+    try:
+        clean = [_att_override_item(i) for i in items]
+    except (ValueError, AttributeError) as e:
+        return _att_deny(400, str(e) or "مورد نامعتبر است.")
+    now, n = _att_now(), {"written": 0, "skipped": 0}
+    with _SaTx() as t:
+        for card, date, fields in clean:
+            n[_att_override_put(t, tenant, card, date, fields, payload.get("ifAbsent", True) is not False, ident["user"], now)] += 1
+    return {"ok": True, **n}
+
+
+@app.put("/api/performance/attendance/settings")
+def attendance_settings(request: Request, payload: dict = Body(default={})):
+    tenant = str((payload or {}).get("tenant") or "team")
+    ident, _, _, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    try:
+        settings = att.validate_settings(payload.get("settings"))
+    except ValueError as e:
+        return _att_deny(400, str(e))
+    now = _att_now()
+    with _SaTx() as t:
+        if t.one("SELECT tenant FROM attendance_settings WHERE tenant=%s FOR UPDATE", (tenant,)):
+            t.x("UPDATE attendance_settings SET settings=%s,updated_by=%s,updated_at=%s WHERE tenant=%s", (att.canonical(settings), ident["user"], now, tenant))
+        else:
+            t.x("INSERT INTO attendance_settings (tenant,settings,updated_by,updated_at) VALUES (%s,%s,%s,%s)", (tenant, att.canonical(settings), ident["user"], now))
+    return {"ok": True, "settings": settings}
+
+
+@app.get("/api/identity")
+def identity_list(request: Request, tenant: str = "team", status: str = ""):
+    ident, _, people, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    if status and status not in idmap.STATUSES:
+        return _att_deny(400, "وضعیت نامعتبر است.")
+    with _SaTx() as t:
+        rows = t.x("SELECT * FROM identity_aliases WHERE tenant=%s ORDER BY kind,alias_key", (tenant,)).fetchall()
+    by_id = {p["id"]: p for p in people}
+    counts = {k: sum(1 for r in rows if r["status"] == k) for k in idmap.STATUSES}
+    return {"ok": True, "people": people, "aliases": [idmap.public_alias(r, by_id) for r in rows if not status or r["status"] == status], "counts": counts}
+
+
+@app.post("/api/identity/scan")
+def identity_scan(request: Request, payload: dict = Body(default={})):
+    tenant = str((payload or {}).get("tenant") or "team")
+    ident, _, people, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return _att_deny(400, "items باید فهرست باشد.")
+    if len(items) > 500:
+        return _att_deny(413, "حداکثر ۵۰۰ مورد در هر درخواست.")
+    ids, clean = {p["id"] for p in people}, {}
+    for i in items:
+        kind = (i or {}).get("kind") if isinstance(i, dict) else None
+        key = idmap.normalize_key(kind, i.get("key") if kind != "name" else (i.get("key") or i.get("raw"))) if kind else None
+        raw, source, hint = i.get("raw") if kind else None, i.get("source") if kind else None, i.get("personId") if kind else None
+        if not key or source not in idmap.SOURCES or not isinstance(raw, str) or not raw.strip() or len(raw) > 255:
+            return _att_deny(400, "مورد نامعتبر (kind/key/raw/source).")
+        if hint is not None and str(hint) not in ids:
+            return _att_deny(400, "شخص ناشناخته است.")
+        clean[(kind, key)] = (raw.strip(), source, hint)
+    now, n = _att_now(), {"created": 0, "updated": 0, "unchanged": 0}
+    with _SaTx() as t:
+        for (kind, key), (raw, source, hint) in clean.items():
+            ex = t.one("SELECT * FROM identity_aliases WHERE tenant=%s AND kind=%s AND alias_key=%s FOR UPDATE", (tenant, kind, key))
+            row = idmap.merge_alias(ex, kind, key, raw, source, idmap.match(raw, people), hint=hint, now=now)
+            if row:
+                _alias_write(t, tenant, ex, row, now)
+            n["unchanged" if not row else "updated" if ex else "created"] += 1
+        # People may have changed: re-match every alias not decided by a human (manual-link hints keep their suggestion).
+        for ex in t.x("SELECT * FROM identity_aliases WHERE tenant=%s FOR UPDATE", (tenant,)).fetchall():
+            if (ex["kind"], ex["alias_key"]) in clean or "local_manual_link" in (ex["candidates"] or ""):
+                continue
+            row = idmap.merge_alias(ex, ex["kind"], ex["alias_key"], ex["raw_value"], ex["source"], idmap.match(ex["raw_value"], people), now=now)
+            if row:
+                _alias_write(t, tenant, ex, row, now)
+                n["updated"] += 1
+    return {"ok": True, **n}
+
+
+@app.post("/api/identity/decide")
+def identity_decide(request: Request, payload: dict = Body(default={})):
+    tenant = str((payload or {}).get("tenant") or "team")
+    ident, _, people, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    action, pid, aid = payload.get("action"), payload.get("personId"), payload.get("id")
+    if action not in ("confirm", "reject", "reset") or not str(aid or "").isdigit():
+        return _att_deny(400, "درخواست نامعتبر است.")
+    by_id = {p["id"]: p for p in people}
+    if action == "confirm" and str(pid) not in by_id:
+        return _att_deny(400, "شخص انتخاب‌شده در فهرست اشخاص نیست.")
+    now = _att_now()
+    with _SaTx() as t:
+        ex = t.one("SELECT * FROM identity_aliases WHERE tenant=%s AND id=%s FOR UPDATE", (tenant, int(aid)))
+        if not ex:
+            return _att_deny(404, "پیدا نشد.")
+        if payload.get("updatedAt") and payload["updatedAt"] != _att_iso(ex["updated_at"]):
+            return _att_deny(409, "این نگاشت در این فاصله تغییر کرده است؛ دوباره بارگذاری کنید.")
+        if action == "confirm":
+            vals = (str(pid), "confirmed", "manual", ident["user"], now)
+        elif action == "reject":
+            vals = (None, "rejected", ex["confidence"], ident["user"], now)
+        else:
+            vals = (None, "review", ex["confidence"], None, None)
+        t.x("UPDATE identity_aliases SET person_id=%s,status=%s,confidence=%s,decided_by=%s,decided_at=%s,updated_at=%s WHERE id=%s AND tenant=%s", vals + (now, ex["id"], tenant))
+        row = t.one("SELECT * FROM identity_aliases WHERE id=%s", (ex["id"],))
+    return {"ok": True, "alias": idmap.public_alias(row, by_id)}
+
+
 # Fields the effort formula (legacy effortOf) reads; projection only, no calculation here.
 PERF_SOURCE_KEYS=('dailyTasks','dayStatus','dayType','tasks','callsIn','callsOut','callAns','talkIn','talkOut','talkMin','taskMins','effortMin','activeDays')
 # Read-only performance workspace: scope checked for every projection and export page.
@@ -1932,7 +2285,7 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
         for u in ('sales','support','finance'):
             members=[p for p in selected if perf.UNITS.get(p.get('role'))==u]; pids={str(p['id']) for p in members}
             if members: groups.append({'unit':u,'people':len(members),'metrics':perf.metrics(u,[r for r in rows if r['personId'] in pids],[i for i in issues if i['personId'] in pids],start,end,full.get('ts'))})
-        return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['داده حضور فقط در مرورگر واردکننده است.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف دارای تاریخ اعتبار در منابع عملکرد یافت نشد.']}
+        return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['حضور از جدول سروری attendance_days و فقط برای نگاشت تأییدشده کارت↔شخص.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف دارای تاریخ اعتبار در منابع عملکرد یافت نشد.']}
     except PermissionError as e:
         return JSONResponse({'ok':False,'error':str(e)},status_code=403)
     except ValueError as e:
