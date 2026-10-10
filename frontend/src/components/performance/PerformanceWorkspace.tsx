@@ -48,7 +48,7 @@ export default function PerformanceWorkspace({session,renderReview,renderSetting
  const start=period==='custom'?parseJ(customStart)?.j||'':chosen[0]?.date||'',end=period==='custom'?parseJ(customEnd)?.j||'':chosen.at(-1)?.date||''
  const [annualYear,setAnnualYear]=useState(+today.slice(0,4)),[annualMetric,setAnnualMetric]=useState('tasks')
  const manager=['manager','salesmgr','accmgr'].includes(session.role)
- const selectedPerson=person||(!manager?directory.data?.people[0]?.id||'':'')
+ const selectedPerson=person||(!manager?directory.data?.people?.[0]?.id||'':'')
  const effectiveUnit=unit
  const params={person:selectedPerson,unit:effectiveUnit,start,end}
  const summary=useRead<Summary>(session,'summary',params,!!directory.data&&!!start&&!!end&&start<=end)
@@ -58,7 +58,7 @@ export default function PerformanceWorkspace({session,renderReview,renderSetting
  const annualDates=useMemo(()=>yearDays(annualYear),[annualYear])
  const trend=useRead<Daily>(session,'daily',{person:selectedPerson,start,end,metric:annualMetric},!!selectedPerson&&annualMetric!=='attendance'&&!!start&&!!end)
  const daily=useRead<Daily>(session,'daily',{person:selectedPerson,start:annualDates[0]?.date||'',end:annualDates.at(-1)?.date||'',metric:annualMetric},!!selectedPerson&&annualMetric!=='attendance')
- const chosenName=directory.data?.people.find(p=>p.id===selectedPerson)?.name
+ const chosenName=directory.data?.people?.find(p=>p.id===selectedPerson)?.name
  const localRows=attendance?.people.filter(p=>p.person===chosenName&&['manual','strong'].includes(p.personHow)).flatMap(p=>p.rows)||[]
  const dailyMap=new Map((daily.data?.days||[]).map(d=>[d.date,d.value]))
  const localMap=new Map(localRows.map(r=>[r.date,r]))
