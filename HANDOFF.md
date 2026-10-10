@@ -20,6 +20,8 @@
 
 ---
 
+2026-10-10 · Claude · 3.9.55 (ui/cabin-effort-tracker): کابین با توکن‌های تم (روشن/تیره، بدون رفرش)؛ آمپر «ساعت تلاش مؤثر» از فرمولِ effortOf موتور (پورت ۱:۱ + fallback talkMin) با دادهٔ /source؛ نقشهٔ سالانهٔ ۲D/۳D از 0046a99 بازگردانده؛ ردیاب وظیفه با همان مؤلفه (CalendarMap2D3D). موتورها دست‌نخورده؛ server.py فقط projection. جزئیات: docs/perf-ui-v2/HANDOFF.md.
+
 2026-10-10 · Claude · 3.9.54: بازطراحیِ تب عملکرد (v2، کابین ابزار) از روی پرامپتِ Codex — کارِ Codex روی GitHub نرسیده بود؛ از نو روی main ساخته شد. پیش‌فرض v2؛ VITE_PERF_UI=v1 نسخهٔ قبل. فقط frontend. جزئیات: docs/perf-ui-v2/HANDOFF.md. vitest 156، مرورگر v2 ۷/۷ + v1 ۲/۲، tsc/lint/build.
 
 2026-10-10 · Claude · 3.9.53: PR #9 (میزِ عملکرد Codex) با تاریخچه ادغام شد؛ N21 که PR #9 حذف کرده بود به درخواستِ کاربر زیرِ میز برگشت؛ مرزِ خطا دورِ میز (پاسخِ ناقصِ API کلِ تب را خالی نکند) و دو دسترسیِ امن به directory. tsc/lint/build، vitest 145، مرورگر ۷/۷، backend 89 (فقط خطای قدیمیِ ویندوزی). محلی: tzdata برای Asia/Tehran لازم است (لینوکسِ سرور دارد).

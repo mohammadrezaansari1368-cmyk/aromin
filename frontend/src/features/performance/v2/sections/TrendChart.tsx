@@ -9,7 +9,7 @@ import { BentoCard } from '../ui/primitives'
 export function TrendChart({ days, unit, metric, presence, onDay, onDetails, error, loading }: { days: DayVM[]; unit: string; metric: Metric; presence: Map<string, number>; onDay: (d: string) => void; onDetails: () => void; error?: string; loading?: boolean }) {
 	const id = 'pvt' + useId().replace(/:/g, '')
 	const body = error ? <p role="alert" className="pv-empty">{error}</p>
-		: !metric.dailyMetric ? <p className="pv-empty">روند این شاخص در منبع نیست</p>
+		: !metric.dailyMetric && !days.length ? <p className="pv-empty">روند این شاخص در منبع نیست</p>
 			: loading ? <div className="pv-skel" /> : !days.length ? <p className="pv-empty">بدون داده</p>
 				: <ResponsiveContainer width="100%" height={230}>
 					<AreaChart data={days} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} onClick={(e) => { const d = (e as { activeLabel?: string })?.activeLabel; if (d) onDay(String(d)) }}>
@@ -27,5 +27,5 @@ export function TrendChart({ days, unit, metric, presence, onDay, onDetails, err
 						<Area type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} fill={`url(#${id})`} isAnimationActive={false} />
 					</AreaChart>
 				</ResponsiveContainer>
-	return <BentoCard title={'روند · ' + metric.label} sub={metric.dailyMetric ? unit : undefined} label="روند دوره" actions={<button type="button" className="pv-link" onClick={onDetails}>رسید محاسبه ⓘ</button>}>{body}</BentoCard>
+	return <BentoCard title={'روند · ' + metric.label} sub={days.length ? unit : undefined} label="روند دوره" actions={<button type="button" className="pv-link" onClick={onDetails}>رسید محاسبه ⓘ</button>}>{body}</BentoCard>
 }

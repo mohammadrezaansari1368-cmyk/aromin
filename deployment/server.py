@@ -1885,6 +1885,8 @@ def _c1_ctx(request, payload):
     return tenant, ident, full, None
 
 
+# Fields the effort formula (legacy effortOf) reads; projection only, no calculation here.
+PERF_SOURCE_KEYS=('dailyTasks','dayStatus','dayType','tasks','callsIn','callsOut','callAns','talkIn','talkOut','talkMin','taskMins','effortMin','activeDays')
 # Read-only performance workspace: scope checked for every projection and export page.
 @app.get('/api/performance/{view}')
 def performance_read(view: str, request: Request, tenant: str = Query(default='team'), person: str = Query(default=''), unit: str = Query(default=''), start: str = Query(default=''), end: str = Query(default=''), metric: str = Query(default='tasks'), offset: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=200)):
@@ -1902,7 +1904,7 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
         if view == 'directory':
             return {'ok':True,'people':[perf.public_person(p) for p in allowed],'role':ident['role'],'updatedAt':full.get('ts'),'scope':'organization' if ident['role']=='manager' else 'unit' if ident['role'] in ('salesmgr','accmgr') else 'self'}
         if view == 'source':
-            return {'ok':True,'full':{'performanceScoped':True,'organizationScope':ident['role']=='manager','people':[{**{k:p[k] for k in ('id','name','role','inactive') if k in p}, 'perf':{k:(p.get('perf') or {})[k] for k in ('dailyTasks','dayStatus','dayType') if k in (p.get('perf') or {})}} for p in allowed]}}
+            return {'ok':True,'full':{'performanceScoped':True,'organizationScope':ident['role']=='manager','people':[{**{k:p[k] for k in ('id','name','role','inactive') if k in p}, 'perf':{k:(p.get('perf') or {})[k] for k in PERF_SOURCE_KEYS if k in (p.get('perf') or {})},**({'perfSet':{k:p['perfSet'][k] for k in ('taskTarget','callTarget') if k in p['perfSet']}} if isinstance(p.get('perfSet'),dict) else {})} for p in allowed],'perfCfg':{k:(full.get('perf') or {})[k] for k in ('taskCapMin','taskTarget','callTarget') if k in (full.get('perf') or {})},'callHours':((full.get('callstats') or {}).get('hours') or {})}}
         if view not in ('summary','daily','details'): return JSONResponse({'ok':False,'error':'مسیر نامعتبر'},status_code=404)
         start, end = perf.date_key(start), perf.date_key(end)
         if not start or not end or start>end: raise ValueError('بازه شمسی معتبر را انتخاب کنید.')

@@ -113,7 +113,7 @@ export const generateContributions = (endMs: number, seed = 7, days = 371): Cont
  * Levels 1–4 split the non-zero days by their share of a busy day — the 95th
  * percentile, so one freak day can't wash every other day out to level 1.
  */
-export const buildGrid = (data: ContributionDay[], endMs: number, weekStart = 0) => {
+export const buildGrid = (data: ContributionDay[], endMs: number, weekStart = 0, startMs?: number) => {
   const counts = new Map<string, number>()
   for (const d of data) {
     if (!d || typeof d.date !== "string") continue
@@ -123,7 +123,7 @@ export const buildGrid = (data: ContributionDay[], endMs: number, weekStart = 0)
     const k = toKey(ms)
     counts.set(k, (counts.get(k) ?? 0) + c)
   }
-  let start = endMs - 364 * DAY_MS
+  let start = startMs != null && startMs <= endMs ? startMs : endMs - 364 * DAY_MS
   start -= ((new Date(start).getUTCDay() - weekStart + 7) % 7) * DAY_MS
   const cells: Cell[] = []
   for (let ms = start, i = 0; ms <= endMs; ms += DAY_MS, i++) {
@@ -180,12 +180,12 @@ export const computeStats = (cells: Cell[]): ContributionStats => {
 export const monthLabels = (cells: Cell[], weeks: number, locale = "en-US") => {
   const fmt = new Intl.DateTimeFormat(locale, { month: "short", timeZone: "UTC" })
   const out: { week: number; label: string }[] = []
-  let prev = -1
+  let prev = ""
   for (let w = 0; w < weeks; w++) {
     const c = cells[w * 7]
     if (!c) break
-    const m = +c.date.slice(5, 7)
-    if (m !== prev) out.push({ week: w, label: fmt.format(dayMs(c.date)) })
+    const m = fmt.format(dayMs(c.date))
+    if (m !== prev) out.push({ week: w, label: m })
     prev = m
   }
   if (out.length > 1 && out[1].week - out[0].week < 3) out.shift()
@@ -279,8 +279,12 @@ export interface ContributionSkylineProps {
   heightScale?: number
   /** Morph length, ms. */
   duration?: number
-  /** 0 puts Sunday on the top row, 1 puts Monday there. */
-  weekStart?: 0 | 1
+  /** 0 puts Sunday on the top row, 1 puts Monday there, 6 Saturday (Persian week). */
+  weekStart?: 0 | 1 | 6
+  /** First day shown (default: one year before endDate). */
+  startDate?: string | Date
+  /** UI strings (default English). */
+  labels?: Partial<SkylineLabels>
   /** Drag to orbit in 3D. */
   orbit?: boolean
   showStats?: boolean
@@ -294,6 +298,9 @@ export interface ContributionSkylineProps {
   onCellClick?: (day: ContributionDay) => void
   className?: string
 }
+
+export interface SkylineLabels { lastYear: string; total: string; busiest: string; longest: string; current: string; day: string; days: string; hint2d: string; hint3d: string; less: string; more: string; levels: string[]; none: string; on: string; between: string; shownAs: string; flat: string; sky: string; view: string; keys: string; highlight: string }
+const EN: SkylineLabels = { lastYear: "in the last year", total: "1 year total", busiest: "Busiest day", longest: "Longest streak", current: "Current streak", day: "day", days: "days", hint2d: "Hover a day for details · arrow keys to explore", hint3d: "Drag to orbit · double-click to reset", less: "Less", more: "More", levels: ["", "Light", "Moderate", "Heavy", "Heaviest"], none: "No ", on: " on ", between: " between ", shownAs: ", shown as a ", flat: "Flat heat map", sky: "3D skyline", view: "Chart view", keys: ". Use the arrow keys to read individual days.", highlight: "Highlight " }
 
 const FG_FALLBACK: RGB = [23, 23, 23]
 const BG_FALLBACK: RGB = [255, 255, 255]
@@ -450,6 +457,8 @@ export default function ContributionSkyline({
   heightScale = 1,
   duration = 1300,
   weekStart = 0,
+  startDate,
+  labels,
   orbit = true,
   showStats = true,
   showLegend = true,
@@ -460,14 +469,16 @@ export default function ContributionSkyline({
   onCellClick,
   className = "",
 }: ContributionSkylineProps) {
+  const L = { ...EN, ...labels }
   const endKey = endDate == null ? null : dayMs(endDate)
+  const startKey = startDate == null ? undefined : dayMs(startDate)
   const model = React.useMemo(() => {
     const dates = (data ?? []).map((d) => dayMs(d.date)).filter(Number.isFinite)
     const end = endKey ?? (dates.length ? Math.max(...dates) : dayMs(new Date()))
     const days = data ?? generateContributions(end, seed)
-    const grid = buildGrid(days, end, weekStart)
+    const grid = buildGrid(days, end, weekStart, startKey)
     return { ...grid, stats: computeStats(grid.cells), months: monthLabels(grid.cells, grid.weeks, locale) }
-  }, [data, endKey, seed, weekStart, locale])
+  }, [data, endKey, startKey, seed, weekStart, locale])
 
   const [innerView, setInnerView] = React.useState<View>(defaultView)
   const view = viewProp ?? innerView
@@ -500,7 +511,7 @@ export default function ContributionSkyline({
   const describe = (i: number) => {
     const c = model.cells[i]
     if (!c) return ""
-    return (c.count ? nf.format(c.count) + " " + noun(c.count) : "No " + plural) + " on " + dfl.format(dayMs(c.date))
+    return (c.count ? nf.format(c.count) + " " + noun(c.count) : L.none + plural) + L.on + dfl.format(dayMs(c.date))
   }
 
   // Everything the render loop reads, refreshed every render so the loop never closes over stale props.
@@ -1163,16 +1174,16 @@ export default function ContributionSkyline({
   const corners = showStats && width >= 560
   const bigSize = Math.round(Math.max(30, Math.min(56, width * 0.058)))
   const statBlocks = [
-    { label: "1 year total", value: nf.format(stats.total), unit: noun(stats.total), sub: range(stats.first, stats.last, true) },
-    { label: "Busiest day", value: nf.format(stats.busiest.count), unit: noun(stats.busiest.count), sub: stats.busiest.date ? df.format(dayMs(stats.busiest.date)) : "—" },
-    { label: "Longest streak", value: nf.format(stats.longest.days), unit: stats.longest.days === 1 ? "day" : "days", sub: range(stats.longest.start, stats.longest.end) },
-    { label: "Current streak", value: nf.format(stats.current.days), unit: stats.current.days === 1 ? "day" : "days", sub: range(stats.current.start, stats.current.end) },
+    { label: L.total, value: nf.format(stats.total), unit: noun(stats.total), sub: range(stats.first, stats.last, true) },
+    { label: L.busiest, value: nf.format(stats.busiest.count), unit: noun(stats.busiest.count), sub: stats.busiest.date ? df.format(dayMs(stats.busiest.date)) : "—" },
+    { label: L.longest, value: nf.format(stats.longest.days), unit: stats.longest.days === 1 ? L.day : L.days, sub: range(stats.longest.start, stats.longest.end) },
+    { label: L.current, value: nf.format(stats.current.days), unit: stats.current.days === 1 ? L.day : L.days, sub: range(stats.current.start, stats.current.end) },
   ]
   const showRow = showStats && !(is3d && corners)
   const ease = "cubic-bezier(0.65, 0, 0.35, 1)"
-  const levelNames = ["No " + plural, "Light", "Moderate", "Heavy", "Heaviest"]
+  const levelNames = [L.none + plural, ...L.levels.slice(1)]
 
-  const hints = ["Hover a day for details · arrow keys to explore", "Drag to orbit · double-click to reset"]
+  const hints = [L.hint2d, L.hint3d]
   const hint = hints[is3d && orbit ? 1 : 0]
 
   return (
@@ -1189,14 +1200,14 @@ export default function ContributionSkyline({
         <h3 className="m-0 text-[15px] font-normal leading-snug">
           {title ?? (
             <>
-              <span className="font-semibold tabular-nums">{nf.format(stats.total)}</span> {noun(stats.total)} in the last year
+              <span className="font-semibold tabular-nums">{nf.format(stats.total)}</span> {noun(stats.total)} {L.lastYear}
             </>
           )}
         </h3>
         {showToggle && (
           <div
             role="group"
-            aria-label="Chart view"
+            aria-label={L.view}
             className="relative inline-flex rounded-md border p-0.5"
             style={{ borderColor: "var(--color-border, #e5e5e5)" }}
           >
@@ -1214,8 +1225,8 @@ export default function ContributionSkyline({
                 key={v}
                 type="button"
                 aria-pressed={view === v}
-                aria-label={v === "2d" ? "Flat heat map" : "3D skyline"}
-                title={v === "2d" ? "Flat heat map" : "3D skyline"}
+                aria-label={v === "2d" ? L.flat : L.sky}
+                title={v === "2d" ? L.flat : L.sky}
                 onClick={() => setView(v)}
                 className="relative z-10 grid h-7 w-8 cursor-pointer place-items-center rounded border-0 bg-transparent p-0 transition-colors duration-500 focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none"
                 style={{
@@ -1242,8 +1253,8 @@ export default function ContributionSkyline({
               tabIndex={0}
               role="img"
               aria-label={
-                nf.format(stats.total) + " " + noun(stats.total) + " between " + range(stats.first, stats.last, true) +
-                ", shown as a " + (is3d ? "3D skyline" : "heat map") + ". Use the arrow keys to read individual days."
+                nf.format(stats.total) + " " + noun(stats.total) + L.between + range(stats.first, stats.last, true) +
+                L.shownAs + (is3d ? L.sky : L.flat) + L.keys
               }
               className="absolute top-0 left-0 block outline-none"
               style={{ maxWidth: "none", touchAction: is3d && orbit ? "pan-y" : "auto" }}
@@ -1297,9 +1308,9 @@ export default function ContributionSkyline({
             {active >= 0 && model.cells[active] ? (
               <>
                 <strong className="font-semibold">
-                  {model.cells[active].count ? nf.format(model.cells[active].count) + " " + noun(model.cells[active].count) : "No " + plural}
+                  {model.cells[active].count ? nf.format(model.cells[active].count) + " " + noun(model.cells[active].count) : L.none + plural}
                 </strong>
-                <span className="opacity-75"> on {dfy.format(dayMs(model.cells[active].date))}</span>
+                <span className="opacity-75">{L.on}{dfy.format(dayMs(model.cells[active].date))}</span>
               </>
             ) : (
               " "
@@ -1358,12 +1369,12 @@ export default function ContributionSkyline({
           )}
           {showLegend && (
             <div className="flex items-center gap-1.5" onMouseLeave={() => setLegendLevel(-1)}>
-              <span className="mr-0.5">Less</span>
+              <span className="mr-0.5">{L.less}</span>
               {theme.swatches.map((c, i) => (
                 <button
                   key={i}
                   type="button"
-                  aria-label={"Highlight " + levelNames[i].toLowerCase() + " days"}
+                  aria-label={L.highlight + levelNames[i].toLowerCase()}
                   aria-pressed={legendLevel === i}
                   title={levelNames[i]}
                   onMouseEnter={() => setLegendLevel(i)}
@@ -1378,7 +1389,7 @@ export default function ContributionSkyline({
                   }}
                 />
               ))}
-              <span className="ml-0.5">More</span>
+              <span className="ml-0.5">{L.more}</span>
             </div>
           )}
         </div>

@@ -61,3 +61,26 @@ describe('Jalali calendar', () => {
 		expect(shift({ kind: 'quarter', year: 1405, month: 11, from: '', to: '' }, 1)).toMatchObject({ year: 1406, month: 2 })
 	})
 })
+
+import { achieve, dailyTarget, effortOf, workingDays } from '../lib/effort'
+describe('effortOf (port of the classic engine)', () => {
+	it('no data → none, never 0 hours', () => { const e = effortOf(undefined); expect([e.perDay, e.zone]).toEqual([null, 'none']); expect(effortOf({ talkIn: 100 }).zone).toBe('none') })
+	it('task minutes are capped per task (default 30)', () => {
+		const e = effortOf({ taskMins: [10, 45, 300], activeDays: 1 })
+		expect(e.taskMin).toBe(10 + 30 + 30); expect(effortOf({ taskMins: [10, 45, 300], activeDays: 1 }, 60).taskMin).toBe(10 + 45 + 60)
+	})
+	it('talk: in+out, else the call-log talkMin; effortMin when no task list', () => {
+		expect(effortOf({ talkIn: 60, talkOut: 30, talkMin: 999, activeDays: 1 }).talkMin).toBe(90)
+		expect(effortOf({ talkMin: 120, activeDays: 1 }).talkMin).toBe(120)
+		expect(effortOf({ effortMin: 50, activeDays: 1 }).taskMin).toBe(50)
+	})
+	it('zones at the booklet boundaries', () => {
+		const z = (h: number) => effortOf({ talkMin: h * 60, activeDays: 1 }).zone
+		expect([z(3.9), z(4), z(6), z(6.5), z(7.5), z(7.6)]).toEqual(['low', 'normal', 'normal', 'good', 'good', 'burnout'])
+	})
+	it('targets and working days', () => {
+		expect(achieve(150, 300)).toBe(50); expect(achieve(5, null)).toBeNull(); expect(achieve(null, 10)).toBeNull()
+		const month = [{ date: '1405/07/01', weekday: 2 }, { date: '1405/07/02', weekday: 6 }, { date: '1405/07/03', weekday: 0 }]
+		expect(workingDays(month, new Set(['1405/07/03']))).toBe(1); expect(dailyTarget(300, 0)).toBeNull(); expect(dailyTarget(300, 25)).toBe(12)
+	})
+})

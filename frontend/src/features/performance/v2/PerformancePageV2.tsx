@@ -17,6 +17,9 @@ import { YearHeatmap } from './sections/YearHeatmap'
 import { DataHealthBar } from './sections/DataHealthBar'
 import { MetricDrawer } from './sections/MetricDrawer'
 import { AromLoader } from './ui/primitives'
+import EffortPanel from './cluster/EffortPanel'
+import { effortOf, type PerfFields } from './lib/effort'
+import { TaskTracker } from './sections/TaskTracker'
 import './perf-v2.css'
 
 const MANAGERS = ['manager', 'salesmgr', 'accmgr']
@@ -57,7 +60,14 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const presence: Metric = inSpan.length
 		? toMetric({ id: 'presence', label: 'حضور', unit: '٪', definition: 'میانگین دقیقهٔ حضورِ روزهای کارکرد ÷ ' + WORKDAY_MIN + ' (فایل حضورِ همین مرورگر)', status: 'valid', value: Math.round((inSpan.reduce((n, r) => n + (r.presentMin || 0), 0) / (inSpan.length * WORKDAY_MIN)) * 1000) / 10, numerator: inSpan.reduce((n, r) => n + (r.presentMin || 0), 0), denominator: inSpan.length * WORKDAY_MIN, coverage: { records: inSpan.length, issues: 0 } })
 		: off('presence', 'حضور', '٪', 'فایل حضور در این مرورگر برای این شخص و دوره نیست.')
-	const effort = off('effort', 'تلاش مؤثر', 'ساعت', 'ساعت تلاش مؤثر در منبع عملکرد موجود نیست.')
+	// effort inputs = the engine's own perf fields (scoped /source projection); targets: person override → team setting → engine defaults
+	type Src = { full?: { people?: { id: string | number; perf?: PerfFields; perfSet?: { taskTarget?: number; callTarget?: number } }[]; perfCfg?: { taskCapMin?: number; taskTarget?: number; callTarget?: number }; callHours?: Record<string, number> } }
+	const source = usePerf<Src>(session, 'source', {}, !!directory.data)
+	const srcPerson = source.data?.full?.people?.find((p) => String(p.id) === person)
+	const cfgP = source.data?.full?.perfCfg || {}
+	const effort = effortOf(srcPerson?.perf, cfgP.taskCapMin ?? 30)
+	const taskTarget = srcPerson?.perfSet?.taskTarget ?? cfgP.taskTarget ?? 300, callTarget = srcPerson?.perfSet?.callTarget ?? cfgP.callTarget ?? 400
+	const holidays = useMemo(() => new Set(rows.filter((r) => ['official_holiday', 'friday', 'birthday', 'official_worked', 'friday_worked', 'birthday_worked'].includes(r.code)).map((r) => r.date)), [rows])
 
 	const peers = (id: string) => team.map((p) => (id === 'tasks' ? p.tasks : p.metrics.find((m) => m.id === id)?.value ?? null))
 	const cfg = CLUSTER[effUnit]
@@ -71,7 +81,7 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const yd = yearDays(heatYear)
 	const year = usePerf<ApiDaily>(session, 'daily', { person, start: yd[0]?.date || '', end: yd.at(-1)?.date || '', metric: heatMetric }, !!person)
 	const avg = byId('contract_average')
-	const missing = new Set([main, ...minis].filter((g) => g && g.metric.status === 'not_computable').map((g) => g!.metric.id)).size + 1 // + effort (reserve)
+	const missing = new Set([main, ...minis].filter((g) => g && g.metric.status === 'not_computable').map((g) => g!.metric.id)).size + (person && effort.zone === 'none' ? 1 : 0)
 	const title = current?.name || chosen?.name || (unit ? 'واحد ' + UNIT_LABEL[unit] : 'همهٔ واحدها')
 	const units = [...new Set(people.map((p) => p.unit))]
 	const scopeNote = `دامنه: ${directory.data?.scope === 'organization' ? 'کل سازمان' : directory.data?.scope === 'unit' ? 'واحد شما' : 'فقط خودتان'} · سال مالیِ اسناد مستقل است · Asia/Tehran`
@@ -79,24 +89,27 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const cabin = directory.error ? <p role="alert" className="pv-alert">{directory.error}</p>
 		: summary.error ? <p role="alert" className="pv-alert">{summary.error}</p>
 			: directory.loading || summary.loading ? <div className="pv-cabin pv-cabin-load"><AromLoader /></div>
-				: <InstrumentCluster main={main} reserve={{ metric: effort, max: 8 }} minis={minis} title={title} period={periodLabel(period)}
+				: <InstrumentCluster main={main} side={person ? <EffortPanel effort={effort} callTarget={callTarget} taskTarget={taskTarget} sales={avg?.denominator ?? null} salesTarget={null} callHours={source.data?.full?.callHours || {}} onImport={connect} /> : <p className="pv-cabin-hint">ساعت تلاش: یک شخص انتخاب کنید</p>} minis={minis} title={title} period={periodLabel(period)}
 					contracts={avg?.denominator ?? null} avgContract={avg?.value ?? null} workdays={inSpan.length || null}
 					activeId={activeMetric.id} onSelect={(m) => { setActive(m.id); if (m.dailyMetric) setHeatMetric(m.dailyMetric) }} onConnect={connect} />
 	const open = (m: Metric, s = start, e = end) => setDrawer({ metric: m, start: s, end: e })
-	const trendCard = <TrendChart days={toDays(trend.data)} unit={trend.data?.unit || activeMetric.unit} metric={activeMetric} presence={presenceMap}
-		onDay={(d) => open(activeMetric, d, d)} onDetails={() => open(activeMetric)} error={trend.error} loading={trend.loading || (!person && !!dailyKey)} />
+	const trendDays = activeMetric.id === 'presence' ? [...presenceMap].filter(([d]) => d >= start && d <= end).sort().map(([date, value]) => ({ date, value })) : toDays(trend.data)
+	const trendCard = <TrendChart days={trendDays} unit={activeMetric.id === 'presence' ? 'دقیقهٔ حضور' : trend.data?.unit || activeMetric.unit} metric={activeMetric} presence={presenceMap}
+		onDay={(d) => open(activeMetric, d, d)} onDetails={() => open(activeMetric)} error={trend.error} loading={activeMetric.id !== 'presence' && (trend.loading || (!person && !!dailyKey))} />
 	const heat = <YearHeatmap days={toDays(year.data)} unit={year.data?.unit || ''} year={heatYear} setYear={setHeatYear} metric={heatMetric} setMetric={setHeatMetric}
-		dayType={new Map()} onDay={(d) => { const m = metrics.find((x) => x.dailyMetric === heatMetric); if (m) open(m, d, d) }} error={year.error} loading={year.loading} needPerson={!person} />
+ onDay={(d) => { const m = metrics.find((x) => x.dailyMetric === heatMetric); if (m) open(m, d, d) }} error={year.error} loading={year.loading} needPerson={!person} />
 
+	const tracker = <TaskTracker session={session} person={person} year={heatYear} monthlyTarget={taskTarget} holidays={holidays} onDay={(d) => open(tasksMetric(current?.tasks), d, d)} />
 	return <div dir="rtl" className="pv-root" data-performance-v2>
 		<CommandBar period={period} setPeriod={setPeriod} people={people} stats={team} person={person} setPerson={setPick} unit={unit} setUnit={(u) => { setUnit(u); setPick('') }} units={units} manager={manager} scopeNote={scopeNote} />
 		<DriveModeSelector mode={mode} setMode={setMode} classic={session.role === 'manager'} />
 		{mode === 'cabin' && <>
 			{cabin}
 			<div className="pv-grid2">{person ? trendCard : <TeamLeaderboard people={team} metric={activeMetric} selected={person} onSelect={setPick} />}{person ? heat : trendCard}</div>
+			{person && tracker}
 			{person && manager && team.length > 1 && <TeamLeaderboard people={team} metric={activeMetric} selected={person} onSelect={setPick} />}
 		</>}
-		{mode === 'person' && <>{person ? <>{cabin}{trendCard}{heat}</> : <p className="pv-empty pv-card">یک شخص انتخاب کنید</p>}</>}
+		{mode === 'person' && <>{person ? <>{cabin}{trendCard}{heat}{tracker}</> : <p className="pv-empty pv-card">یک شخص انتخاب کنید</p>}</>}
 		{mode === 'review' && renderReview({ ...EMPTY_FILTER, from: start, to: end, person: chosen?.name || '', team: '' }, team.map((p) => p.name))}
 		{mode === 'settings' && renderSettings()}
 		{mode === 'legacy' && manager && renderLegacy()}

@@ -7,6 +7,10 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 from test_performance_workspace import Performance
 t=Performance();t.setUp()
 t.full['people'][0]['name']='الف'
+# effort inputs (synthetic) for «الف» only; others stay without call/task-duration data
+t.full['people'][0].setdefault('perf',{}).update({'talkMin':600,'taskMins':[20,40,90,15]*25,'activeDays':20,'callsIn':120,'callsOut':180,'tasks':150})
+t.full['callstats']={'hours':{'9':4,'10':18,'11':12,'14':16,'15':9,'17':6}}
+t.full['perf']={'taskCapMin':30,'taskTarget':300,'callTarget':400}
 users={**t.users,'test':{'person':'','role':'manager'},'unit':{'person':'','role':'salesmgr'}}
 roles={'test':'manager','a':'sales','b':'sales','f':'finance','unit':'salesmgr'}
 def identity(request,tenant):

@@ -44,7 +44,7 @@ export default function PerfGauge(p: PerfGaugeProps) {
 		<button type="button" className="pv-gauge-face" onClick={p.onSelect} disabled={!p.onSelect} role="meter" aria-valuemin={0} aria-valuemax={p.max} aria-valuenow={p.value ?? undefined} aria-valuetext={valueText} aria-label={valueText} aria-pressed={p.onSelect ? !!p.active : undefined}>
 			<svg viewBox={`0 0 ${size} ${size}`} aria-hidden>
 				<defs>
-					<linearGradient id={'ring' + uid} x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#f4f4f6" /><stop offset=".45" stopColor="#8b8d94" /><stop offset=".55" stopColor="#d9dadf" /><stop offset="1" stopColor="#5d5f66" /></linearGradient>
+					<linearGradient id={'ring' + uid} x1="0" y1="0" x2="1" y2="1"><stop offset="0" style={{ stopColor: 'var(--pv-ring-a)' }} /><stop offset=".45" style={{ stopColor: 'var(--pv-ring-b)' }} /><stop offset=".55" style={{ stopColor: 'var(--pv-ring-c)' }} /><stop offset="1" style={{ stopColor: 'var(--pv-ring-d)' }} /></linearGradient>
 					<pattern id={'hatch' + uid} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2.5" height="5" fill="currentColor" /></pattern>
 				</defs>
 				{p.variant === 'chrono' && <circle cx={c} cy={c} r={c - 3} fill="none" stroke={`url(#ring${uid})`} strokeWidth="5" />}
