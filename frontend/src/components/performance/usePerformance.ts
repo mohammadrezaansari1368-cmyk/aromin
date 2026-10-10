@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { authHeaders, roleLabel, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
-import { buildDataset, PERF_EVENT, preparePerfStore, type Dataset } from '@/lib/performance'
+import { buildDataset, canSeeAll, PERF_EVENT, preparePerfStore, type Dataset } from '@/lib/performance'
+import { loadServerAttendance, migrateLocalAttendance } from '@/lib/attendanceApi'
 
 /**
- * تنها ورودیِ همهٔ نماهای «حضور و عملکرد»: فروشگاهِ موجود (فقط خواندن) + حضورِ بارگذاری‌شده،
- * با محدودیتِ دسترسی که داخلِ buildDataset و پیش از تحلیل اعمال می‌شود.
+ * تنها ورودیِ همهٔ نماهای «حضور و عملکرد»: فروشگاهِ موجود (فقط خواندن) + حضورِ سرور (محدود به دسترسی روی سرور)،
+ * با محدودیتِ دسترسی که داخلِ buildDataset و پیش از تحلیل هم اعمال می‌شود.
  */
 export function usePerformance(session: Session, enabled = true) {
 	const [full, setFull] = useState<{ people?: [] } | null | undefined>(undefined)
@@ -23,9 +24,22 @@ export function usePerformance(session: Session, enabled = true) {
 			.catch((e) => { if (alive) { setFull(null); setDs(null); setErr(e.message) } })
 		return () => { alive = false }
 	}, [ver, enabled, session.user, session.pass])
-	// ذخیره‌سازِ IndexedDB باید پیش از اولین محاسبه آماده باشد (+ مهاجرتِ یک‌بارهٔ دادهٔ قدیمی)
+	// پیش از اولین محاسبه: کشِ IndexedDB (وظایف) + حضورِ سرور؛ سپس فقط برای مدیران/مالی مهاجرتِ یک‌بارهٔ حضورِ محلی.
+	// خطای سرور = خطا (هیچ fallbackِ بی‌صدا به دادهٔ محلی نیست)
 	const [storeReady, setStoreReady] = useState(false)
-	useEffect(() => { let alive = true; preparePerfStore().finally(() => { if (alive) setStoreReady(true) }); return () => { alive = false } }, [])
+	const [attErr, setAttErr] = useState('')
+	const [notice, setNotice] = useState('')
+	useEffect(() => {
+		if (!enabled) return
+		let alive = true
+		setStoreReady(false); setAttErr('')
+		;(async () => {
+			await preparePerfStore()
+			await loadServerAttendance(session)
+			if (canSeeAll(session)) { const m = await migrateLocalAttendance(session); if (alive && m.status !== 'none') setNotice(m.message || '') }
+		})().then(() => { if (alive) setStoreReady(true) }, (e: Error) => { if (alive) setAttErr(e.message || 'خطای دریافت حضور') })
+		return () => { alive = false }
+	}, [ver, enabled, session.user, session.pass])
 	useEffect(() => {
 		if (!full || !storeReady || loadedIdentity !== identity) return
 		const run = () => setDs(buildDataset(session, full, (r) => roleLabel(r as Session['role'])))
@@ -34,5 +48,6 @@ export function usePerformance(session: Session, enabled = true) {
 		return () => window.removeEventListener(PERF_EVENT, run)
 	}, [full, session, storeReady, loadedIdentity, identity])
 	const reload = useCallback(() => setVer((v) => v + 1), [])
-	return { ds: loadedIdentity === identity ? ds : null, loading: !err && (full === undefined || !storeReady || !ds), err, reload }
+	const error = err || attErr
+	return { ds: loadedIdentity === identity ? ds : null, loading: !error && (full === undefined || !storeReady || !ds), err: error, reload, notice }
 }

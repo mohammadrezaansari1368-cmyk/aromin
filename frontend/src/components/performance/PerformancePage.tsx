@@ -21,7 +21,7 @@ import Sortable from '@/components/ui/sortable'
 import { BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, FOCUS } from '@/components/ui/tokens'
 import ActivityCalendar, { weekdayOf, type CalendarDay } from '@/components/ui/activity-calendar'
 import {
-	CATEGORY_LABELS, DEFAULT_SETTINGS, EMPTY_FILTER, NA, canSeeAll, clearAttendance, loadOverrides, norm, normDate, dailySeries, exportLawyer, exportPerson, exportRecon, filterRows, hhmm, lateRows, lawyerBasis, lawyerRows,
+	CATEGORY_LABELS, DEFAULT_SETTINGS, EMPTY_FILTER, NA, canSeeAll, clearAttendance, loadOverrides, removeAttendanceBatch, dailySeries, exportLawyer, exportPerson, exportRecon, filterRows, hhmm, lateRows, lawyerBasis, lawyerRows,
 	SESSION_LABEL, defaultDurNote, personIn, personSummary, printSection, reconRows, saveEdit, saveLink, saveSettings, sessionRows, summaryLines, totals,
 	type Code, type Dataset, type DayRow, type Filter, type LinkHow, type PersonPerf, type RowEdit, type Settings,
 } from '@/lib/performance'
@@ -443,7 +443,7 @@ function EditDialog({ p, r, onClose, session }: { p: PersonPerf; r: DayRow; onCl
 			<div className="flex flex-col gap-4 p-6">
 				<div>
 					<h3 className="text-[16px] font-extrabold">ویرایش دستی — {faDate(r.date)} {r.day}</h3>
-					<p className="mt-1 text-[12px] text-muted-foreground">{p.displayName} · در همان دادهٔ حضور ذخیره می‌شود</p>
+					<p className="mt-1 text-[12px] text-muted-foreground">{p.displayName} · جدا از دادهٔ خام، روی سرور ذخیره می‌شود</p>
 				</div>
 				<Field label="وضعیت روز">
 					<select className={inCls} value={e.code} onChange={(ev) => setE({ ...e, code: ev.target.value as Code })}>
@@ -735,6 +735,7 @@ export function PerfSettingsCard({ session }: { session: Session }) {
 		</Field>
 	)
 	const R = ds.R
+	const save = async (v: Settings, ok: string) => { try { await saveSettings(session, v); setSt(v); setMsg(ok) } catch (e) { setMsg((e as Error).message) } }
 	return (
 		<div dir="rtl" className="mb-5">
 			<Card title="محاسبات عملکرد" sub="قواعدِ حضور، دیرکرد، کسر و جلسهٔ حضوری — مبنای همهٔ نماها و گزارش‌های «حضور و عملکرد».">
@@ -748,15 +749,20 @@ export function PerfSettingsCard({ session }: { session: Session }) {
 					{f('meetingDefault', 'مدت پیش‌فرض جلسه (دقیقه)', 'وقتی زمان سررسید معتبر نیست')}
 					{f('taskKeywords', 'عنوان وظیفهٔ بیرون از شرکت شامل', 'چند کلمه را با «،» جدا کنید')}
 				</div>
+				<label className="mt-3 flex items-center gap-2 text-[12.5px] font-bold">
+					<input type="checkbox" className={`size-4 accent-primary ${FOCUS}`} checked={st.overtimeByLateExit === true} onChange={(e) => setSt({ ...st, overtimeByLateExit: e.target.checked })} />
+					اضافه‌کار از خروجِ دیرتر از پایان موظفی
+				</label>
 				<ul className="mt-4 space-y-1 rounded-xl bg-muted/45 p-4 text-[12px] leading-6 text-muted-foreground ring-1 ring-border/80">
 					<li>ساعت موظفی: <b className="text-foreground">{tm(R.workStart)} → {tm(R.workEnd)}</b> · روز کامل: <b className="text-foreground">{tm(R.dailyWork)} کار + {tm(R.rest)} استراحت = {tm(R.fullDay)}</b></li>
 					<li>ورود تا <b className="text-foreground">{tm(R.workStart + R.lateThreshold)}</b> دیرکرد نیست؛ بعد از آن، دیرکرد از <b className="text-foreground">{tm(R.workStart)}</b> شمرده می‌شود (مثلاً ورود {tm(R.workStart + R.lateThreshold + 2)} = {fa(R.lateThreshold + 2)} دقیقه).</li>
 					<li>دیرکردِ قابل کسر = مجموع − بخشوده؛ هر <b className="text-foreground">{tm(R.lateDeduct)}</b> = ۱ روز کسر و مانده حفظ می‌شود.</li>
+					<li>اضافه‌کار از خروجِ دیرتر: <b className="text-foreground">{R.otLateExit ? 'روشن — خروج بعد از ' + tm(R.workEnd) + ' در روزهای کارکرد' : 'خاموش (فقط اضافه‌کارِ جلسه)'}</b></li>
 					<li>وظیفهٔ «{st.taskKeywords}»ِ برگزارشده در روزِ دیرکرد ← دیرکرد بخشوده؛ بخشِ بیرون از حضورِ ثبت‌شده ← اضافه‌کارِ جلسه. مدت: برنامه‌ریزی تا سررسید اگر بیش از ۱۵ دقیقه و حداکثر ۴ ساعت، وگرنه {fa(R.meetingDefault)} دقیقه. وظیفهٔ لغو/یادآوری/برگزارنشده نه بخشودگی دارد نه اضافه‌کار.</li>
 				</ul>
 				<div className="mt-4 flex flex-wrap items-center gap-2">
-					<Btn kind="primary" onClick={() => { try { saveSettings(session, st); setMsg('ذخیره شد.') } catch (e) { setMsg((e as Error).message) } }}>ذخیرهٔ محاسبات</Btn>
-					<Btn onClick={() => { saveSettings(session, DEFAULT_SETTINGS); setMsg('پیش‌فرض‌ها برگشت.') }}>پیش‌فرض</Btn>
+					<Btn kind="primary" onClick={() => save(st, 'روی سرور ذخیره شد.')}>ذخیرهٔ محاسبات</Btn>
+					<Btn onClick={() => save(DEFAULT_SETTINGS, 'پیش‌فرض‌ها برگشت.')}>پیش‌فرض</Btn>
 					{msg && <span role="status" className="text-[12px] font-bold text-success">{msg}</span>}
 				</div>
 			</Card>
@@ -766,33 +772,61 @@ export function PerfSettingsCard({ session }: { session: Session }) {
 
 /* ---------------- مرکز ایمپورت: وضعیتِ حضور (زیرِ کادرِ «ورودِ فایل»، فقط مدیران/مالی) ---------------- */
 const faDateTime = (ts: number) => new Date(ts).toLocaleString('fa-IR')
-// فایلِ حضور فقط از موتورِ ایمپورت وارد می‌شود (تشخیصِ خودکارِ نوعِ attendance)؛ این نوار فقط وضعیت و حذف را نشان می‌دهد
+// فایلِ حضور فقط از موتورِ ایمپورت وارد می‌شود (تشخیصِ خودکارِ نوعِ attendance)؛ این نوار وضعیتِ سرور، دسته‌ها و حذف را نشان می‌دهد
 export function AttendanceStatus({ session }: { session: Session }) {
 	const all = canSeeAll(session)
-	const { ds } = usePerformance(session, all)
+	const { ds, err, notice } = usePerformance(session, all)
 	const [msg, setMsg] = useState<{ t: string; err?: boolean } | null>(null)
-	if (!all || !ds) return null
+	if (!all) return null
+	if (!ds) return err ? <p role="status" className="mt-3 text-[12px] font-bold text-error">{err}</p> : null
 	const overrides = Object.keys(loadOverrides()).length
+	const batches = ds.file?.batches || []
 	const last = ds.file?.last
+	const cards = Object.keys(ds.file?.sheets || {}).length
 	const onClear = async () => {
-		if (!confirm('فایلِ حضور و داده‌های مشتق‌شدهٔ آن از این مرورگر پاک شود؟')) return
+		if (!confirm('همهٔ دادهٔ حضور (روزها و دسته‌های ایمپورت) از سرور پاک شود؟ نگاشتِ کارت‌ها می‌ماند.')) return
 		const withOv = overrides > 0 && confirm(`${fa(overrides)} ویرایشِ دستی هم هست. آن‌ها هم پاک شوند؟\n«تأیید» = پاک شوند · «لغو» = نگه داشته شوند (با بارگذاریِ دوباره اعمال می‌شوند)`)
-		try { await clearAttendance(session, withOv); setMsg({ t: 'فایلِ حضور از این مرورگر پاک شد' + (overrides && !withOv ? `؛ ${fa(overrides)} ویرایشِ دستی نگه داشته شد.` : '.') }) } catch (e) { setMsg({ t: (e as Error).message, err: true }) }
+		try { await clearAttendance(session, withOv); setMsg({ t: 'دادهٔ حضور از سرور پاک شد' + (overrides && !withOv ? `؛ ${fa(overrides)} ویرایشِ دستی نگه داشته شد.` : '.') }) } catch (e) { setMsg({ t: (e as Error).message, err: true }) }
 	}
+	const onBatch = async (id: number, name: string) => {
+		if (!confirm(`دستهٔ «${name}» از سرور حذف شود؟ روزهایی که فایلِ بعدی بازنویسی کرده می‌مانند؛ ویرایش‌های دستی حفظ می‌شوند.`)) return
+		try { const r = await removeAttendanceBatch(session, id); setMsg({ t: `حذف شد: ${fa(r.removedDays)} روز.` }) } catch (e) { setMsg({ t: (e as Error).message, err: true }) }
+	}
+	const period = (from: string | null, to: string | null) => (from && to ? faDate(from) + ' تا ' + faDate(to) : '')
 	const range = (() => {
-		const d = ds.file ? Object.values(ds.file.sheets).flatMap((rows) => rows.map((r) => normDate(Object.entries(r).find(([k]) => norm(k) === norm('تاریخ'))?.[1]))).filter(Boolean).sort() : []
-		return d.length ? faDate(d[0]) + ' تا ' + faDate(d[d.length - 1]) : ''
+		const d = batches.flatMap((b) => [b.periodFrom, b.periodTo]).filter((x): x is string => !!x).sort()
+		return d.length ? period(d[0], d[d.length - 1]) : ''
 	})()
 	return (
 		<div dir="rtl" className="mt-3 rounded-xl bg-muted/40 px-3 py-2.5 ring-1 ring-border/70" aria-label="حضور و غیاب">
 			<div className="flex flex-wrap items-center justify-between gap-2">
 				<p className="min-w-0 text-[12px] text-muted-foreground" data-testid="att-current">
-					<b className="text-foreground">حضور و غیاب: </b>
-					{ds.file ? <><bdi dir="auto">{last ? last.fileName : ds.file.fileName}</bdi> · <bdi>{faDateTime(last ? last.loadedAt : ds.file.loadedAt)}</bdi> · {fa(last ? last.people : Object.keys(ds.file.sheets).length)} نفر</> : 'هنوز فایلی بارگذاری نشده'}
+					<b className="text-foreground">حضور و غیاب (روی سرور): </b>
+					{ds.file && last ? <><bdi dir="auto">{last.fileName}</bdi> · <bdi>{faDateTime(last.loadedAt)}</bdi> · {fa(cards)} کارت</> : 'هنوز فایلی روی سرور ثبت نشده'}
 				</p>
-				{ds.file && <button type="button" onClick={onClear} className={`shrink-0 text-[12px] font-bold text-error hover:underline ${FOCUS}`}>حذف از این مرورگر</button>}
+				{ds.file && <button type="button" onClick={onClear} className={`shrink-0 text-[12px] font-bold text-error hover:underline ${FOCUS}`}>حذفِ همه از سرور</button>}
 			</div>
-			{ds.file && (range || overrides > 0) && <p className="mt-1 text-[11.5px] text-muted-foreground">{range && <>دادهٔ موجود: {fa(Object.keys(ds.file.sheets).length)} نفر · {range}</>}{overrides > 0 && <> · ویرایشِ دستی: {fa(overrides)} (با فایلِ تازه حفظ می‌شود)</>}</p>}
+			{ds.file && (range || overrides > 0 || ds.unmatched > 0) && (
+				<p className="mt-1 text-[11.5px] text-muted-foreground">
+					{range && <>دادهٔ موجود: {fa(cards)} کارت · {range}</>}
+					{overrides > 0 && <> · ویرایشِ دستی: {fa(overrides)} (با فایلِ تازه حفظ می‌شود)</>}
+					{ds.unmatched > 0 && <> · <a href="#identity-review" className={`font-bold text-warning hover:underline ${FOCUS}`}>{fa(ds.unmatched)} کارت نیازمند تأیید نگاشت</a></>}
+				</p>
+			)}
+			{batches.length > 0 && (
+				<details className="mt-1.5">
+					<summary className="cursor-pointer text-[11.5px] font-bold text-muted-foreground">دسته‌های ایمپورت ({fa(batches.length)})</summary>
+					<ul className="mt-1 space-y-1">
+						{batches.map((b) => (
+							<li key={b.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-1 text-[11.5px] text-muted-foreground">
+								<span className="min-w-0"><bdi dir="auto" className="font-bold text-foreground">{b.fileName}</bdi> · <bdi>{faDateTime(Date.parse(b.createdAt))}</bdi>{b.periodFrom && <> · {period(b.periodFrom, b.periodTo)}</>} · {fa(b.days)} روز (تازه {fa(b.inserted)}، به‌روز {fa(b.updated)}، بدون تغییر {fa(b.unchanged)}) · <bdi>{b.uploadedBy}</bdi></span>
+								<button type="button" onClick={() => onBatch(b.id, b.fileName)} aria-label={'حذف دستهٔ ' + b.fileName} className={`shrink-0 font-bold text-error hover:underline ${FOCUS}`}>حذف</button>
+							</li>
+						))}
+					</ul>
+				</details>
+			)}
+			{notice && <p role="status" className="mt-1 text-[12px] font-bold text-warning">{notice}</p>}
 			{msg && <p role="status" className={`mt-1 text-[12px] font-bold ${msg.err ? 'text-error' : 'text-success'}`}>{msg.t}</p>}
 		</div>
 	)
@@ -803,7 +837,7 @@ function MappingPanel({ ds, session, go }: { ds: Dataset; session: Session; go?:
 	const owners = ds.stats.owners
 	return (
 		<div className="flex flex-col gap-5">
-			<Card title="نگاشتِ اشخاص" sub="هر شیتِ حضور ← شخصِ سیستم (دسترسی و وظایفِ سیستم) ← کاربرِ جولیو (جلسات). اولویت با نامِ کاملِ سیستم و شناسهٔ جولیو است؛ ردیفِ «حدسی» را بررسی و در صورت نیاز دستی تعیین کنید. هیچ نامی در داده تغییر نمی‌کند."
+			<Card title="نگاشتِ اشخاص" sub="هر کارتِ حضور ← شخصِ سیستم (فقط با تأییدِ نگاشت در «مرکز ایمپورت»، بدونِ حدسِ نام) ← کاربرِ جولیو (جلسات؛ اولویت با شناسهٔ جولیو). هیچ نامی در داده تغییر نمی‌کند."
 				actions={<><Btn onClick={() => go?.('import')}>فایل‌ها در مرکز ایمپورت ←</Btn><Btn onClick={() => go?.('p-set')}>محاسبات در تنظیمات ←</Btn></>}>
 				{ds.people.length ? (
 					<Table head={['شیت', 'نام در فایل حضور', 'شخصِ سیستم', '', 'کاربرِ جولیو (وظایف)', '', 'بازهٔ وظایفِ سیستم']}>
@@ -811,16 +845,11 @@ function MappingPanel({ ds, session, go }: { ds: Dataset; session: Session; go?:
 							<tr key={p.sheetName}>
 								<Td>{p.sheetName}</Td>
 								<Td>{p.displayName}</Td>
-								<Td>
-									<select aria-label={'شخصِ سیستم برای ' + p.displayName} className={inCls + ' min-w-[160px]'} value={p.person || ''} onChange={(e) => saveLink(session, p.sheetName, { person: e.target.value || undefined })}>
-										<option value="">— انتخاب —</option>
-										{ds.peopleNames.map((n) => <option key={n} value={n}>{n}</option>)}
-									</select>
-								</Td>
+								<Td>{p.person || <button type="button" onClick={() => go?.('import')} className={`font-bold text-warning hover:underline ${FOCUS}`}>تأیید نگاشت در مرکز ایمپورت ←</button>}</Td>
 								<Td><HowChip how={p.personHow} /></Td>
 								<Td>
 									<select aria-label={'کاربرِ جولیو برای ' + p.displayName} className={inCls + ' min-w-[180px]'} value={owners.find((o) => o.name === p.ownerName)?.key || ''} disabled={!owners.length}
-										onChange={(e) => saveLink(session, p.sheetName, { person: p.personHow === 'manual' ? p.person || undefined : undefined, owner: e.target.value || undefined })}>
+										onChange={(e) => saveLink(session, p.sheetName, { owner: e.target.value || undefined })}>
 										<option value="">{owners.length ? '— انتخاب —' : 'فایلِ وظایف نیست'}</option>
 										{owners.map((o) => <option key={o.key} value={o.key}>{o.name}{o.pid ? ` (ID ${o.pid})` : ''} · {fa(o.n)}</option>)}
 									</select>
