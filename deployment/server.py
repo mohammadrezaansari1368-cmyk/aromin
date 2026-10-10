@@ -1968,6 +1968,8 @@ def attendance_upload(request: Request, payload: dict = Body(default={})):
             cards = sorted(sheet_cards.values())
             rows = t.x("SELECT card_no,date_j,row_sha256 FROM attendance_days WHERE tenant=%s AND card_no IN (" + _in(cards) + ") FOR UPDATE", [tenant] + cards).fetchall()
             plan = att.plan_upsert({(r["card_no"], r["date_j"]): r["row_sha256"] for r in rows}, days)
+            if parsed["source"] == "migration":   # old browser data only fills gaps; never replaces a newer server upload
+                plan["unchanged"] += len(plan["update"]); plan["update"] = []
             pf, pt = att.period(days)
             t.x("INSERT INTO attendance_batches (tenant,file_sha256,file_name,source,uploaded_by,period_from,period_to,sheets,days,inserted,updated,unchanged,skipped,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (tenant, parsed["sha256"], parsed["file_name"], parsed["source"], ident["user"], pf, pt, len(parsed["sheets"]), len(days),

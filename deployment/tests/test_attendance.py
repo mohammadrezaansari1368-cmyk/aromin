@@ -127,6 +127,16 @@ class Endpoints(unittest.TestCase):
         self.assertEqual(card9['rows'][1]['خروج 3'], '19:30')
         self.assertEqual((code, self.upload('c', sheets={SHEET_C: FIXTURE['sheets'][SHEET_C]})[0]), (201, 400))
 
+    def test_migration_never_overwrites_server_rows(self):
+        self.upload()
+        stale = copy.deepcopy(FIXTURE['sheets']); stale[SHEET_B][1]['خروج 3'] = '19:30'
+        extra = dict(stale[SHEET_B][0], **{'تاريخ': '1405/06/20'}); stale[SHEET_B].append(extra)
+        code, out = self.res(server.attendance_upload(None, {'tenant': 't1', 'fileName': 'local', 'sha256': 'd' * 64, 'source': 'migration', 'sheets': stale}))
+        self.assertEqual((code, out['batch']['inserted'], out['batch']['updated'], out['batch']['unchanged']), (201, 1, 0, 10))
+        card9 = next(c for c in self.get()[1]['cards'] if c['cardNo'] == '9')
+        self.assertEqual(card9['rows'][1]['خروج 3'], FIXTURE['sheets'][SHEET_B][1].get('خروج 3'))
+        self.assertEqual(len(card9['rows']), 6)
+
     def test_non_admin_writes_are_403_without_db(self):
         for ident in (None, {'user': 'sara', 'role': 'sales'}, {'user': 'p', 'role': 'support'}):
             self.ident = ident
