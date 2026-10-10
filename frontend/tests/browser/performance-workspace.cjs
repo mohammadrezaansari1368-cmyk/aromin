@@ -9,7 +9,7 @@ const {chromium}=require('playwright'),fs=require('node:fs'),assert=require('nod
   const u=new URL(r.request().url());u.host='127.0.0.1:5192'
   const response=await page.request.get(u.toString(),{headers:r.request().headers()});await r.fulfill({response})
  })
- await page.goto('http://127.0.0.1:5191/tests/browser/index.html?view=perf')
+ await page.goto((process.env.TEST_URL||'http://127.0.0.1:5191')+'/tests/browser/index.html?view=perf')
  await page.getByRole('button',{name:'الف',exact:true}).waitFor()
  await page.getByLabel('سال تقویمی',{exact:true}).fill('1405');await page.getByLabel('ماه عملکرد',{exact:true}).selectOption('7')
  await page.getByText('میانگین ارزش قرارداد',{exact:true}).waitFor()
@@ -54,7 +54,7 @@ const {chromium}=require('playwright'),fs=require('node:fs'),assert=require('nod
   const r=await page.request.get(`http://127.0.0.1:5192/api/performance/${view}?tenant=team&person=2&start=1405/07/01&end=1405/07/30`,{headers:{'X-Aromin-User':'a','X-Aromin-Pass':'test-only'}});assert.equal(r.status(),403)
  }
  const denied=await page.request.get('http://127.0.0.1:5192/api/performance/summary?tenant=team&unit=finance&start=1405/07/01&end=1405/07/30',{headers:{'X-Aromin-User':'unit','X-Aromin-Pass':'test-only'}});assert.equal(denied.status(),403)
- await page.goto('http://127.0.0.1:5191/tests/browser/index.html?view=perf&role=sales&user=a')
+ await page.goto((process.env.TEST_URL||'http://127.0.0.1:5191')+'/tests/browser/index.html?view=perf&role=sales&user=a')
  await page.getByText('میانگین ارزش قرارداد',{exact:true}).waitFor()
  assert.equal(await page.getByLabel('شخص عملکرد').count(),0);assert.equal(await page.getByRole('button',{name:'ب',exact:true}).count(),0)
  await page.emulateMedia({reducedMotion:'reduce'})

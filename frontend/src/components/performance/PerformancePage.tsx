@@ -12,6 +12,7 @@ import { isActivePerson } from '@/lib/people'
 import { Component, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import ContributionSkyline from '@/components/ui/contribution-skyline'
 import PerformanceWorkspace from './PerformanceWorkspace'
+import PerformancePageV2 from '@/features/performance/v2/PerformancePageV2'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { Session } from '@/lib/auth'
 import { tokenHex, useTheme } from '@/lib/theme'
@@ -972,6 +973,11 @@ class WorkspaceBoundary extends Component<{ children: ReactNode }, { failed: boo
 	render() { return this.state.failed ? <Card title="میزِ عملکرد"><p role="alert" className="text-[13px] text-error">این بخش بارگذاری نشد؛ صفحه را تازه کنید. اگر تکرار شد، پاسخِ سرورِ عملکرد را بررسی کنید.</p></Card> : this.props.children }
 }
 export default function PerformancePage({ session, go, setPanel }: { session: Session; initial?: PerfView; go?: (id: string) => void; setPanel?: (panel: string | null) => void }) {
+ // v2 (instrument cabin) is the default; VITE_PERF_UI=v1 restores the previous workspace
+ if (import.meta.env.VITE_PERF_UI !== 'v1') return <PerformancePageV2 session={session} go={go}
+  renderReview={(f,names) => <ExistingPerformance session={session} initial="recon" go={go} sharedFilter={f} scopeNames={names} embedded />}
+  renderSettings={() => <><PerfSettingsCard session={session} /><ExistingPerformance session={session} initial="data" go={go} embedded /></>}
+  renderLegacy={() => <ExistingPerformance session={session} initial="activity" go={go} setPanel={setPanel} />} />
  return <div className="flex flex-col gap-5">
   <WorkspaceBoundary><PerformanceWorkspace session={session}
     renderReview={(f,names) => <ExistingPerformance session={session} initial="recon" go={go} sharedFilter={f} scopeNames={names} embedded />}
