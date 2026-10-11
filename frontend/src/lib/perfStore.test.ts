@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as XLSX from 'xlsx'
 import { docKey, memGet, perfReady, setPerfBackend, type KV } from './perfStore'
 import {
@@ -6,6 +6,8 @@ import {
 	migrateLegacyTasks, parseAttendanceWorkbook, parseTaskRows, preparePerfStore, saveEdit, taskStats, rules, DEFAULT_SETTINGS,
 } from './performance'
 import type { Session } from './auth'
+import { loadServerAttendance, resetAttendanceCache } from './attendanceApi'
+import { fakeAttendanceServer } from './attendanceServerFake'
 
 // ---------- محیطِ مرورگرِ ساختگی: localStorage + پشتیبانِ IndexedDB (Map) ----------
 const LS = new Map<string, string>()
@@ -23,14 +25,19 @@ function workbook(sheets: Record<string, (string | number | null)[][]>): ArrayBu
 	for (const [name, aoa] of Object.entries(sheets)) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), name)
 	return XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
 }
-const HEAD = ['نام', 'نام خانوادگي', 'تاريخ', 'روز', 'ورود 1', 'خروج 1', 'حضور']
-const month = (m: string, days: number[]) => [HEAD, ...days.map((d) => ['فاطمه', 'اميري', `1405/${m}/${String(d).padStart(2, '0')}`, 'شنبه', '10:17', '18:00', null])]
+const HEAD = ['شماره کارت', 'نام', 'نام خانوادگي', 'تاريخ', 'روز', 'ورود 1', 'خروج 1', 'حضور']
+const month = (m: string, days: number[], card = 9) => [HEAD, ...days.map((d) => [card, 'زهرا', 'كريمي', `1405/${m}/${String(d).padStart(2, '0')}`, 'شنبه', '10:17', '18:00', null])]
+const Y = 'یاسمن · کارت 9'   // کلیدِ شیت از سرور: «نامِ شیت · کارت N»
+let srv: ReturnType<typeof fakeAttendanceServer>
 
 beforeEach(async () => {
-	LS.clear(); IDB.clear()
+	LS.clear(); IDB.clear(); resetAttendanceCache()
+	srv = fakeAttendanceServer()
+	vi.stubGlobal('fetch', vi.fn(srv.fetch))
 	setPerfBackend(kv)
 	await perfReady('team')
 })
+afterEach(() => { vi.unstubAllGlobals() })
 
 describe('پارسِ شیت‌های حضور', () => {
 	it('هر شیتِ معتبر = یک نفر؛ شیتِ بدونِ تاریخ نادیده و گزارش می‌شود', () => {
@@ -42,6 +49,7 @@ describe('پارسِ شیت‌های حضور', () => {
 	it('فایلِ خراب ← خطای واضح و هیچ ذخیره‌ای', async () => {
 		await expect(ingestAttendanceFile(ADMIN, new TextEncoder().encode('not excel at all').buffer as ArrayBuffer, 'x.xlsx')).rejects.toThrow()
 		expect(loadAttendance()).toBeNull()
+		expect(fetch).not.toHaveBeenCalled()
 		expect(IDB.has(docKey('attendance', 'team'))).toBe(false)
 	})
 	it('فقط مدیران/مالی', async () => {
@@ -49,41 +57,45 @@ describe('پارسِ شیت‌های حضور', () => {
 	})
 })
 
-describe('ادغام و حفظِ ویرایشِ دستی (Override)', () => {
+describe('ادغام و حفظِ ویرایشِ دستی (Override) روی سرور', () => {
 	it('بارگذاریِ دوباره ادغام می‌کند و Override دوباره اعمال می‌شود', async () => {
 		await ingestAttendanceFile(ADMIN, workbook({ 'یاسمن': month('05', [1, 2]) }), 'مرداد.xlsx')
-		await saveEdit(ADMIN, 'یاسمن', '1405/05/01', { excuse: true, note: 'جلسه' })
-		const r = await ingestAttendanceFile(ADMIN, workbook({ 'یاسمن': month('06', [1]), 'نورا': month('06', [1]) }), 'شهریور.xlsx')
+		await saveEdit(ADMIN, Y, '1405/05/01', { excuse: true, note: 'جلسه' })
+		const r = await ingestAttendanceFile(ADMIN, workbook({ 'یاسمن': month('06', [1]), 'نورا': month('06', [1], 12) }), 'شهریور.xlsx')
 		expect(r.merged).toBe(true)
 		const att = loadAttendance()!
 		expect(att.last?.fileName).toBe('شهریور.xlsx')
-		expect(att.sheets['یاسمن'].length).toBe(3)   // ۲ روزِ مرداد + ۱ روزِ شهریور
-		expect(Object.keys(att.sheets).sort()).toEqual(['نورا', 'یاسمن'])
-		expect(loadOverrides()['یاسمن|1405/05/01']).toEqual({ excuse: true, note: 'جلسه' })
+		expect(att.sheets[Y].length).toBe(3)   // ۲ روزِ مرداد + ۱ روزِ شهریور
+		expect(Object.keys(att.sheets).sort()).toEqual(['نورا · کارت 12', Y])
+		expect(loadOverrides()[Y + '|1405/05/01']).toEqual({ excuse: true, note: 'جلسه' })
 		const ds = buildDataset(ADMIN, { people: [] })
-		const row = ds.people.find((p) => p.sheetName === 'یاسمن')!.rows.find((x) => x.date === '1405/05/01')!
+		const row = ds.people.find((p) => p.sheetName === Y)!.rows.find((x) => x.date === '1405/05/01')!
 		expect(row.edited && row.forgivenBy).toBe('edit')
-		// پایداری در IndexedDB (بعد از «Reload»)
-		setPerfBackend(kv); await perfReady('team')
-		expect(memGet<Record<string, unknown>>('overrides', {})['یاسمن|1405/05/01']).toBeTruthy()
-		expect(loadAttendance()?.sheets['یاسمن'].length).toBe(3)
+		// پایداری روی سرور (بعد از «Reload»): هیچ چیز در IndexedDB نیست
+		expect(IDB.has(docKey('attendance', 'team')) || IDB.has(docKey('overrides', 'team'))).toBe(false)
+		resetAttendanceCache()
+		expect(loadAttendance()).toBeNull()
+		await loadServerAttendance(ADMIN)
+		expect(loadOverrides()[Y + '|1405/05/01']).toBeTruthy()
+		expect(loadAttendance()?.sheets[Y].length).toBe(3)
 	})
 	it('دادهٔ تازه برای همان روز برنده است، Override دست نمی‌خورد', async () => {
 		await ingestAttendanceFile(ADMIN, workbook({ 'یاسمن': month('05', [1]) }), 'a.xlsx')
-		await saveEdit(ADMIN, 'یاسمن', '1405/05/01', { entry: '10:05' })
-		const newer = month('05', [1]); newer[1][4] = '11:00'
+		await saveEdit(ADMIN, Y, '1405/05/01', { entry: '10:05' })
+		const newer = month('05', [1]); newer[1][5] = '11:00'
 		await ingestAttendanceFile(ADMIN, workbook({ 'یاسمن': newer }), 'b.xlsx')
-		expect(String(loadAttendance()!.sheets['یاسمن'][0]['ورود 1'])).toContain('11:00')
-		expect(loadOverrides()['یاسمن|1405/05/01']).toEqual({ entry: '10:05' })
+		expect(String(loadAttendance()!.sheets[Y][0]['ورود 1'])).toContain('11:00')
+		expect(srv.st.batches[0]).toMatchObject({ updated: 1, inserted: 0 })
+		expect(loadOverrides()[Y + '|1405/05/01']).toEqual({ entry: '10:05' })
 	})
-	it('حذف از مرورگر: Overrideها فقط با تأییدِ صریح پاک می‌شوند', async () => {
+	it('حذف از سرور: Overrideها فقط با تأییدِ صریح پاک می‌شوند', async () => {
 		await ingestAttendanceFile(ADMIN, workbook({ 'یاسمن': month('05', [1]) }), 'a.xlsx')
-		await saveEdit(ADMIN, 'یاسمن', '1405/05/01', { note: 'x' })
+		await saveEdit(ADMIN, Y, '1405/05/01', { note: 'x' })
 		await clearAttendance(ADMIN)
 		expect(loadAttendance()).toBeNull()
-		expect(Object.keys(loadOverrides())).toHaveLength(1)
+		expect(srv.st.overrides.get('9')).toEqual({ '1405/05/01': { note: 'x' } })
 		await clearAttendance(ADMIN, true)
-		expect(Object.keys(loadOverrides())).toHaveLength(0)
+		expect(srv.st.overrides.size).toBe(0)
 	})
 	it('آداپتورِ مشترک برای کادرِ ورودِ مرکز ایمپورت (source)', async () => {
 		await ingestAttendanceFile(ADMIN, workbook({ 'یاسمن': month('05', [1]) }), 'شهریور.xlsx', 'import-center')
@@ -134,9 +146,11 @@ describe('مهاجرتِ ذخیره‌ساز: localStorage ← IndexedDB', () =>
 		LS.set('aromin.perf.attendance.team', JSON.stringify({ ...f, edits: { 'یاسمن|1405/05/01': { note: 'قدیمی' } } }))
 		LS.set('aromin.perf.taskfiles.team', JSON.stringify([parseTaskRows(taskRows([9]), 'old-tasks.xlsx', 'import')]))
 		setPerfBackend(kv); await perfReady('team')
-		expect(loadAttendance()?.fileName).toBe('old.xlsx')
-		expect((loadAttendance() as { edits?: unknown }).edits).toBeUndefined()
-		expect(loadOverrides()['یاسمن|1405/05/01']).toEqual({ note: 'قدیمی' })
+		// فقط برای مهاجرت به سرور خوانده می‌شود (lib/attendanceApi.ts)
+		const att = memGet<{ fileName: string; edits?: unknown }>('attendance', { fileName: '' })
+		expect(att.fileName).toBe('old.xlsx')
+		expect(att.edits).toBeUndefined()
+		expect(memGet<Record<string, unknown>>('overrides', {})['یاسمن|1405/05/01']).toEqual({ note: 'قدیمی' })
 		expect(loadTaskFiles().map((t) => t.name)).toEqual(['old-tasks.xlsx'])
 		expect(LS.has('aromin.perf.attendance.team') || LS.has('aromin.perf.taskfiles.team')).toBe(false)
 		expect(IDB.has(docKey('attendance', 'team')) && IDB.has(docKey('overrides', 'team'))).toBe(true)

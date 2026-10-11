@@ -1,5 +1,7 @@
 # HANDOFF — «تا اینجا انجام دادم»
 
+2026-10-11 · Grok Bot (Claude Code؛ Codex سهمیه نداشت) · feat/identity-attendance-server: WP-A نگاشت هویت (migration 006، /api/identity*، کارت هرگز خودکار تأیید نمی‌شود) + WP-B حضور سروری (/api/performance/attendance*، sha تکراری = بی‌تغییر، override دستی محفوظ، مهاجرت IndexedDB). اضافه‌کار خروج دیر پیش‌فرض خاموش. باز: حذف یک دسته روزهای بی‌تغییرِ دستهٔ بعد را هم پاک می‌کند؛ دسترسی salesmgr/accmgr. بدون merge/deploy.
+
 2026-10-09 · Codex · feat/performance-workspace: تب عملکرد با API فقط‌خواندنی scoped، فیلتر مشترک، چهار محور نقش، جزئیات و تقویم کامل شمسی؛ موتور حضور/پورسانت حفظ شد. داده ناموجود null و محدودیت حضور محلی و API قدیمی عمومی صریح در docs/performance/README.md. 145 unit passed/1 skipped، 83 Python passed/6 skipped، build/typecheck/lint و مرورگر RTL موفق؛ بدون merge/deploy.
 
 2026-10-08 · Codex · feat/month-synced-motion-funnel: تأیید کاربر چهار مرحله I→Q→A→C (رنگ آبی/بنفش/زرد/آبی)، شکست جدا. از main 8e2ddc3 (3.9.50) ادامه؛ C4 جای SalesTrend ماه امروز از T ماهانهٔ مشترک gm استفاده می‌کند؛ C2/C3 همان منبع قبلی، بدون state/API تازه. empty/all/zero، ماه‌های متوالی، عدم remount، رنگ/legend/hover، reduced motion و light/dark 320–1440 با تست month-sync تأیید؛ 142 unit passed/1 skipped، build/typecheck/lint موفق. بدون deploy، تغییر DB یا ادغام main.
