@@ -5555,6 +5555,10 @@ class CachedStatic(StaticFiles):
         return resp
 
 
+# Server-only integration secrets never enter /api/state or the public directory.
+from aromin_grok_sms import router as grok_sms_router
+app.include_router(grok_sms_router(kb_identity, os.environ.get('GROK_SMS_SECRET_DIR') or os.path.join(HERE, '.grok-sms-secrets')))
+
 _public = os.path.join(HERE, "public")
 if os.path.isdir(SPA_DIR) and os.path.isfile(os.path.join(SPA_DIR, "index.html")):
     # SPAِ React: index.html + /assets/* (فایل‌های هش‌دار → کشِ طولانی)

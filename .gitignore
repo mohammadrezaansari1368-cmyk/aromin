@@ -10,3 +10,6 @@ graphify-out/
 # Build output: packaged from frontend/dist by tools/package_release.py
 deployment/web/
 __pycache__/
+
+# Private Grok integration settings and audit trail.
+deployment/.grok-sms-secrets/
