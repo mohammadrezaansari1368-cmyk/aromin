@@ -1,5 +1,7 @@
 # HANDOFF — «تا اینجا انجام دادم»
 
+2026-10-11 · Claude Code · feat/calls-server (بی commit): WP-C ماژولِ خالصِ `deployment/aromin_calls.py` + `tests/test_calls.py` (13) + فیکسچرِ مصنوعیِ `calls_synthetic.json`. تصمیم‌های مالک در طرح: مدیرِ فروش فقط آمار؛ ورودیِ صف/داخلیِ بی julio فقط در `queues` (نه فرد، نه صاحبِ داخلی). backend 150 OK/6 skipped. باز: migration 007، اندپوینت‌ها، فرانت.
+
 2026-10-11 · Grok Bot (Claude Code؛ Codex سهمیه نداشت) · feat/identity-attendance-server: WP-A نگاشت هویت (migration 006، /api/identity*، کارت هرگز خودکار تأیید نمی‌شود) + WP-B حضور سروری (/api/performance/attendance*، sha تکراری = بی‌تغییر، override دستی محفوظ، مهاجرت IndexedDB). اضافه‌کار خروج دیر پیش‌فرض خاموش. باز: حذف یک دسته روزهای بی‌تغییرِ دستهٔ بعد را هم پاک می‌کند؛ دسترسی salesmgr/accmgr. بدون merge/deploy.
 
 2026-10-09 · Codex · feat/performance-workspace: تب عملکرد با API فقط‌خواندنی scoped، فیلتر مشترک، چهار محور نقش، جزئیات و تقویم کامل شمسی؛ موتور حضور/پورسانت حفظ شد. داده ناموجود null و محدودیت حضور محلی و API قدیمی عمومی صریح در docs/performance/README.md. 145 unit passed/1 skipped، 83 Python passed/6 skipped، build/typecheck/lint و مرورگر RTL موفق؛ بدون merge/deploy.
