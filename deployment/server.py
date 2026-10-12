@@ -21,6 +21,7 @@ import hashlib
 import urllib.parse
 import urllib.request
 import urllib.error
+import html as _html
 
 import pymysql
 from pymysql.cursors import DictCursor
@@ -4602,6 +4603,60 @@ def _tg_fail(pid, err):
         _tg_try("sendMessage", chat_id=TG_ADMIN_ID, text="⚠️ انتشارِ پستِ #%s ناموفق ماند: %s" % (fa_digits(pid), _tg_redact(err)[:200]))
 
 
+# ── Bale mirror: after a successful Telegram channel post, repost the same photo+caption to the Bale channel.
+# Best-effort only: never raises, retries once, logs status only (never the token or URL).
+def _bale_plain(caption):
+    t = re.sub(r'<a\s+href="([^"]+)"[^>]*>(.*?)</a>', lambda m: m.group(2) if m.group(1) in m.group(2) else "%s (%s)" % (m.group(2), m.group(1)), caption or "", flags=re.S | re.I)
+    return _html.unescape(re.sub(r"<[^>]+>", "", t))[:1024]
+
+
+def _bale_call(method, fields, files=None):
+    url = os.environ.get("BALE_API_BASE", "https://tapi.bale.ai").rstrip("/") + "/bot" + os.environ["BALE_BOT_TOKEN"] + "/" + method
+    if files:
+        boundary = "aromin" + secrets.token_hex(8)
+        parts = []
+        for k, v in fields.items():
+            parts.append(("--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n" % (boundary, k, v)).encode("utf-8"))
+        for k, (name, data, mime) in files.items():
+            parts.append(("--%s\r\nContent-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\nContent-Type: %s\r\n\r\n" % (boundary, k, name, mime or "application/octet-stream")).encode("utf-8") + bytes(data) + b"\r\n")
+        body = b"".join(parts) + ("--%s--\r\n" % boundary).encode()
+        req = urllib.request.Request(url, data=body, method="POST", headers={"Content-Type": "multipart/form-data; boundary=" + boundary})
+    else:
+        req = urllib.request.Request(url, data=json.dumps(fields).encode("utf-8"), method="POST", headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        res = json.loads(r.read(2_000_000))
+    if not isinstance(res, dict) or not res.get("ok"):
+        raise RuntimeError("bale rejected (code %s)" % (res.get("error_code") if isinstance(res, dict) else "?"))
+    return res.get("result") or {}
+
+
+def bale_mirror(caption, photo_url=None, photo_bytes=None, mime=None, buttons=None):
+    """Returns 'ok' / 'skipped' / 'failed'. buttons: [[{text,url}]] → inline keyboard (Bale supports url buttons)."""
+    if not os.environ.get("BALE_BOT_TOKEN") or not os.environ.get("BALE_CHANNEL_ID"):
+        return "skipped"
+    fields = {"chat_id": os.environ["BALE_CHANNEL_ID"], "caption": _bale_plain(caption)}
+    if buttons:
+        fields["reply_markup"] = json.dumps({"inline_keyboard": buttons})
+    for attempt in (1, 2):
+        try:
+            if photo_url:
+                _bale_call("sendPhoto", dict(fields, photo=photo_url))
+            elif photo_bytes:
+                _bale_call("sendPhoto", fields, files={"photo": ("aromin.jpg", photo_bytes, mime)})
+            else:
+                f = {"chat_id": fields["chat_id"], "text": fields["caption"][:4096]}
+                if buttons:
+                    f["reply_markup"] = fields["reply_markup"]
+                _bale_call("sendMessage", f)
+            print("bale mirror: ok attempt=%d" % attempt, flush=True)
+            return "ok"
+        except Exception as e:
+            print("bale mirror: fail attempt=%d kind=%s" % (attempt, type(e).__name__), flush=True)
+            if attempt == 1:
+                time.sleep(2)
+    return "failed"
+
+
 def tg_publish(pid):
     """انتشارِ حداکثر یک‌بار: claim با inflight+lease؛ تلاشِ بی‌نتیجهٔ قبلی دوباره ارسال نمی‌شود (PUBLISH_FAILED برای بررسیِ دستی)."""
     now = _sa_now()
@@ -4645,7 +4700,13 @@ def tg_publish(pid):
     _tg_exec("UPDATE tg_posts SET status='PUBLISHED', inflight=0, lease_until=NULL, message_id=%s, message_url=%s, published_at=%s, last_error=NULL, "
              "updated_at=%s WHERE id=%s AND status='PUBLISHING'", (mid, url, done, done, pid))
     _tg_audit(pid, None, "published", url or str(mid))
-    _tg_try("sendMessage", chat_id=TG_ADMIN_ID, text="✅ پستِ #%s منتشر شد: %s" % (fa_digits(pid), url or mid))
+    try:
+        bale = bale_mirror(row["caption"], photo_url=row.get("image_url") or None,
+                           photo_bytes=None if row.get("image_url") else (bytes(row["image"]) if row.get("image") else None), mime=row.get("image_mime"))
+    except Exception:
+        bale = "failed"
+    _tg_audit(pid, None, "bale_mirror", bale)
+    _tg_try("sendMessage", chat_id=TG_ADMIN_ID, text="✅ پستِ #%s منتشر شد: %s%s" % (fa_digits(pid), url or mid, "" if bale == "skipped" else ("\nبله: ✅" if bale == "ok" else "\nبله: ⚠️ ناموفق")))
     return "published"
 
 
