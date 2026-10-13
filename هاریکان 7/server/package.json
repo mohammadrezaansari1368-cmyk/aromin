@@ -1,0 +1,28 @@
+{
+  "name": "aromin-hozour-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "موتور و سرور سامانه حضور و غیاب آرومین",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "create-admin": "node src/cli/create-admin.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18.18"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.5.0",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "helmet": "^8.0.0",
+    "jalaliday": "^2.3.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

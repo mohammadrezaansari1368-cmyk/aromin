@@ -1,0 +1,33 @@
+:root { --brand:#ac44a1; --brand-bg:#250a22; --card:#141414; --border:#262626; }
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; min-height: 100%; background: #000; font-family: Vazirmatn, Tahoma, sans-serif; }
+.app-shell { display: flex; gap: 8px; min-height: 100vh; padding: 12px 8px 16px; }
+.sider { width: 240px; flex-shrink: 0; background: var(--card); border-radius: 8px; padding: 16px 8px; position: sticky; top: 12px; height: calc(100vh - 28px); overflow-y: auto; }
+.logo { font-size: 26px; font-weight: 800; padding: 4px 12px 20px; color: #fff; }
+.logo span { color: var(--brand); }
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 8px; color: rgba(255,255,255,.85); cursor: pointer; user-select: none; font-size: 14px; }
+.nav-item:hover { background: #1f1f1f; }
+.nav-item.active { background: var(--brand-bg); color: var(--brand); }
+.nav-item .chev { margin-inline-start: auto; font-size: 10px; opacity: .6; transition: transform .2s; }
+.nav-item .chev.open { transform: rotate(-90deg); }
+.nav-sub { padding-inline-start: 26px; display: flex; flex-direction: column; gap: 2px; }
+.nav-sub .nav-item { padding: 8px; font-size: 13px; }
+.nav-sep { height: 1px; background: var(--border); margin: 8px 0; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.topbar { background: var(--card); border-radius: 8px; height: 55px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; }
+.crumb { color: rgba(255,255,255,.85); font-size: 13px; padding: 0 4px; }
+.page-card { background: var(--card); border-radius: 8px; padding: 16px; flex: 1; }
+.page-title { text-align: center; font-size: 17px; font-weight: 700; color: #fff; padding: 4px 0 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; align-items: end; }
+.burger { display: none !important; }
+.row-deleted td { opacity: .45; text-decoration: line-through; }
+.row-deleted td:last-child { text-decoration: none; opacity: 1; }
+.overlay { display: none; }
+@media (max-width: 900px) {
+  .sider { position: fixed; right: 0; top: 0; height: 100vh; z-index: 50; border-radius: 0; transform: translateX(100%); transition: transform .25s; }
+  .sider.open { transform: none; }
+  .overlay.open { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 40; }
+  .burger { display: inline-flex !important; }
+  .app-shell { padding: 8px; }
+  .hide-sm { display: none; }
+}
