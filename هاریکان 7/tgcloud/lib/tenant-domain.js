@@ -84,7 +84,19 @@ export function route(state, path, method='GET', body, actor) {
   if(method==='POST' && pathname==='/admin/location'){let row;try{row=recordLocation(state,body,actor);}catch(e){fail(e.message);}return done(state,actor,'location','locations',row);}
   if(pathname.startsWith('/admin/tokens') || pathname==='/admin/sms/test') fail('این اتصال هنوز فعال نیست');
   let m=pathname.match(/^\/admin\/settings\/([\w:-]+)$/);
-  if(m && method==='PUT') {state.settings[m[1]]=body?.value; return done(state,actor,'settings',m[1],body?.value);}
+  if(m && method==='PUT') {
+    let value=body?.value;
+    if(m[1]==='faceService'){
+      if(typeof value?.hasService!=='boolean')fail('بله یا خیر را انتخاب کنید');
+      if(value.hasService){
+        const provider=String(value.provider||'').trim(),website=String(value.website||'').trim();
+        if(!provider||provider.length>120)fail('نام سرویس‌دهنده نامعتبر است');
+        if(website&&(website.length>500||!/^https:\/\/[^\s/@]+(?:\/[^\s]*)?$/.test(website)||/[?#]/.test(website)))fail('آدرس HTTPS معتبر، بدون کلید و پارامتر محرمانه وارد کنید');
+        value={hasService:true,provider,website,connectionStatus:'not_connected'};
+      }else value={hasService:false,connectionStatus:'not_connected'};
+    }
+    state.settings[m[1]]=value; return done(state,actor,'settings',m[1],value);
+  }
   if(pathname.startsWith('/admin/zk')) return zkRoute(state,pathname.slice(9),method,body,q,actor);
   m=pathname.match(/^\/admin\/c\/([a-zA-Z]+)(?:\/([\w-]+))?$/);
   if(!m || !COLLECTIONS.includes(m[1])) fail('مجموعه نامعتبر است');

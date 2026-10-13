@@ -6,6 +6,31 @@ import { Page, DataTable, RowActions, StatusTag, Field, DateInput, dateRule, MON
 import { db, useCollection, useLocalSetting, today, MODE, api } from '../store.js';
 import { useEffect } from 'react';
 
+export function FaceServiceSettings(){
+  const {message}=App.useApp();
+  const [form]=Form.useForm();
+  const [loading,setLoading]=useState(true),[saving,setSaving]=useState(false),[error,setError]=useState('');
+  const hasService=Form.useWatch('hasService',form);
+  useEffect(()=>{api('/admin/settings').then(s=>form.setFieldsValue(s.faceService||{})).catch(e=>setError(e.message)).finally(()=>setLoading(false));},[]);
+  const save=async v=>{setSaving(true);setError('');try{
+    const value={hasService:v.hasService,...(v.hasService?{provider:v.provider,website:v.website||''}:{})};
+    const saved=await api('/admin/settings/faceService',{method:'PUT',body:{value}});
+    form.setFieldsValue(saved);message.success('پاسخ برای همین کسب‌وکار ذخیره شد');
+  }catch(e){setError(e.message);}finally{setSaving(false);}};
+  return <Page title="سرویس تشخیص چهره"><Card loading={loading}>
+    {error&&<Alert type="error" message={error} style={{marginBottom:16}}/>}
+    <Form form={form} layout="vertical" onFinish={save}>
+      <Form.Item name="hasService" label="آیا سرویس تشخیص چهره دارید؟" rules={[{required:true,message:'بله یا خیر را انتخاب کنید'}]}><Radio.Group options={[{label:'بله',value:true},{label:'خیر',value:false}]}/></Form.Item>
+      {hasService===true&&<>
+        <Form.Item name="provider" label="نام سرویس‌دهنده" rules={[{required:true,whitespace:true,message:'نام سرویس‌دهنده را وارد کنید'},{max:120}]}><Input maxLength={120}/></Form.Item>
+        <Form.Item name="website" label="آدرس سایت یا مستندات سرویس" rules={[{type:'url',message:'آدرس کامل و معتبر وارد کنید'}]}><Input dir="ltr" placeholder="https://..." maxLength={500}/></Form.Item>
+      </>}
+      <Alert type="info" style={{marginBottom:16}} message={hasService===false?'تا اتصال سرویس، تطبیق خودکار چهره فعال نیست.':'ثبت این پاسخ سرویس را فعال نمی‌کند؛ اتصال و بررسی سرویس باید انجام شود. کلید API را در این فرم وارد نکنید.'}/>
+      <Button type="primary" htmlType="submit" loading={saving}>ذخیره پاسخ</Button>
+    </Form>
+  </Card></Page>;
+}
+
 // ───────── تعطیلات
 const OFFICIAL_1405 = [
   ['1405/01/01', 'عید نوروز'], ['1405/01/02', 'عید نوروز'], ['1405/01/03', 'عید نوروز'], ['1405/01/04', 'عید نوروز'],

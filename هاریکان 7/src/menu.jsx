@@ -42,6 +42,7 @@ export const MENU = [
     { label: 'پنل پیامک', path: '/sms-panel' },
     { label: 'تنظیمات درخواست', path: '/requests/settings' },
     { label: 'وب سرویس', path: '/web-service' },
+    { label: 'سرویس تشخیص چهره', path: '/settings/face-service' },
   ] },
   { label: 'پیام', icon: <MessageOutlined />, path: '/messages' },
   { sep: true },

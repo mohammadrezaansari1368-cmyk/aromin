@@ -12,7 +12,7 @@ import { ShiftList, ShiftForm } from './pages/Shifts.jsx';
 import { PersonnelList, PersonnelForm } from './pages/Personnel.jsx';
 import { PerformanceReport, AuditReport, VacationReport, VacationDetails, ProjectReport, TrackingReport, IncompleteReport } from './pages/Reports.jsx';
 import { Requests, RequestSettings } from './pages/Requests.jsx';
-import { Holidays, PolicyList, PolicyForm, GroupList, GroupForm, ProjectList, ProjectForm, SmsPanel, WebService } from './pages/Settings.jsx';
+import { Holidays, PolicyList, PolicyForm, GroupList, GroupForm, ProjectList, ProjectForm, SmsPanel, WebService, FaceServiceSettings } from './pages/Settings.jsx';
 import { Devices } from './pages/Devices.jsx';
 import { DeviceRecords } from './pages/DeviceRecords.jsx';
 import { Messages, Tickets, NewTicket, Packages, Application } from './pages/Misc.jsx';
@@ -67,6 +67,7 @@ export default function App() {
         <Route path="/device-records" element={<DeviceRecords />} />
         <Route path="/sms-panel" element={<SmsPanel />} />
         <Route path="/web-service" element={<WebService />} />
+        <Route path="/settings/face-service" element={<FaceServiceSettings />} />
         <Route path="/messages" element={<Messages />} />
         <Route path="/tickets" element={<Tickets />} />
         <Route path="/tickets/new" element={<NewTicket />} />
