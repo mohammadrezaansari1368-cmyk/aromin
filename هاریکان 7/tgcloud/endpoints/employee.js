@@ -6,6 +6,7 @@ import { todayJ,nowHM } from '../lib/core.js';
 import { employeeByPhone } from '../lib/identity.js';
 import { recordLocation } from '../lib/location.js';
 import {requirePhone,presenceLocation,missionAction} from '../lib/mobile-presence.js';
+import {verifyFace} from '../lib/face.js';
 export default async function(input,ctx){
  const uid=ctx?.initData?.user?.id,id=input?.businessId;
  if(!Number.isSafeInteger(uid)||uid<=0||!Number.isSafeInteger(id)||id<=0)throw new EndpointError('ورود معتبر تلگرام لازم است');
@@ -15,7 +16,7 @@ export default async function(input,ctx){
  if(!p)throw new EndpointError('به این کسب‌وکار دسترسی ندارید');
  try{requirePhone(input.device);}catch(e){throw new EndpointError(e.message);}
  const D=state.data,view=()=>({name:p.firstName+' '+p.lastName,branding:state.branding||{},attendance:D.attendance.filter(r=>r.person===p.id),requests:D.requests.filter(r=>r.person===p.id),requestTypes:D.requestTypes.filter(t=>t.active),messages:D.messages.filter(m=>m.to?.includes(p.id)).map(m=>({id:m.id,title:m.title,body:m.body,date:m.date})),version:business.version});
- const result=()=>({...view(),missions:(state.mobileMissions||[]).filter(m=>m.person===p.id)});
+ const result=()=>({...view(),faceRequired:state.settings?.faceService?.hasService===true,faceEnrolled:!!p.faceReference,missions:(state.mobileMissions||[]).filter(m=>m.person===p.id)});
  if(!input.action||input.action==='load')return result();
  if(input.version!==business.version)throw new EndpointError('اطلاعات تغییر کرده است؛ دوباره تلاش کنید',{code:'CONFLICT'});
  try{
@@ -33,16 +34,18 @@ export default async function(input,ctx){
    if(!Number.isFinite(lat)||!Number.isFinite(lng)||Math.abs(lat)>90||Math.abs(lng)>180||!Number.isFinite(accuracy)||accuracy<0||accuracy>200)throw new DomainError('موقعیت دقیق دریافت نشد؛ دوباره تلاش کنید');
    let meta;
    try{meta=presenceLocation(D.workplaces.find(w=>w.id===p.workplace),input.location);}catch(e){throw new DomainError(e.message);}
+   // No provider credentials exist yet. Fail closed when employer requires faces.
+   try{const face=await verifyFace(state,p,input.face);if(face)meta.face=face;}catch(e){throw new DomainError(e.message);}
    if(input.action.startsWith('mission_')){
     try{missionAction(state,p.id,input.action,{...meta,source:'telegram-phone'},uid);}catch(e){throw new DomainError(e.message);}
    }else{
    const open=D.attendance.find(r=>r.person===p.id&&!r.out);
    if(input.action==='in'){
     if(open)throw new DomainError('یک ورود باز دارید؛ ابتدا خروج را ثبت کنید');
-    route(state,'/admin/c/attendance','POST',{person:p.id,date:todayJ(),in:nowHM(),type:'حضور',inMeta:{source:'telegram',at:new Date().toISOString(),lat,lng,accuracy}},uid);
+    route(state,'/admin/c/attendance','POST',{person:p.id,date:todayJ(),in:nowHM(),type:'حضور',inMeta:{...meta,source:'telegram-phone'}},uid);
    }else{
     if(!open)throw new DomainError('ورود بازی ندارید');
-    route(state,'/admin/c/attendance/'+open.id,'PUT',{out:nowHM(),_version:open._version,outMeta:{source:'telegram',at:new Date().toISOString(),lat,lng,accuracy}},uid);
+    route(state,'/admin/c/attendance/'+open.id,'PUT',{out:nowHM(),_version:open._version,outMeta:{...meta,source:'telegram-phone'}},uid);
    }
    }
   }else throw new DomainError('عملیات نامعتبر است');

@@ -2,6 +2,7 @@ import { todayJ, normJ, isJDate, validateRequest, zkPairs, toJ } from './core.js
 import { advancedShiftRoute } from './shifts/route.js';
 import { normalizeMobile } from './identity.js';
 import { recordLocation } from './location.js';
+import {faceImage} from './face.js';
 
 export const COLLECTIONS = ['workplaces','groups','shifts','policies','personnel','projects','holidays','requests','requestTypes','messages','tickets','devices','smsLines','attendance','deviceRecords'];
 export class DomainError extends Error {}
@@ -41,6 +42,7 @@ function check(c,row,all,id) {
     if (row.nationalId && !/^\d{10}$/.test(row.nationalId)) fail('کد ملی نامعتبر است');
     if (row.telegramId && !/^[1-9]\d{0,15}$/.test(String(row.telegramId))) fail('شناسه تلگرام نامعتبر است');
     row.status ||= 'فعال';
+    if(row.faceReference){try{faceImage(row.faceReference);}catch(e){fail(e.message);}}
   }
   for (const [field,target] of Object.entries({workplace:'workplaces',shift:'shifts',policy:'policies',group:'groups',person:'personnel',parent:'groups'})) {
     if (row[field] && !all[target].some(r=>r.id===row[field])) fail('مرجع نامعتبر: '+field);
@@ -92,7 +94,7 @@ export function route(state, path, method='GET', body, actor) {
         const provider=String(value.provider||'').trim(),website=String(value.website||'').trim();
         if(!provider||provider.length>120)fail('نام سرویس‌دهنده نامعتبر است');
         if(website&&(website.length>500||!/^https:\/\/[^\s/@]+(?:\/[^\s]*)?$/.test(website)||/[?#]/.test(website)))fail('آدرس HTTPS معتبر، بدون کلید و پارامتر محرمانه وارد کنید');
-        value={hasService:true,provider,website,connectionStatus:'not_connected'};
+        value={hasService:true,provider,website,required:true,connectionStatus:'not_connected'};
       }else value={hasService:false,connectionStatus:'not_connected'};
     }
     state.settings[m[1]]=value; return done(state,actor,'settings',m[1],value);

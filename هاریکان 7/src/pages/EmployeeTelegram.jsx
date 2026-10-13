@@ -3,18 +3,25 @@ import {Alert,Button,Card,Form,Input,List,Select,Space,Spin,Table,App} from 'ant
 import {cloud,tenant} from '../cloud.js';
 import {today} from '../store.js';
 import {requirePhone} from '../mobile.js';
+import FaceCapture from '../components/FaceCapture.jsx';
 export default function Employee(){
  const{message}=App.useApp();const[data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const [faceAction,setFaceAction]=useState(null);
  const load=async()=>{const device=requirePhone();setData(await cloud('employee',{businessId:tenant.business.id,action:'load',device}));};
  useEffect(()=>{load().catch(e=>setError(e.message));},[]);
  const act=async(action,extra={})=>{setBusy(true);try{const device=requirePhone();setData(await cloud('employee',{businessId:tenant.business.id,action,version:data.version,...extra,device}));message.success('ثبت شد');}catch(e){setError(e.message);if(e.code==='CONFLICT')await load();}finally{setBusy(false);}};
- const punch=async action=>{
+ const punch=async (action,face)=>{
+  if(data?.faceRequired&&['in','out','mission_start','mission_end'].includes(action)&&!face){
+   if(!data.faceEnrolled){setError('کارفرما باید ابتدا چهره مرجع شما را ثبت کند');return;}
+   setFaceAction(action);return;
+  }
   setBusy(true);
-  try{requirePhone();const location=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(p=>resolve({lat:p.coords.latitude,lng:p.coords.longitude,accuracy:p.coords.accuracy}),()=>reject(new Error('برای ثبت عملیات، اجازه موقعیت مکانی لازم است')),{enableHighAccuracy:true,timeout:20000,maximumAge:0}));await act(action,{location});}
+  try{requirePhone();const location=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(p=>resolve({lat:p.coords.latitude,lng:p.coords.longitude,accuracy:p.coords.accuracy}),()=>reject(new Error('برای ثبت عملیات، اجازه موقعیت مکانی لازم است')),{enableHighAccuracy:true,timeout:20000,maximumAge:0}));await act(action,{location,face});}
   catch(e){setError(e.message);}finally{setBusy(false);}
  };
  return <div style={{padding:16,maxWidth:900,margin:'auto'}}><div style={{textAlign:'center',marginBottom:16}}>{data?.branding?.logo&&<img src={data.branding.logo} alt={'لوگوی '+tenant.business.name} style={{width:200,maxWidth:'100%'}}/>}<h2>هاریکان ۷</h2></div>
   <Card title={tenant.business.name} extra={<Button onClick={()=>{tenant.clear();window.dispatchEvent(new Event('aromin:logout'));}}>تغییر کسب‌وکار</Button>}>
+   <FaceCapture open={!!faceAction} onCancel={()=>setFaceAction(null)} onCapture={image=>{const action=faceAction;setFaceAction(null);punch(action,image);}}/>
    {error&&<Alert type="error" message={error} closable onClose={()=>setError('')} style={{marginBottom:16}}/>}
    {!data?<Spin/>:<><h3>{data.name}</h3><Alert type="info" message="با زدن ورود، خروج یا ثبت لوکیشن، موقعیت فعلی در سابقه خصوصی کسب‌وکار ثبت می‌شود؛ برای ورود و خروج محدوده محل کار هم بررسی می‌شود." style={{marginBottom:16}}/>
     <Space><Button type="primary" loading={busy} onClick={()=>punch('in')}>ثبت ورود</Button><Button loading={busy} onClick={()=>punch('out')}>ثبت خروج</Button></Space>

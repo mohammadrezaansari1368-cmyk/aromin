@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Button, Card, Col, Form, Input, Radio, Row, Select, Switch, Upload, App, Checkbox } from 'antd';
+import { Alert, Button, Card, Col, Form, Input, Radio, Row, Select, Switch, Upload, App, Checkbox } from 'antd';
 import { SearchOutlined, UploadOutlined } from '@ant-design/icons';
 import { Page, DataTable, RowActions, StatusTag, ExcelButton, CollectionSelect, DateInput, dateRule } from '../components/common.jsx';
 import { ImportExcel } from './Workplaces.jsx';
 import { db, useCollection } from '../store.js';
+import FaceCapture from '../components/FaceCapture.jsx';
 
 export function PersonnelList() {
   const nav = useNavigate();
@@ -50,10 +51,11 @@ export function PersonnelForm() {
   const { message } = App.useApp();
   const ex = id ? db.find('personnel', id) : null;
   const [photo, setPhoto] = useState(ex?.photo);
+  const [faceReference,setFaceReference]=useState(ex?.faceReference),[camera,setCamera]=useState(false);
 
   const submit = async (v) => {
     delete v.password2;
-    const row = { ...v, photo, status: v.status || 'فعال' };
+    const row = { ...v, photo, faceReference:faceReference||null, status: v.status || 'فعال' };
     if (ex) await db.update('personnel', id, row); else await db.add('personnel', row);
     message.success('پرسنل ثبت شد'); nav('/personnel');
   };
@@ -76,6 +78,14 @@ export function PersonnelForm() {
             </Upload>
           </Form.Item></C>
         </Section>
+        <Section title="ثبت چهره مرجع">
+          <Col span={24}><Alert type="info" message="عکس مرجع با اطلاع کارمند ثبت شود؛ این عکس برای تطبیق هویت در سرور همان کسب‌وکار نگهداری می‌شود." style={{marginBottom:12}}/>
+            {faceReference&&<img src={faceReference} alt="چهره مرجع کارمند" style={{width:120,display:'block',marginBottom:12}}/>}
+            <Button onClick={()=>setCamera(true)}>ثبت چهره با دوربین</Button>
+            {faceReference&&<Button onClick={()=>setFaceReference(null)}>حذف چهره مرجع</Button>}
+          </Col>
+        </Section>
+        <FaceCapture open={camera} onCancel={()=>setCamera(false)} onCapture={image=>{setFaceReference(image);setCamera(false);}}/>
         <Section title="اطلاعات شغلی">
           <C><Form.Item name="code" label="کد پرسنلی" rules={[{ required: true, message: 'الزامی است' }]}><Input /></Form.Item></C>
           <C><Form.Item name="workplace" label="محل کار"><CollectionSelect name="workplaces" placeholder="جستجو کنید" /></Form.Item></C>

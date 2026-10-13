@@ -25,7 +25,7 @@ export function FaceServiceSettings(){
         <Form.Item name="provider" label="نام سرویس‌دهنده" rules={[{required:true,whitespace:true,message:'نام سرویس‌دهنده را وارد کنید'},{max:120}]}><Input maxLength={120}/></Form.Item>
         <Form.Item name="website" label="آدرس سایت یا مستندات سرویس" rules={[{type:'url',message:'آدرس کامل و معتبر وارد کنید'}]}><Input dir="ltr" placeholder="https://..." maxLength={500}/></Form.Item>
       </>}
-      <Alert type="info" style={{marginBottom:16}} message={hasService===false?'تا اتصال سرویس، تطبیق خودکار چهره فعال نیست.':'ثبت این پاسخ سرویس را فعال نمی‌کند؛ اتصال و بررسی سرویس باید انجام شود. کلید API را در این فرم وارد نکنید.'}/>
+      <Alert type={hasService===true?'warning':'info'} style={{marginBottom:16}} message={hasService===false?'تطبیق چهره برای این کسب‌وکار الزامی نیست.':'با انتخاب بله، تطبیق چهره برای حضور و مأموریت الزامی می‌شود. تا سرویس واقعاً متصل نباشد، ثبت این عملیات متوقف می‌شود. کلید API را در این فرم وارد نکنید.'}/>
       <Button type="primary" htmlType="submit" loading={saving}>ذخیره پاسخ</Button>
     </Form>
   </Card></Page>;
