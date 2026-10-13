@@ -2,14 +2,15 @@ import {useEffect,useState} from 'react';
 import {Alert,Button,Card,Form,Input,List,Select,Space,Spin,Table,App} from 'antd';
 import {cloud,tenant} from '../cloud.js';
 import {today} from '../store.js';
+import {requirePhone} from '../mobile.js';
 export default function Employee(){
  const{message}=App.useApp();const[data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
- const load=()=>cloud('employee',{businessId:tenant.business.id,action:'load'}).then(setData);
+ const load=async()=>{const device=requirePhone();setData(await cloud('employee',{businessId:tenant.business.id,action:'load',device}));};
  useEffect(()=>{load().catch(e=>setError(e.message));},[]);
- const act=async(action,extra={})=>{setBusy(true);try{setData(await cloud('employee',{businessId:tenant.business.id,action,version:data.version,...extra}));message.success('ثبت شد');}catch(e){setError(e.message);if(e.code==='CONFLICT')await load();}finally{setBusy(false);}};
+ const act=async(action,extra={})=>{setBusy(true);try{const device=requirePhone();setData(await cloud('employee',{businessId:tenant.business.id,action,version:data.version,...extra,device}));message.success('ثبت شد');}catch(e){setError(e.message);if(e.code==='CONFLICT')await load();}finally{setBusy(false);}};
  const punch=async action=>{
   setBusy(true);
-  try{const location=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(p=>resolve({lat:p.coords.latitude,lng:p.coords.longitude,accuracy:p.coords.accuracy}),()=>reject(new Error('برای ثبت تردد، اجازه موقعیت مکانی لازم است')),{enableHighAccuracy:true,timeout:20000,maximumAge:0}));await act(action,{location});}
+  try{requirePhone();const location=await new Promise((resolve,reject)=>navigator.geolocation.getCurrentPosition(p=>resolve({lat:p.coords.latitude,lng:p.coords.longitude,accuracy:p.coords.accuracy}),()=>reject(new Error('برای ثبت عملیات، اجازه موقعیت مکانی لازم است')),{enableHighAccuracy:true,timeout:20000,maximumAge:0}));await act(action,{location});}
   catch(e){setError(e.message);}finally{setBusy(false);}
  };
  return <div style={{padding:16,maxWidth:900,margin:'auto'}}><div style={{textAlign:'center',marginBottom:16}}>{data?.branding?.logo&&<img src={data.branding.logo} alt={'لوگوی '+tenant.business.name} style={{width:200,maxWidth:'100%'}}/>}<h2>هاریکان ۷</h2></div>
@@ -18,6 +19,8 @@ export default function Employee(){
    {!data?<Spin/>:<><h3>{data.name}</h3><Alert type="info" message="با زدن ورود، خروج یا ثبت لوکیشن، موقعیت فعلی در سابقه خصوصی کسب‌وکار ثبت می‌شود؛ برای ورود و خروج محدوده محل کار هم بررسی می‌شود." style={{marginBottom:16}}/>
     <Space><Button type="primary" loading={busy} onClick={()=>punch('in')}>ثبت ورود</Button><Button loading={busy} onClick={()=>punch('out')}>ثبت خروج</Button></Space>
     <Button style={{marginInlineStart:8}} loading={busy} onClick={()=>punch('location')}>ثبت لوکیشن</Button>
+    <h3>مأموریت</h3><Space><Button loading={busy} onClick={()=>punch('mission_start')}>شروع مأموریت با لوکیشن</Button><Button loading={busy} onClick={()=>punch('mission_end')}>پایان مأموریت با لوکیشن</Button></Space>
+    <List dataSource={(data.missions||[]).slice().reverse()} renderItem={m=><List.Item>شروع: {m.startedAt} — پایان: {m.endedAt||'باز'}</List.Item>}/>
     <h3>ترددهای من</h3><Table rowKey="id" dataSource={data.attendance.slice().reverse()} size="small" columns={[{title:'تاریخ',dataIndex:'date'},{title:'ورود',dataIndex:'in'},{title:'خروج',dataIndex:'out'}]}/>
     <h3>درخواست جدید</h3><Form layout="vertical" initialValues={{from:today()}} onFinish={body=>act('request',{body})}>
      <Form.Item name="kind" label="نوع" rules={[{required:true}]}><Select options={data.requestTypes.map(t=>({value:t.name,label:t.name}))}/></Form.Item>

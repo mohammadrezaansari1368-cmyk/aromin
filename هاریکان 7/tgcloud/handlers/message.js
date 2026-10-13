@@ -40,16 +40,10 @@ export default async function (message) {
   }
   if (!person.phone) return send('ابتدا شماره خودتان را با دکمه اشتراک شماره ثبت کنید.');
   if (text === 'شروع مأموریت' || command === '/mission_start') {
-    const current = await active();
-    if (current) return send(`مأموریت ${current.id} هنوز باز است. ابتدا آن را پایان دهید.`);
-    const [created] = await db.insert(missions).values({ userId: uid, startedAt: now }).returning().run();
-    return send(`مأموریت ${created.id} شروع شد. زمان UTC: ${time(now)}\nنام مجموعه و شرح کار را در گزارش بنویسید یا ویس بدهید.`);
+    return api.sendMessage({chat_id:message.chat.id,text:'شروع مأموریت فقط از پنل کارمند روی گوشی و در محدوده محل مجاز با لوکیشن انجام می‌شود.',reply_markup:{inline_keyboard:[[{text:'پنل کارمند',web_app:{url:'https://app8964990565.tgcloud.ai/?role=employee'}}]]}});
   }
   if (text === 'پایان مأموریت' || command === '/mission_end') {
-    const current = await active();
-    if (!current) return send('مأموریت بازی ندارید.');
-    await db.update(missions).set({ endedAt: now }).where(and(eq(missions.id, current.id), isNull(missions.endedAt))).run();
-    return send(`مأموریت ${current.id} پایان یافت. مدت: ${Math.max(0, Math.ceil((now - current.startedAt) / 60))} دقیقه.\nاین اقدام تیکتی در CRM ایجاد یا بسته نمی‌کند.`);
+    return api.sendMessage({chat_id:message.chat.id,text:'پایان مأموریت را از پنل کارمند روی گوشی و با لوکیشن ثبت کنید. سوابق قدیمی مأموریت در تاریخچه باقی می‌مانند.',reply_markup:{inline_keyboard:[[{text:'پنل کارمند',web_app:{url:'https://app8964990565.tgcloud.ai/?role=employee'}}]]}});
   }
   if (text === 'تاریخچه گزارش‌ها' || command === '/history') {
     const rows = await db.select().from(reports).where(eq(reports.userId, uid)).orderBy(desc(reports.id)).limit(10).all();
