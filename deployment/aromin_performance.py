@@ -10,6 +10,16 @@ AXES = {
  'finance':[('finance_documents','میزان فعالیت','سند','اسناد یکتای دارای رویداد fin_by برای حسابدار منتخب؛ ثبت‌کننده با مسئول مالی متفاوت است.'),('efficiency','راندمان','٪','وظایف دارای سررسید و زمان انجام موجود نیست.'),('accuracy','دقت مالی','٪','نتیجه اولین بررسی و علت اصلاح ساخت‌یافته موجود نیست.'),('effectiveness','اثربخشی مالی','٪','مسئول وصول، گروه سررسید و پرداخت جزئی قابل انتساب موجود نیست.')]
 }
 
+# WP-3: server call stats (aromin_calls.daily_records). Kept beside the axes, not mapped onto activity/efficiency (owner has not defined that mapping).
+CALL_METRICS=('calls_in','calls_out','calls_internal','calls_answered','calls_missed','talk_seconds')
+CALL_UNITS={m:('ثانیه' if m=='talk_seconds' else 'تماس') for m in CALL_METRICS}
+
+def call_totals(rows):
+    """Per-metric sums of call records; None when there is no call record (no data ≠ zero)."""
+    group=[r for r in rows if r['metric'] in CALL_METRICS]
+    if not group: return None
+    return {m:sum(r['value'] for r in group if r['metric']==m) for m in CALL_METRICS}
+
 def date_key(raw):
     r = parse_stage_change(str(raw or ''))
     return r.get('date') if r.get('ok') else None

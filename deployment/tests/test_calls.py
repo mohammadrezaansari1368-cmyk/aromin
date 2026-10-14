@@ -433,6 +433,40 @@ class Endpoints(unittest.TestCase):
         self.assertEqual(self.res(self.server.calls_delete(None, tenant='t2', batch='1'))[0], 404)
 
 
+    def perf(self, view, **kw):
+        args = dict(tenant='t1', person='', unit='', start='1405/06/19', end='1405/06/20', metric='tasks', offset=0, limit=100)
+        args.update(kw)
+        return self.res(self.server.performance_read(view, None, **args))
+
+    def test_performance_wiring_wp3(self):
+        code, out = self.perf('summary')
+        self.assertEqual(code, 200)
+        self.assertEqual({p['id']: p['calls'] for p in out['people']}, {'1': None, '2': None})   # no call rows: no data, not zero
+        self.log()
+        out = self.perf('summary')[1]
+        calls_by = {p['id']: p['calls'] for p in out['people']}
+        self.assertEqual({k: calls_by['1'][k] for k in ('calls_out', 'calls_internal', 'calls_answered', 'calls_missed')},
+                         {'calls_out': 3, 'calls_internal': 1, 'calls_answered': 2, 'calls_missed': 0})
+        self.assertEqual((calls_by['2']['calls_in'], calls_by['2']['calls_missed']), (1, 1))   # queue 999 never credited to its owner
+        self.assertTrue(any('call_logs' in n for n in out['notes']))
+        code, out = self.perf('details', metric='calls_out', person='1')
+        self.assertEqual((out['total'], {r['source'] for r in out['rows']}), (sum(r['value'] > 0 for r in out['rows']), {'call_logs'}))
+        daily = self.perf('daily', metric='calls_out', person='1')[1]
+        self.assertEqual((sum(d['value'] for d in daily['days']), daily['unit']), (3, 'تماس'))
+        self.assertEqual(self.perf('daily', metric='talk_seconds', person='1')[1]['unit'], 'ثانیه')
+        self.ident = {'user': 'sara', 'role': 'sales'}
+        out = self.perf('summary')[1]
+        self.assertEqual([p['id'] for p in out['people']], ['2'])
+        self.assertEqual(self.perf('details', metric='calls_out', person='1')[0], 403)
+
+    def test_performance_without_call_storage(self):
+        with patch.object(self.server, 'db_conn', side_effect=OSError('down')):
+            code, out = self.perf('summary')
+        self.assertEqual(code, 200)
+        self.assertEqual({p['calls'] for p in out['people']}, {None})
+        self.assertTrue(any('در دسترس نبود' in n for n in out['notes']))
+
+
 class Migration007(unittest.TestCase):
     def test_loads_twice_and_down_drops_only_its_tables(self):
         import re

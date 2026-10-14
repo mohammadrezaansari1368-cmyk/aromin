@@ -2313,6 +2313,27 @@ def _hhmm(v, default):
         return default
 
 
+def _call_stats(tenant, s, e):
+    """daily_stats over call_logs in [s, e] with the tenant's work hours → (stats, rows, settings)."""
+    with _SaTx() as t:
+        aliases = t.x("SELECT kind,alias_key,person_id,status FROM identity_aliases WHERE tenant=%s AND kind IN ('julio','ext')", (tenant,)).fetchall()
+        rows = t.x("SELECT " + ",".join(_CALL_COLS) + ",updated_at FROM call_logs WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant, s, e)).fetchall()
+        st = t.one("SELECT settings FROM attendance_settings WHERE tenant=%s", (tenant,))
+    settings = dict(att.DEFAULT_SETTINGS, **(json.loads(st["settings"]) if st else {}))
+    work = (_hhmm(settings.get("workStart"), 600), _hhmm(settings.get("workEnd"), 1080))
+    return calls.daily_stats(rows, aliases, s, e, work), rows, settings
+
+
+def _perf_call_records(tenant, s, e, pids):
+    """WP-3: server call stats as records()-shaped rows for already-scoped people only; None if call storage is unreachable."""
+    try:
+        stats = _call_stats(tenant, s, e)[0]
+    except Exception as ex:
+        print("[perf] call stats unavailable:", ex)
+        return None
+    return [r for r in calls.daily_records(stats) if r["personId"] in pids]
+
+
 @app.post("/api/performance/calls/log")
 def calls_log_upload(request: Request, payload: dict = Body(default={})):
     tenant = str((payload or {}).get("tenant") or "team")
@@ -2438,13 +2459,7 @@ def calls_daily(request: Request, tenant: str = "team", start: str = "", end: st
     admin, allowed, err = _call_scope(ident, full, people, tenant, person)
     if err:
         return err
-    with _SaTx() as t:
-        aliases = t.x("SELECT kind,alias_key,person_id,status FROM identity_aliases WHERE tenant=%s AND kind IN ('julio','ext')", (tenant,)).fetchall()
-        rows = t.x("SELECT " + ",".join(_CALL_COLS) + ",updated_at FROM call_logs WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant, s, e)).fetchall()
-        st = t.one("SELECT settings FROM attendance_settings WHERE tenant=%s", (tenant,))
-    settings = dict(att.DEFAULT_SETTINGS, **(json.loads(st["settings"]) if st else {}))
-    work = (_hhmm(settings.get("workStart"), 600), _hhmm(settings.get("workEnd"), 1080))
-    stats = calls.daily_stats(rows, aliases, s, e, work)
+    stats, rows, settings = _call_stats(tenant, s, e)
     names = {p["id"]: p.get("name") for p in people}
     keep = {str(person)} if person else allowed
     out = {"ok": True, "scope": "organization" if admin else "self", "period": {"from": s, "to": e},
@@ -2607,6 +2622,8 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
             dt=datetime.fromtimestamp(float(ts)/1000,ZoneInfo('Asia/Tehran'))
             return '%04d/%02d/%02d' % tuple(_jalali(dt.year,dt.month,dt.day))
         all_rows, issues = perf.records(full,selected,stamp_to_j)
+        call_rows=_perf_call_records(tenant,start,end,{str(p['id']) for p in selected})
+        all_rows+=call_rows or []
         rows=perf.in_period(all_rows,start,end)
         if view == 'details':
             selected_rows=[r for r in rows if r['metric']==metric]
@@ -2614,20 +2631,20 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
             return {'ok':True,'rows':selected_rows[offset:offset+limit],'total':len(selected_rows),'offset':offset,'limit':limit}
         if view == 'daily':
             if not person: raise ValueError('برای نمای سالانه یک شخص را انتخاب کنید.')
-            if metric not in ('tasks','contracts','finance_documents'): raise ValueError('شاخص نامعتبر')
+            if metric not in ('tasks','contracts','finance_documents')+perf.CALL_METRICS: raise ValueError('شاخص نامعتبر')
             days={}
             for r in rows:
                 if r['metric']==metric: days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
-            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند','issues':issues,'updatedAt':full.get('ts')}
+            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
         entries=[]
         for p in selected:
             pid=str(p['id']); own=[r for r in rows if r['personId']==pid]; warnings=[i for i in issues if i['personId']==pid]
-            entries.append({**perf.public_person(p),'metrics':perf.metrics(perf.UNITS.get(p.get('role'),'other'),own,warnings,start,end,full.get('ts')),'tasks':sum(r['value'] for r in own if r['metric']=='tasks') if any(r['metric']=='tasks' for r in own) else None,'issues':warnings})
+            entries.append({**perf.public_person(p),'metrics':perf.metrics(perf.UNITS.get(p.get('role'),'other'),own,warnings,start,end,full.get('ts')),'tasks':sum(r['value'] for r in own if r['metric']=='tasks') if any(r['metric']=='tasks' for r in own) else None,'calls':perf.call_totals(own) if call_rows is not None else None,'issues':warnings})
         groups=[]
         for u in ('sales','support','finance'):
             members=[p for p in selected if perf.UNITS.get(p.get('role'))==u]; pids={str(p['id']) for p in members}
-            if members: groups.append({'unit':u,'people':len(members),'metrics':perf.metrics(u,[r for r in rows if r['personId'] in pids],[i for i in issues if i['personId'] in pids],start,end,full.get('ts'))})
-        return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['حضور از جدول سروری attendance_days و فقط برای نگاشت تأییدشده کارت↔شخص.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف دارای تاریخ اعتبار در منابع عملکرد یافت نشد.']}
+            if members: groups.append({'unit':u,'people':len(members),'metrics':perf.metrics(u,[r for r in rows if r['personId'] in pids],[i for i in issues if i['personId'] in pids],start,end,full.get('ts')),'calls':perf.call_totals([r for r in rows if r['personId'] in pids]) if call_rows is not None else None})
+        return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['حضور از جدول سروری attendance_days و فقط برای نگاشت تأییدشده کارت↔شخص.','تماس از جدول سروری call_logs و فقط برای نگاشت تأییدشده julio/داخلی↔شخص؛ تماس صف و بی‌نگاشت به شخص نسبت داده نمی‌شود.' if call_rows is not None else 'دادهٔ سروریِ تماس در دسترس نبود؛ آمار تماس نمایش داده نمی‌شود.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف دارای تاریخ اعتبار در منابع عملکرد یافت نشد.']}
     except PermissionError as e:
         return JSONResponse({'ok':False,'error':str(e)},status_code=403)
     except ValueError as e:

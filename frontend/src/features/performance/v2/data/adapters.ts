@@ -1,10 +1,14 @@
 /** Raw API → ViewModel. The UI never reads raw responses. Missing/invalid fields become null/«—», never 0. */
-import type { ApiDaily, ApiMetric, ApiPerson, ApiStatus, DailyKey, DayVM, IssueGroup, Metric, PersonVM, Status } from './types'
+import type { ApiCalls, ApiDaily, ApiMetric, ApiPerson, ApiStatus, CallKey, DailyKey, DayVM, IssueGroup, Metric, PersonVM, Status } from './types'
 
 export const UNIT_LABEL: Record<string, string> = { sales: 'فروش', support: 'پشتیبانی', finance: 'مالی', other: 'سایر' }
 const STATUS_MAP: Record<ApiStatus, Status> = { valid: 'valid', partial: 'partial', no_data: 'not_computable', not_applicable: 'irrelevant', error: 'error' }
 /** metric id → the /daily metric that can draw its trend (only these exist in the API) */
-const DAILY_OF: Record<string, DailyKey> = { contract_average: 'contracts', finance_documents: 'finance_documents', tasks: 'tasks' }
+export const CALL_KEYS: [CallKey, string, string][] = [
+	['calls_out', 'تماس خروجی', 'تماس'], ['calls_in', 'تماس ورودی', 'تماس'], ['calls_answered', 'پاسخ‌داده', 'تماس'],
+	['calls_missed', 'ازدست‌رفته', 'تماس'], ['calls_internal', 'تماس داخلی', 'تماس'], ['talk_seconds', 'زمان مکالمه', 'ثانیه'],
+]
+const DAILY_OF: Record<string, DailyKey> = { contract_average: 'contracts', finance_documents: 'finance_documents', tasks: 'tasks', ...Object.fromEntries(CALL_KEYS.map(([k]) => [k, k])) }
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 export const toStatus = (s: unknown): Status => (typeof s === 'string' && s in STATUS_MAP ? STATUS_MAP[s as ApiStatus] : 'not_computable')
@@ -26,9 +30,22 @@ export function toMetric(raw: Partial<ApiMetric> | null | undefined): Metric {
 export function tasksMetric(tasks: number | null | undefined): Metric {
 	return toMetric({ id: 'tasks', label: 'وظایف', unit: 'وظیفه', definition: 'وظایف ثبت‌شده در منبع وظایف برای همین دوره.', value: num(tasks), numerator: num(tasks), denominator: null, status: num(tasks) === null ? 'no_data' : 'valid', target: null, coverage: { records: num(tasks) === null ? 0 : 1, issues: 0 }, source: [], detailsMetric: 'tasks' })
 }
+/** null = no server call data for this scope/period (shown «—», never 0). */
+export function toCalls(raw: unknown): ApiCalls | null {
+	if (!raw || typeof raw !== 'object') return null
+	const r = raw as Record<string, unknown>
+	return CALL_KEYS.every(([k]) => num(r[k]) !== null) ? (Object.fromEntries(CALL_KEYS.map(([k]) => [k, r[k]])) as ApiCalls) : null
+}
+/** Call stats are pseudo-metrics like tasks; they do not redefine any axis (activity/efficiency mapping is not decided). */
+export function callMetrics(calls: ApiCalls | null | undefined): Metric[] {
+	return CALL_KEYS.map(([id, label, unit]) => {
+		const v = calls ? calls[id] : null
+		return toMetric({ id, label, unit, definition: 'آمار روزانهٔ ریز تماسِ سرور؛ فقط نگاشتِ تأییدشدهٔ julio/داخلی. تماسِ صف و بی‌نگاشت به شخص نسبت داده نمی‌شود.', value: v, numerator: v, denominator: null, status: v === null ? 'no_data' : 'valid', target: null, coverage: { records: v === null ? 0 : 1, issues: 0 }, source: v === null ? [] : ['call_logs'], detailsMetric: id })
+	})
+}
 export function toPerson(raw: Partial<ApiPerson> | null | undefined): PersonVM {
 	const r = raw || {}, name = String(r.name || '—'), unit = String(r.unit || 'other')
-	return { id: String(r.id ?? ''), name, initial: name.trim().charAt(0) || '؟', role: String(r.role || ''), unit, unitLabel: UNIT_LABEL[unit] || UNIT_LABEL.other, inactive: !!r.inactive, tasks: num(r.tasks), metrics: Array.isArray(r.metrics) ? r.metrics.map(toMetric) : [] }
+	return { id: String(r.id ?? ''), name, initial: name.trim().charAt(0) || '؟', role: String(r.role || ''), unit, unitLabel: UNIT_LABEL[unit] || UNIT_LABEL.other, inactive: !!r.inactive, tasks: num(r.tasks), calls: toCalls(r.calls), metrics: Array.isArray(r.metrics) ? r.metrics.map(toMetric) : [] }
 }
 export const toPeople = (raw: unknown): PersonVM[] => (Array.isArray(raw) ? raw.map((p) => toPerson(p as ApiPerson)).filter((p) => p.id) : [])
 export function toDays(raw: Partial<ApiDaily> | null | undefined): DayVM[] {
@@ -52,6 +69,7 @@ export function gaugeMax(m: Metric, peers: (number | null)[]): number {
 const FA_DIGITS = '۰۱۲۳۴۵۶۷۸۹'
 export const persian = (s: string) => String(s).replace(/\d/g, (d) => FA_DIGITS[+d])
 export const fa = (n: number | null | undefined, digits = 1) => (n === null || n === undefined || !Number.isFinite(n) ? '—' : n.toLocaleString('fa-IR', { maximumFractionDigits: digits }))
+export const faDuration = (sec: number | null | undefined) => (sec === null || sec === undefined || !Number.isFinite(sec) ? '—' : persian(Math.floor(sec / 3600) + ':' + String(Math.floor((sec % 3600) / 60)).padStart(2, '0')))
 export const faMoney = (n: number | null | undefined) => (n === null || n === undefined ? '—' : n >= 1e9 ? fa(n / 1e9, 1) + ' میلیارد' : n >= 1e6 ? fa(n / 1e6, 1) + ' میلیون' : fa(n, 0))
 export function ago(ts: number | undefined, now = Date.now()): string {
 	if (!ts) return '—'
