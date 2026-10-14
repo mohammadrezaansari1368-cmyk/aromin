@@ -318,10 +318,11 @@ class Endpoints(unittest.TestCase):
                 with self.subTest(ident=ident), patch.object(s, 'db_conn') as db:
                     self.assertEqual(call().status_code, 401 if ident is None else 403)
                     db.assert_not_called()
-        self.ident = {'user': 'p', 'role': 'salesmgr'}   # owner decision: statistics only, never a call row or a customer number
-        with patch.object(s, 'db_conn') as db:
-            self.assertEqual(s.calls_log_read(None, tenant='t1').status_code, 403)
-            db.assert_not_called()
+        for role in ('salesmgr', 'accmgr'):   # owner decision: statistics only, never a call row or a customer number
+            self.ident = {'user': 'p', 'role': role}
+            with self.subTest(role=role), patch.object(s, 'db_conn') as db:
+                self.assertEqual(s.calls_log_read(None, tenant='t1').status_code, 403)
+                db.assert_not_called()
         self.ident = None
         for call in (lambda: s.calls_daily(None, tenant='t1'), lambda: s.calls_summary_read(None, tenant='t1')):
             with patch.object(s, 'db_conn') as db:

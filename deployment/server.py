@@ -2245,7 +2245,8 @@ def identity_decide(request: Request, payload: dict = Body(default={})):
 # Same guards as attendance: kb_identity; writes, raw rows and batches need ATT_ADMIN_ROLES (customer numbers = PII).
 # A person is resolved only at read time from confirmed julio/ext aliases; nobody is created; queue calls stay team-level.
 # Owner decision: the sales manager sees call statistics only, never a single call or a customer number.
-CALL_DETAIL_ROLES = tuple(r for r in ATT_ADMIN_ROLES if r != "salesmgr")
+# Owner decisions (2026-10-14): sales and finance unit managers see call statistics only, never raw rows/customer numbers.
+CALL_DETAIL_ROLES = tuple(r for r in ATT_ADMIN_ROLES if r not in ("salesmgr", "accmgr"))
 _CALL_COLS = ("channel_code", "date_j", "time_s", "direction", "o_ext", "o_julio", "o_phone", "o_contact", "o_name",
               "d_ext", "d_julio", "d_phone", "d_contact", "d_name", "total_sec", "talk_sec", "channel_status", "call_status", "sync_at")
 
