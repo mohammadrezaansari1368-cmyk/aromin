@@ -44,8 +44,8 @@ const Section = ({ title, children }) => (
 );
 const C = ({ children }) => <Col xs={24} sm={12} md={8}>{children}</Col>;
 
-export function PersonnelForm() {
-  const { id } = useParams();
+export function PersonnelForm({onSaved,wizard=false,recordId}={}) {
+  const params=useParams(),id=recordId||params.id;
   const [sp] = useSearchParams(); // ?code= از «ترددهای تخلیه‌شده ← پرسنل دستگاه»
   const nav = useNavigate();
   const { message } = App.useApp();
@@ -54,10 +54,11 @@ export function PersonnelForm() {
   const [faceReference,setFaceReference]=useState(ex?.faceReference),[camera,setCamera]=useState(false);
 
   const submit = async (v) => {
+    if(wizard&&(!v.workplace||!v.shift)){message.error('محل کار و شیفت را برای کارمند انتخاب کنید');return;}
     delete v.password2;
     const row = { ...v, photo, faceReference:faceReference||null, status: v.status || 'فعال' };
     if (ex) await db.update('personnel', id, row); else await db.add('personnel', row);
-    message.success('پرسنل ثبت شد'); nav('/personnel');
+    message.success('پرسنل ثبت شد'); if(onSaved)onSaved();else nav('/personnel');
   };
 
   return (

@@ -30,6 +30,7 @@ export const MENU = [
   { label: 'درخواست ها', icon: <HourglassOutlined />, path: '/requests/new', badge: 'requests' },
   { label: 'ترددهای تخلیه‌شده', icon: <CloudDownloadOutlined />, path: '/device-records' },
   { label: 'تنظیمات کسب و کار', icon: <SettingOutlined />, children: [
+    { label: 'راه‌اندازی مرحله‌به‌مرحله', path: '/setup' },
     { label: 'تعطیلات', path: '/holidays' },
     { label: 'لیست سیاست کاری', path: '/policies' },
     { label: 'ثبت سیاست کاری', path: '/policies/new' },

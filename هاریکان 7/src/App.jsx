@@ -5,6 +5,7 @@ import { MODE, auth, bootstrap } from './store.js';
 import Login from './pages/Registration.jsx';
 import Employee from './pages/EmployeeTelegram.jsx';
 import AdvancedShifts from './pages/AdvancedShifts.jsx';
+import SetupWizard from './pages/SetupWizard.jsx';
 import AppLayout from './layout/AppLayout.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import { WorkplaceList, WorkplaceForm } from './pages/Workplaces.jsx';
@@ -33,6 +34,7 @@ export default function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/setup" element={<SetupWizard />} />
         <Route path="/workplaces" element={<WorkplaceList />} />
         <Route path="/workplaces/new" element={<WorkplaceForm />} />
         <Route path="/workplaces/edit/:id" element={<WorkplaceForm />} />

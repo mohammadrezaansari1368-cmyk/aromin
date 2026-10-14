@@ -88,6 +88,12 @@ export function route(state, path, method='GET', body, actor) {
   let m=pathname.match(/^\/admin\/settings\/([\w:-]+)$/);
   if(m && method==='PUT') {
     let value=body?.value;
+    if(m[1]==='onboarding'){
+      if(value?.completed!==true)fail('راه‌اندازی نامعتبر است');
+      const places=state.data.workplaces.filter(w=>w.lat!=null&&w.lng!=null&&w.lat!==''&&w.lng!==''&&Number.isFinite(+w.lat)&&Number.isFinite(+w.lng)&&Math.abs(+w.lat)<=90&&Math.abs(+w.lng)<=180&&w.status!=='غیر فعال');
+      if(!places.length||!state.data.shifts.length||!state.data.personnel.some(p=>p.status==='فعال'&&places.some(w=>w.id===p.workplace)&&state.data.shifts.some(s=>s.id===p.shift)))fail('محل کار با موقعیت معتبر، شیفت و کارمند فعال با همین محل و شیفت را ثبت کنید');
+      value={completed:true,completedAt:new Date().toISOString()};
+    }
     if(m[1]==='faceService'){
       if(typeof value?.hasService!=='boolean')fail('بله یا خیر را انتخاب کنید');
       if(value.hasService){

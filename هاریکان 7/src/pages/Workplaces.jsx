@@ -51,8 +51,8 @@ export function ImportExcel({ collection, map }) {
   );
 }
 
-export function WorkplaceForm() {
-  const { id } = useParams();
+export function WorkplaceForm({onSaved,wizard=false,recordId}={}) {
+  const params=useParams(),id=recordId||params.id;
   const nav = useNavigate();
   const { message } = App.useApp();
   const existing = id ? db.find('workplaces', id) : null;
@@ -68,15 +68,16 @@ export function WorkplaceForm() {
   );
 
   const submit = async (v) => {
+    if(wizard&&(!Number.isFinite(v.lat)||!Number.isFinite(v.lng)||Math.abs(v.lat)>90||Math.abs(v.lng)>180)){message.error('ابتدا موقعیت واقعی محل کار را ثبت کنید');return;}
     const row = { ...v, wifis, status: v.status || 'فعال' };
     if (existing) await db.update('workplaces', id, row); else await db.add('workplaces', row);
     message.success('محل کار ثبت شد');
-    nav('/workplaces');
+    if(onSaved)onSaved();else nav('/workplaces');
   };
 
   return (
     <Page title={existing ? 'ویرایش محل کار' : 'افزودن محل کار'}>
-      <Form form={form} layout="vertical" initialValues={{ radius: 100, shape: 'دایره', lat: 37.2808, lng: 49.5832, ...existing }} onFinish={submit}>
+      <Form form={form} layout="vertical" initialValues={{ radius: 100, shape: 'دایره', ...(wizard?{}:{lat:37.2808,lng:49.5832}), ...existing }} onFinish={submit}>
         <Row gutter={16}>
           <Col xs={24} md={8}><Form.Item name="name" label="نام محل کار" rules={[{ required: true, message: 'الزامی است' }]}><Input placeholder="نام محل کار را وارد کنید" /></Form.Item></Col>
           <Col xs={24} md={8}><Form.Item name="city" label="شهر"><Input placeholder="شهر را وارد کنید" /></Form.Item></Col>
