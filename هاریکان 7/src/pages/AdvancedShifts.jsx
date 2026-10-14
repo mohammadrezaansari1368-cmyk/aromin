@@ -14,5 +14,5 @@ export default function AdvancedShifts(){
    catch(error){event.source.postMessage({channel:'aromin-shifts-response',requestId,error:error.message},location.origin);}
   };window.addEventListener('message',handler);return()=>window.removeEventListener('message',handler);
  },[id]);
- return <Page title="شیفت‌های پیشرفته هاریکان ۷"><iframe ref={frame} title="تعریف شیفت پیشرفته هاریکان ۷" src={'/shifts.html'+(id?'?id='+encodeURIComponent(id):'')} style={{width:'100%',height:'80vh',border:0,borderRadius:8}}/></Page>;
+ return <Page title={id?'ویرایش شیفت':'تعریف شیفت'}><iframe ref={frame} title="تعریف شیفت هاریکان ۷" src={'/shifts.html'+(id?'?id='+encodeURIComponent(id):'')} style={{width:'100%',height:'80vh',border:0,borderRadius:8}}/></Page>;
 }

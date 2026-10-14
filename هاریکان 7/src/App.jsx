@@ -8,7 +8,7 @@ import AdvancedShifts from './pages/AdvancedShifts.jsx';
 import AppLayout from './layout/AppLayout.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import { WorkplaceList, WorkplaceForm } from './pages/Workplaces.jsx';
-import { ShiftList, ShiftForm } from './pages/Shifts.jsx';
+import { ShiftList, ShiftEditor } from './pages/Shifts.jsx';
 import { PersonnelList, PersonnelForm } from './pages/Personnel.jsx';
 import { PerformanceReport, AuditReport, VacationReport, VacationDetails, ProjectReport, TrackingReport, IncompleteReport } from './pages/Reports.jsx';
 import { Requests, RequestSettings } from './pages/Requests.jsx';
@@ -39,8 +39,8 @@ export default function App() {
         <Route path="/shifts" element={<ShiftList />} />
         <Route path="/shifts/advanced" element={<AdvancedShifts />} />
         <Route path="/shifts/advanced/:id" element={<AdvancedShifts />} />
-        <Route path="/shifts/create" element={<ShiftForm />} />
-        <Route path="/shifts/edit/:id" element={<ShiftForm />} />
+        <Route path="/shifts/create" element={<AdvancedShifts />} />
+        <Route path="/shifts/edit/:id" element={<ShiftEditor />} />
         <Route path="/personnel" element={<PersonnelList />} />
         <Route path="/personnel/new" element={<PersonnelForm />} />
         <Route path="/personnel/edit/:id" element={<PersonnelForm />} />

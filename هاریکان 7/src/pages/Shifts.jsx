@@ -5,6 +5,12 @@ import { SearchOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { Page, DataTable, RowActions, WEEKDAYS, MONTHS, Field } from '../components/common.jsx';
 import { db, useCollection } from '../store.js';
+import AdvancedShifts from './AdvancedShifts.jsx';
+
+export function ShiftEditor(){
+  const {id}=useParams();
+  return db.find('shifts',id)?.advanced ? <AdvancedShifts/> : <ShiftForm/>;
+}
 
 export function ShiftList() {
   const nav = useNavigate();
@@ -22,7 +28,7 @@ export function ShiftList() {
         { title: 'نام شیفت', dataIndex: 'name' },
         { title: 'نوع', dataIndex: 'type' },
         { title: 'روزهای کاری', render: (_, r) => r.advanced ? r.advanced.days.length+' روز در سال' : Object.keys(r.days || {}).length + (r.type === 'سفارشی' ? ' روز از ماه' : ' روز در هفته') },
-        { title: 'عملیات', render: (_, r) => <RowActions onEdit={() => nav(r.advanced ? `/shifts/advanced/${r.id}` : `/shifts/edit/${r.id}`)} onDelete={() => db.remove('shifts', r.id)} /> },
+        { title: 'عملیات', render: (_, r) => <RowActions onEdit={() => nav(`/shifts/edit/${r.id}`)} onDelete={() => db.remove('shifts', r.id)} /> },
       ]} />
     </Page>
   );

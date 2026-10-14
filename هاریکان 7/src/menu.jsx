@@ -13,7 +13,6 @@ export const MENU = [
   { label: 'شیفت ها', icon: <FieldTimeOutlined />, children: [
     { label: 'لیست شیفت ها', path: '/shifts' },
     { label: 'تعریف شیفت', path: '/shifts/create' },
-    { label: 'تعریف شیفت پیشرفته', path: '/shifts/advanced' },
   ] },
   { label: 'پرسنل', icon: <TeamOutlined />, children: [
     { label: 'لیست پرسنل', path: '/personnel' },
