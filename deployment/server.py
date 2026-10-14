@@ -42,6 +42,7 @@ from migrate import run_migrations
 import aromin_publish as pub
 import aromin_identity as idmap
 import aromin_attendance as att
+import aromin_calls as calls
 import uuid
 from pathlib import Path as FilePath
 from fastapi.responses import FileResponse
@@ -2238,6 +2239,345 @@ def identity_decide(request: Request, payload: dict = Body(default={})):
         t.x("UPDATE identity_aliases SET person_id=%s,status=%s,confidence=%s,decided_by=%s,decided_at=%s,updated_at=%s WHERE id=%s AND tenant=%s", vals + (now, ex["id"], tenant))
         row = t.one("SELECT * FROM identity_aliases WHERE id=%s", (ex["id"],))
     return {"ok": True, "alias": idmap.public_alias(row, by_id)}
+
+
+# ---------------- تماس‌ها روی سرور (WP-C) ----------------
+# Same guards as attendance: kb_identity; writes, raw rows and batches need ATT_ADMIN_ROLES (customer numbers = PII).
+# A person is resolved only at read time from confirmed julio/ext aliases; nobody is created; queue calls stay team-level.
+# Owner decision: the sales manager sees call statistics only, never a single call or a customer number.
+CALL_DETAIL_ROLES = tuple(r for r in ATT_ADMIN_ROLES if r != "salesmgr")
+_CALL_COLS = ("channel_code", "date_j", "time_s", "direction", "o_ext", "o_julio", "o_phone", "o_contact", "o_name",
+              "d_ext", "d_julio", "d_phone", "d_contact", "d_name", "total_sec", "talk_sec", "channel_status", "call_status", "sync_at")
+
+
+def _call_batch(b):
+    return {"id": b["id"], "kind": b["kind"], "fileName": b["file_name"], "sha256": b["file_sha256"], "source": b["source"],
+            "uploadedBy": b["uploaded_by"], "createdAt": _att_iso(b["created_at"]), "direction": b["direction"],
+            "periodFrom": b["period_from"], "periodTo": b["period_to"], "rows": b["rows_total"], "inserted": b["inserted"],
+            "updated": b["updated"], "unchanged": b["unchanged"], "conflicts": b["conflicts"],
+            "skipped": json.loads(b["skipped"] or "[]"), "details": json.loads(b["details"] or "{}")}
+
+
+def _call_dup(tenant, sha):
+    old = q("SELECT * FROM call_batches WHERE tenant=%s AND file_sha256=%s", (tenant, sha))
+    return {"ok": True, "duplicate": True, "batch": _call_batch(old[0])} if old else None
+
+
+def _call_aliases(t, tenant, people, parties, source, now):
+    """parties: {(kind, key): rawName}. merge_alias keeps human decisions; returns aliases still awaiting a decision."""
+    unmapped = []
+    for (kind, key), raw in sorted(parties.items()):
+        ex = t.one("SELECT * FROM identity_aliases WHERE tenant=%s AND kind=%s AND alias_key=%s FOR UPDATE", (tenant, kind, key))
+        row = idmap.merge_alias(ex, kind, key, raw or key, source, idmap.match(raw or "", people), now=now)
+        if row:
+            _alias_write(t, tenant, ex, row, now)
+        status = (row or ex)["status"]
+        if status not in ("confirmed", "rejected"):
+            unmapped.append({"kind": kind, "key": key, "rawName": raw or key, "status": status})
+    return unmapped
+
+
+def _call_scope(ident, full, people, tenant, person):
+    """(admin, allowed person ids, err) — identical to attendance_read."""
+    import aromin_performance as perf
+    admin = ident["role"] in ATT_ADMIN_ROLES
+    if admin:
+        allowed = {p["id"] for p in people}
+    else:
+        users, _ = _kb_directory(tenant)
+        try:
+            allowed = {str(p["id"]) for p in perf.directory(full, ident, users)}
+        except PermissionError as ex:
+            return admin, None, _att_deny(403, str(ex))
+        except ValueError as ex:
+            return admin, None, _att_deny(400, str(ex))
+    if person and str(person) not in allowed:
+        return admin, None, _att_deny(403 if not admin else 404, "شخص خارج از دامنه مجاز است.")
+    return admin, allowed, None
+
+
+def _call_range(start, end):
+    s, e = att.norm_date(start), att.norm_date(end)
+    if not s or not e or s > e:
+        return None, None, _att_deny(400, "بازه شمسی معتبر را انتخاب کنید.")
+    if calls._ordinal(e) - calls._ordinal(s) + 1 > 366:
+        return None, None, _att_deny(400, "بازه بیش از ۳۶۶ روز است.")
+    return s, e, None
+
+
+def _hhmm(v, default):
+    try:
+        h, m = str(v).split(":")
+        return int(h) * 60 + int(m)
+    except (ValueError, AttributeError):
+        return default
+
+
+@app.post("/api/performance/calls/log")
+def calls_log_upload(request: Request, payload: dict = Body(default={})):
+    tenant = str((payload or {}).get("tenant") or "team")
+    ident, full, people, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    try:
+        parsed = calls.parse_log_payload(payload)
+    except att.TooLarge as e:
+        return _att_deny(413, str(e))
+    except ValueError as e:
+        return _att_deny(400, str(e))
+    found, now = parsed["calls"], _att_now()
+    try:
+        with _SaTx() as t:
+            old = t.one("SELECT * FROM call_batches WHERE tenant=%s AND file_sha256=%s FOR UPDATE", (tenant, parsed["sha256"]))
+            if old:
+                return {"ok": True, "duplicate": True, "batch": _call_batch(old)}
+            if not found:
+                raise _AttFail(400, "هیچ ردیفِ معتبری در فایل نیست.", skipped=parsed["skipped"][:200], conflicts=parsed["in_file_conflicts"][:200])
+            codes, existing = sorted(c["channel_code"] for c in found), {}
+            for i in range(0, len(codes), 500):
+                part = codes[i:i + 500]
+                for r in t.x("SELECT " + ",".join(_CALL_COLS) + ",row_sha256,core_sha256 FROM call_logs WHERE tenant=%s AND channel_code IN (" + _in(part) + ") FOR UPDATE", [tenant] + part).fetchall():
+                    existing[r["channel_code"]] = r
+            plan = calls.plan_calls(existing, found)
+            conflicts = parsed["in_file_conflicts"] + plan["conflicts"]
+            details = {"conflicts": conflicts[:200], "updates": [{k: u[k] for k in ("key", "reason", "fields")} for u in plan["update"]][:200]}
+            dates = [c["date_j"] for c in found]
+            t.x("INSERT INTO call_batches (tenant,kind,file_sha256,file_name,source,uploaded_by,direction,period_from,period_to,rows_total,inserted,updated,unchanged,conflicts,skipped,details,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (tenant, "calllog", parsed["sha256"], parsed["file_name"], parsed["source"], ident["user"], None, min(dates), max(dates), len(payload["rows"]),
+                 len(plan["insert"]), len(plan["update"]), plan["unchanged"], len(conflicts), json.dumps(parsed["skipped"][:200], ensure_ascii=False),
+                 json.dumps(details, ensure_ascii=False), now))
+            bid = t.cur.lastrowid
+            cols = _CALL_COLS + ("raw_json", "row_sha256", "core_sha256")
+            for c in plan["insert"]:
+                t.x("INSERT INTO call_logs (tenant," + ",".join(cols) + ",batch_id,updated_at) VALUES (" + _in(cols) + ",%s,%s,%s)",
+                    [tenant] + [c[k] for k in cols] + [bid, now])
+            for u in plan["update"]:
+                c = u["call"]
+                t.x("UPDATE call_logs SET " + ",".join(k + "=%s" for k in cols[1:]) + ",batch_id=%s,updated_at=%s WHERE tenant=%s AND channel_code=%s",
+                    [c[k] for k in cols[1:]] + [bid, now, tenant, c["channel_code"]])
+            parties = {}
+            for c in found:
+                for s in ("o", "d"):
+                    if c[s + "_ext"]:
+                        for kind, key in (("julio", c[s + "_julio"]), ("ext", c[s + "_ext"])):
+                            if key and not parties.get((kind, key)):
+                                parties[(kind, key)] = c[s + "_name"]
+            unmapped = _call_aliases(t, tenant, people, parties, "calllog", now)
+            batch = t.one("SELECT * FROM call_batches WHERE id=%s", (bid,))
+    except _AttFail as e:
+        return _att_deny(e.code, e.msg, **e.extra)
+    except pymysql.err.IntegrityError:
+        dup = _call_dup(tenant, parsed["sha256"])
+        if not dup:
+            raise
+        return dup
+    return JSONResponse({"ok": True, "duplicate": False, "batch": _call_batch(batch), "unmapped": unmapped}, status_code=201)
+
+
+@app.post("/api/performance/calls/summary")
+def calls_summary_upload(request: Request, payload: dict = Body(default={})):
+    tenant = str((payload or {}).get("tenant") or "team")
+    ident, full, people, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    try:
+        parsed = calls.parse_summary_payload(payload)
+    except att.TooLarge as e:
+        return _att_deny(413, str(e))
+    except ValueError as e:
+        return _att_deny(400, str(e))
+    pf, pt, d, now = parsed["period_from"], parsed["period_to"], parsed["direction"], _att_now()
+    try:
+        with _SaTx() as t:
+            old = t.one("SELECT * FROM call_batches WHERE tenant=%s AND file_sha256=%s FOR UPDATE", (tenant, parsed["sha256"]))
+            if old:
+                return {"ok": True, "duplicate": True, "batch": _call_batch(old)}
+            if not parsed["rows"]:
+                raise _AttFail(400, "هیچ ردیفِ معتبری در فایل نیست.", skipped=parsed["skipped"][:200])
+            existing = {r["ext"]: r["row_sha256"] for r in t.x(
+                "SELECT ext,row_sha256 FROM call_summaries WHERE tenant=%s AND period_from=%s AND period_to=%s AND direction=%s FOR UPDATE",
+                (tenant, pf, pt, d)).fetchall()}
+            plan = calls.plan_summary(existing, parsed["rows"])
+            overlaps = [{"from": r["period_from"], "to": r["period_to"]} for r in t.x(
+                "SELECT DISTINCT period_from,period_to FROM call_summaries WHERE tenant=%s AND direction=%s AND period_from<=%s AND period_to>=%s AND NOT (period_from=%s AND period_to=%s) ORDER BY period_from,period_to",
+                (tenant, d, pt, pf, pf, pt)).fetchall()]
+            details = {"conflicts": [], "updates": [{"key": r["ext"], "reason": "replaced", "fields": []} for r in plan["update"]][:200]}
+            t.x("INSERT INTO call_batches (tenant,kind,file_sha256,file_name,source,uploaded_by,direction,period_from,period_to,rows_total,inserted,updated,unchanged,conflicts,skipped,details,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (tenant, "calls", parsed["sha256"], parsed["file_name"], parsed["source"], ident["user"], d, pf, pt, len(payload["rows"]),
+                 len(plan["insert"]), len(plan["update"]), plan["unchanged"], 0, json.dumps(parsed["skipped"][:200], ensure_ascii=False),
+                 json.dumps(details, ensure_ascii=False), now))
+            bid = t.cur.lastrowid
+            cols = ("agent_name", "total", "answered", "no_answer", "busy", "failed", "talk_sec", "raw_json", "row_sha256")
+            for r in plan["insert"]:
+                t.x("INSERT INTO call_summaries (tenant,period_from,period_to,direction,ext," + ",".join(cols) + ",batch_id,updated_at) VALUES (%s,%s,%s,%s,%s," + _in(cols) + ",%s,%s)",
+                    [tenant, pf, pt, d, r["ext"]] + [r[k] for k in cols] + [bid, now])
+            for r in plan["update"]:
+                t.x("UPDATE call_summaries SET " + ",".join(k + "=%s" for k in cols) + ",batch_id=%s,updated_at=%s WHERE tenant=%s AND period_from=%s AND period_to=%s AND direction=%s AND ext=%s",
+                    [r[k] for k in cols] + [bid, now, tenant, pf, pt, d, r["ext"]])
+            unmapped = _call_aliases(t, tenant, people, {("ext", r["ext"]): r["agent_name"] for r in parsed["rows"]}, "callsummary", now)
+            batch = t.one("SELECT * FROM call_batches WHERE id=%s", (bid,))
+    except _AttFail as e:
+        return _att_deny(e.code, e.msg, **e.extra)
+    except pymysql.err.IntegrityError:
+        dup = _call_dup(tenant, parsed["sha256"])
+        if not dup:
+            raise
+        return dup
+    return JSONResponse({"ok": True, "duplicate": False, "batch": _call_batch(batch), "unmapped": unmapped,
+                         "warnings": {"overlaps": overlaps, "sums": parsed["warnings"]}}, status_code=201)
+
+
+@app.get("/api/performance/calls/daily")
+def calls_daily(request: Request, tenant: str = "team", start: str = "", end: str = "", person: str = ""):
+    ident, full, people, err = _att_ctx(request, tenant)
+    if err:
+        return err
+    s, e, err = _call_range(start, end)
+    if err:
+        return err
+    admin, allowed, err = _call_scope(ident, full, people, tenant, person)
+    if err:
+        return err
+    with _SaTx() as t:
+        aliases = t.x("SELECT kind,alias_key,person_id,status FROM identity_aliases WHERE tenant=%s AND kind IN ('julio','ext')", (tenant,)).fetchall()
+        rows = t.x("SELECT " + ",".join(_CALL_COLS) + ",updated_at FROM call_logs WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant, s, e)).fetchall()
+        st = t.one("SELECT settings FROM attendance_settings WHERE tenant=%s", (tenant,))
+    settings = dict(att.DEFAULT_SETTINGS, **(json.loads(st["settings"]) if st else {}))
+    work = (_hhmm(settings.get("workStart"), 600), _hhmm(settings.get("workEnd"), 1080))
+    stats = calls.daily_stats(rows, aliases, s, e, work)
+    names = {p["id"]: p.get("name") for p in people}
+    keep = {str(person)} if person else allowed
+    out = {"ok": True, "scope": "organization" if admin else "self", "period": {"from": s, "to": e},
+           "settings": {"workStart": settings.get("workStart"), "workEnd": settings.get("workEnd")},
+           "people": [dict(p, personName=names.get(p["personId"])) for p in stats["people"] if p["personId"] in keep],
+           "queues": stats["queues"], "updatedAt": _att_iso(max((r["updated_at"] for r in rows), default=None))}
+    if admin:
+        out["unassigned"], out["issues"] = stats["unassigned"], stats["issues"]
+    return out
+
+
+@app.get("/api/performance/calls/log")
+def calls_log_read(request: Request, tenant: str = "team", start: str = "", end: str = "", person: str = "", direction: str = "",
+                   offset: int = 0, limit: int = 200):
+    ident = kb_identity(request, tenant)
+    if not ident:
+        return _att_deny(401, "ورود معتبر نیست.")
+    if ident["role"] not in CALL_DETAIL_ROLES:
+        return _att_deny(403, "ریزِ تماس و شمارهٔ مشتری فقط برای مدیریت و مالی است.")
+    ident, full, people, err = _att_ctx(request, tenant)
+    if err:
+        return err
+    if offset < 0 or not 1 <= limit <= 1000:
+        return _att_deny(400, "offset/limit نامعتبر است.")
+    s, e, err = _call_range(start, end)
+    if err:
+        return err
+    if direction and direction not in ("in", "out", "internal", "unknown"):
+        return _att_deny(400, "جهت نامعتبر است.")
+    if person and str(person) not in {p["id"] for p in people}:
+        return _att_deny(404, "شخص خارج از دامنه مجاز است.")
+    where, args = "tenant=%s AND date_j>=%s AND date_j<=%s", [tenant, s, e]
+    if direction:
+        where += " AND direction=%s"
+        args.append(direction)
+    with _SaTx() as t:
+        idx = calls.confirmed_index(t.x("SELECT kind,alias_key,person_id,status FROM identity_aliases WHERE tenant=%s AND kind IN ('julio','ext')", (tenant,)).fetchall())
+        rows = t.x("SELECT " + ",".join(_CALL_COLS) + ",batch_id FROM call_logs WHERE " + where + " ORDER BY date_j,time_s,channel_code", args).fetchall()
+
+    def party(r, side):
+        p = {k: r[side + "_" + k] for k in ("ext", "julio", "phone", "contact", "name")}
+        queue = side == "d" and r["direction"] == "in" and not p["julio"]   # shared queue/extension: never a person
+        p["personId"] = calls.resolve_party(p["ext"], p["julio"], idx)[0] if p["ext"] and not queue else None
+        return p
+
+    out = []
+    for r in rows:
+        o, d = party(r, "o"), party(r, "d")
+        if person and str(person) not in (o["personId"], d["personId"]):
+            continue
+        ts = r["time_s"]
+        out.append({"channelCode": r["channel_code"], "date": r["date_j"],
+                    "time": "%02d:%02d:%02d" % (ts // 3600, ts % 3600 // 60, ts % 60) if ts is not None else None,
+                    "direction": r["direction"], "origin": o, "dest": d, "totalSec": r["total_sec"], "talkSec": r["talk_sec"],
+                    "channelStatus": r["channel_status"], "callStatus": r["call_status"], "syncAt": r["sync_at"], "batchId": r["batch_id"]})
+    return {"ok": True, "total": len(out), "rows": out[offset:offset + limit]}
+
+
+@app.get("/api/performance/calls/summary")
+def calls_summary_read(request: Request, tenant: str = "team", direction: str = "", start: str = "", end: str = ""):
+    ident, full, people, err = _att_ctx(request, tenant)
+    if err:
+        return err
+    if direction and direction not in calls.DIRECTIONS:
+        return _att_deny(400, "جهت نامعتبر است.")
+    s, e = att.norm_date(start) if start else "", att.norm_date(end) if end else ""
+    if s is None or e is None or (s and e and s > e):
+        return _att_deny(400, "بازه شمسی معتبر را انتخاب کنید.")
+    admin, allowed, err = _call_scope(ident, full, people, tenant, "")
+    if err:
+        return err
+    where, args = "tenant=%s", [tenant]
+    if direction:
+        where += " AND direction=%s"
+        args.append(direction)
+    if s:
+        where += " AND period_to>=%s"
+        args.append(s)
+    if e:
+        where += " AND period_from<=%s"
+        args.append(e)
+    with _SaTx() as t:
+        idx = calls.confirmed_index(t.x("SELECT kind,alias_key,person_id,status FROM identity_aliases WHERE tenant=%s AND kind='ext'", (tenant,)).fetchall())
+        rows = t.x("SELECT * FROM call_summaries WHERE " + where + " ORDER BY period_from,direction,ext", args).fetchall()
+    names, out = {p["id"]: p.get("name") for p in people}, []
+    for r in rows:
+        pid = idx.get(("ext", r["ext"]))
+        if not admin and pid not in allowed:
+            continue
+        out.append({"periodFrom": r["period_from"], "periodTo": r["period_to"], "direction": r["direction"], "ext": r["ext"],
+                    "agentName": r["agent_name"] if admin else None, "personId": pid, "personName": names.get(pid), "total": r["total"],
+                    "answered": r["answered"], "noAnswer": r["no_answer"], "busy": r["busy"], "failed": r["failed"], "talkSec": r["talk_sec"]})
+    return {"ok": True, "rows": out}
+
+
+@app.get("/api/performance/calls/batches")
+def calls_batches(request: Request, tenant: str = "team", kind: str = ""):
+    ident, _, _, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    if kind and kind not in ("calllog", "calls"):
+        return _att_deny(400, "نوع نامعتبر است.")
+    where, args = "tenant=%s", [tenant]
+    if kind:
+        where += " AND kind=%s"
+        args.append(kind)
+    with _SaTx() as t:
+        rows = t.x("SELECT * FROM call_batches WHERE " + where + " ORDER BY id DESC", args).fetchall()
+    return {"ok": True, "batches": [_call_batch(b) for b in rows]}
+
+
+@app.delete("/api/performance/calls")
+def calls_delete(request: Request, tenant: str = "team", batch: str = "", all: str = "", kind: str = ""):
+    ident, _, _, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    table = {"calllog": "call_logs", "calls": "call_summaries"}
+    if batch:
+        if not str(batch).isdigit():
+            return _att_deny(400, "شناسه نامعتبر است.")
+    elif all != "1" or kind not in table:
+        return _att_deny(400, "batch یا all=1 همراه با kind=calllog|calls لازم است.")
+    with _SaTx() as t:
+        if batch:
+            b = t.one("SELECT id,kind FROM call_batches WHERE tenant=%s AND id=%s FOR UPDATE", (tenant, int(batch)))
+            if not b:
+                return _att_deny(404, "پیدا نشد.")
+            rows = t.x("DELETE FROM " + table[b["kind"]] + " WHERE tenant=%s AND batch_id=%s", (tenant, b["id"])).rowcount
+            batches = t.x("DELETE FROM call_batches WHERE tenant=%s AND id=%s", (tenant, b["id"])).rowcount
+        else:
+            rows = t.x("DELETE FROM " + table[kind] + " WHERE tenant=%s", (tenant,)).rowcount
+            batches = t.x("DELETE FROM call_batches WHERE tenant=%s AND kind=%s", (tenant, kind)).rowcount
+    return {"ok": True, "removedRows": rows, "removedBatches": batches}
 
 
 # Fields the effort formula (legacy effortOf) reads; projection only, no calculation here.

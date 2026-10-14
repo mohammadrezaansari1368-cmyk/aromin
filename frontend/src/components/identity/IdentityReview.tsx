@@ -11,6 +11,7 @@ import type { Session } from '@/lib/auth'
 import { Shell, faNum } from '@/components/ui/kit'
 import { BTN_DANGER, BTN_GHOST, BTN_PRIMARY, FOCUS, INPUT } from '@/components/ui/tokens'
 import { decideIdentity, fetchIdentity, loadServerAttendance, scanIdentity, type Alias, type AliasKind, type IdentityList } from '@/lib/attendanceApi'
+import { resetCallsCache } from '@/lib/callsApi'
 import { loadSettings, loadTaskFiles, preparePerfStore, rules, taskStats } from '@/lib/performance'
 
 type Tab = 'review' | 'confirmed' | 'rejected'
@@ -45,6 +46,7 @@ export default function IdentityReview({ session }: { session: Session }) {
 			setMsg({ t: action === 'confirm' ? `«${a.raw}» به ${r.alias.personName || 'شخص'} نگاشت شد.` : action === 'reject' ? `«${a.raw}» رد شد.` : `«${a.raw}» به بررسی برگشت.` })
 			await load()
 			if (a.kind === 'card') await loadServerAttendance(session).catch(() => { /* تبِ عملکرد در بارگذاریِ بعدی */ })
+			if (a.kind === 'julio' || a.kind === 'ext') resetCallsCache()   // آمارِ تماس با نگاشتِ تازه دوباره محاسبه شود
 		} catch (e) { setMsg({ t: (e as Error).message, err: true }) } finally { setBusy(false) }
 	}
 	const scanJulio = async () => {

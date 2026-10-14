@@ -2,8 +2,10 @@
 import copy
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import aromin_calls as calls
@@ -263,6 +265,225 @@ class Stats(unittest.TestCase):
         self.assertTrue(all(r['source'] == 'call_logs' and r['value'] and r['note'] for r in recs))
         self.assertNotIn('calls:2:1405/06/19:calls_missed', by)       # zeros (and the queue call) never become a record
         self.assertEqual(calls.daily_records({'people': [], 'queues': st['queues']}), [])
+
+
+class Endpoints(unittest.TestCase):
+    """§10 items 16–22 against the SQLite fake (migrations 006 + 007)."""
+
+    def setUp(self):
+        import server
+        from db_fake import Connection, load_schema
+        self.server, self.Connection = server, Connection
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.db = str(Path(tmp.name) / 't.sqlite')
+        for mig in ('006_identity_attendance.sql', '007_calls.sql'):
+            load_schema(Path(server.HERE) / 'migrations' / mig, self.db)
+        self.full = {'people': FIXTURE['people']}
+        self.users = {'mgr': {'role': 'manager'}, 'sara': {'personId': 2, 'role': 'sales'}}
+        self.ident = {'user': 'mgr', 'role': 'manager'}
+        self.addCleanup(patch.stopall)
+        patch.object(server, 'kb_identity', side_effect=lambda r, t: self.ident).start()
+        patch.object(server, '_tenant_full', side_effect=lambda t='team': self.full).start()
+        patch.object(server, '_kb_directory', side_effect=lambda t: (self.users, self.full['people'])).start()
+        patch.object(server, 'db_conn', side_effect=lambda: Connection(self.db)).start()
+
+    def res(self, r):
+        return (r.status_code, json.loads(r.body)) if hasattr(r, 'status_code') else (200, r)
+
+    def log(self, sha='a', rows=None, tenant='t1'):
+        return self.res(self.server.calls_log_upload(None, dict(LOG, tenant=tenant, sha256=sha * 64, rows=rows or FIXTURE['log'])))
+
+    def summary(self, sha='b', **kw):
+        return self.res(self.server.calls_summary_upload(None, dict(SUMMARY, tenant='t1', sha256=sha * 64, **kw)))
+
+    def daily(self, **kw):
+        return self.res(self.server.calls_daily(None, **dict(dict(tenant='t1', start='1405/06/19', end='1405/06/20'), **kw)))
+
+    def sql(self, query, args=()):
+        cx = self.Connection(self.db)
+        try:
+            return [dict(r) for r in cx.connection.execute(query, args).fetchall()]
+        finally:
+            cx.close()
+
+    def test_auth_before_db(self):
+        s = self.server
+        writes = [lambda: s.calls_log_upload(None, {'tenant': 't1'}), lambda: s.calls_summary_upload(None, {'tenant': 't1'}),
+                  lambda: s.calls_log_read(None, tenant='t1'), lambda: s.calls_batches(None, tenant='t1'),
+                  lambda: s.calls_delete(None, tenant='t1', all='1', kind='calllog')]
+        for ident in (None, {'user': 'sara', 'role': 'sales'}, {'user': 'p', 'role': 'support'}):
+            self.ident = ident
+            for call in writes:
+                with self.subTest(ident=ident), patch.object(s, 'db_conn') as db:
+                    self.assertEqual(call().status_code, 401 if ident is None else 403)
+                    db.assert_not_called()
+        self.ident = {'user': 'p', 'role': 'salesmgr'}   # owner decision: statistics only, never a call row or a customer number
+        with patch.object(s, 'db_conn') as db:
+            self.assertEqual(s.calls_log_read(None, tenant='t1').status_code, 403)
+            db.assert_not_called()
+        self.ident = None
+        for call in (lambda: s.calls_daily(None, tenant='t1'), lambda: s.calls_summary_read(None, tenant='t1')):
+            with patch.object(s, 'db_conn') as db:
+                self.assertEqual(call().status_code, 401)
+                db.assert_not_called()
+
+    def test_log_upload_aliases_and_no_people_written(self):
+        before = copy.deepcopy(self.full)
+        code, out = self.log()
+        self.assertEqual(code, 201)
+        b = out['batch']
+        self.assertEqual((b['kind'], b['rows'], b['inserted'], b['updated'], b['unchanged'], b['conflicts']), ('calllog', 7, 7, 0, 0, 0))
+        self.assertEqual((b['periodFrom'], b['periodTo']), ('1405/06/19', '1405/06/20'))
+        self.assertEqual(len(self.sql('SELECT * FROM call_logs WHERE batch_id=?', (b['id'],))), 7)
+        aliases = {(a['kind'], a['alias_key']): (a['status'], a['person_id'], a['source']) for a in self.sql('SELECT * FROM identity_aliases')}
+        self.assertEqual(aliases[('julio', '25')], ('confirmed', '1', 'calllog'))
+        self.assertEqual(aliases[('ext', '103')], ('confirmed', '2', 'calllog'))
+        self.assertEqual(aliases[('ext', '999')][:2], ('review', None))     # queue: no name, never guessed
+        self.assertEqual(sorted((u['kind'], u['key']) for u in out['unmapped']), [('ext', '101'), ('ext', '999'), ('julio', '5')])
+        self.assertEqual(self.full, before)
+
+    def test_duplicate_conflict_and_newer_sync(self):
+        first = self.log()[1]['batch']['id']
+        code, dup = self.log()
+        self.assertEqual((code, dup['duplicate'], dup['batch']['id']), (200, True, first))
+        self.assertEqual(len(self.sql('SELECT * FROM call_batches')), 1)
+        stale = row(**{'مدت مکالمه (ثانیه)': 99, 'تاریخ همگام‌سازی': '18:00 1405/06/19'})
+        code, out = self.log('c', rows=[stale])
+        self.assertEqual((code, out['batch']['conflicts'], out['batch']['inserted'], out['batch']['updated']), (201, 1, 0, 0))
+        self.assertEqual(out['batch']['details']['conflicts'], [{'key': '1002', 'reason': 'older_or_same_sync', 'fields': ['talk_sec']}])
+        self.assertEqual(self.sql("SELECT talk_sec,batch_id FROM call_logs WHERE channel_code='1002'"), [{'talk_sec': FIXTURE['log'][1]['مدت مکالمه (ثانیه)'], 'batch_id': first}])
+        newer = row(**{'مدت مکالمه (ثانیه)': 99, 'تاریخ همگام‌سازی': '19:00 1405/06/19'})
+        out = self.log('d', rows=[newer])[1]
+        self.assertEqual((out['batch']['updated'], out['batch']['details']['updates']), (1, [{'key': '1002', 'reason': 'newer_sync', 'fields': ['talk_sec']}]))
+        self.assertEqual(self.sql("SELECT talk_sec FROM call_logs WHERE channel_code='1002'"), [{'talk_sec': 99}])
+        self.assertEqual(self.log('e', rows=[{'کد کانال': None, 'تاریخ کانال': 'x', 'مبدا تماس': 1, 'مقصد تماس': 2}])[0], 400)
+        self.assertEqual(self.log('f', rows=[{'کد کانال': 1}])[0], 400)
+
+    def test_human_decision_survives_reupload(self):
+        self.log()
+        alias = self.sql("SELECT id FROM identity_aliases WHERE kind='ext' AND alias_key='101'")[0]
+        self.res(self.server.identity_decide(None, {'tenant': 't1', 'id': alias['id'], 'action': 'confirm', 'personId': '1'}))
+        self.log('1', rows=FIXTURE['log'][:4])
+        got = self.sql("SELECT status,person_id,decided_by FROM identity_aliases WHERE kind='ext' AND alias_key='101'")[0]
+        self.assertEqual(got, {'status': 'confirmed', 'person_id': '1', 'decided_by': 'mgr'})
+
+    def test_daily_scope_queue_and_issues(self):
+        self.log()
+        code, out = self.daily()
+        self.assertEqual((code, out['scope'], out['period']), (200, 'organization', {'from': '1405/06/19', 'to': '1405/06/20'}))
+        tot = {p['personId']: p['totals'] for p in out['people']}
+        self.assertEqual({k: tot['1'][k] for k in ('out', 'outAnswered', 'outUnanswered', 'internal', 'answered', 'missed')},
+                         {'out': 3, 'outAnswered': 2, 'outUnanswered': 1, 'internal': 1, 'answered': 2, 'missed': 0})
+        self.assertEqual({k: tot['2'][k] for k in ('in', 'inMissed', 'out', 'missed')}, {'in': 1, 'inMissed': 1, 'out': 1, 'missed': 1})
+        self.assertEqual([(q['ext'], q['in'], q['inMissed']) for q in out['queues']], [('999', 1, 1)])
+        self.assertEqual([(i['kind'], i['key']) for i in out['issues']], [('julio', '5')])
+        self.assertEqual(out['people'][0]['personName'], 'کارشناس یک')
+        self.ident = {'user': 'sara', 'role': 'sales'}
+        code, out = self.daily()
+        self.assertEqual((code, out['scope'], [p['personId'] for p in out['people']]), (200, 'self', ['2']))
+        self.assertNotIn('issues', out)
+        self.assertNotIn('unassigned', out)
+        self.assertEqual(self.daily(person='1')[0], 403)
+        self.assertEqual(self.daily(start='1405/06/20', end='1405/06/19')[0], 400)
+        self.assertEqual(self.daily(start='1404/01/01', end='1405/06/19')[0], 400)   # over 366 days
+        self.assertEqual(self.daily(start='')[0], 400)
+
+    def test_log_read_admin_only_with_person_filter(self):
+        self.log()
+        out = self.res(self.server.calls_log_read(None, tenant='t1', start='1405/06/19', end='1405/06/20', person='1'))[1]
+        self.assertEqual(sorted(r['channelCode'] for r in out['rows']), ['1002', '1004', '1005', '1006'])
+        q = next(r for r in self.res(self.server.calls_log_read(None, tenant='t1', start='1405/06/19', end='1405/06/20', direction='in'))[1]['rows'] if r['channelCode'] == '1007')
+        self.assertEqual((q['dest']['ext'], q['dest']['personId'], q['time']), ('999', None, '09:41:05'))
+
+    def test_summary_period_update_overlap_and_scope(self):
+        self.log()
+        self.assertEqual(self.summary(direction=None)[0], 400)
+        self.assertEqual(self.summary(period=None)[0], 400)
+        code, out = self.summary()
+        self.assertEqual((code, out['batch']['kind'], out['batch']['direction'], out['batch']['periodTo'], out['batch']['inserted']), (201, 'calls', 'in', '1405/06/31', 4))
+        self.assertEqual(out['warnings']['overlaps'], [])
+        changed = copy.deepcopy(FIXTURE['summary']); changed[2]['موفق'] = 25
+        out = self.summary('2', rows=changed)[1]
+        self.assertEqual((out['batch']['updated'], out['batch']['details']['updates']), (1, [{'key': '103', 'reason': 'replaced', 'fields': []}]))
+        out = self.summary('3', period={'from': '1405/06/10', 'to': '1405/06/20'})[1]
+        self.assertEqual(out['warnings']['overlaps'], [{'from': '1405/06/01', 'to': '1405/06/31'}])
+        self.ident = {'user': 'sara', 'role': 'sales'}
+        rows = self.res(self.server.calls_summary_read(None, tenant='t1'))[1]['rows']
+        self.assertEqual({(r['ext'], r['personId'], r['agentName']) for r in rows}, {('103', '2', None)})
+
+    def test_delete_batch_keeps_others_and_aliases(self):
+        first = self.log()[1]['batch']['id']
+        self.log('4', rows=[row(**{'کد کانال': 2001})])
+        self.summary()
+        aliases = len(self.sql('SELECT * FROM identity_aliases'))
+        self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1'))[0], 400)
+        self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1', batch='999'))[0], 404)
+        self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1', batch=str(first)))[1], {'ok': True, 'removedRows': 7, 'removedBatches': 1})
+        self.assertEqual([r['channel_code'] for r in self.sql('SELECT channel_code FROM call_logs')], ['2001'])
+        self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1', all='1', kind='calls'))[1]['removedRows'], 4)
+        self.assertEqual((len(self.sql('SELECT * FROM call_batches')), len(self.sql('SELECT * FROM identity_aliases'))), (1, aliases))
+        self.assertEqual(self.log()[0], 201)   # a deleted file can be uploaded again
+        self.assertEqual(self.res(self.server.calls_batches(None, tenant='t1', kind='calllog'))[1]['batches'][0]['rows'], 7)
+
+    def test_tenant_isolation(self):
+        self.log()
+        out = self.daily(tenant='t2')[1]
+        self.assertEqual((out['people'], out['queues']), ([], []))
+        self.assertEqual(self.res(self.server.calls_delete(None, tenant='t2', batch='1'))[0], 404)
+
+
+class Migration007(unittest.TestCase):
+    def test_loads_twice_and_down_drops_only_its_tables(self):
+        import re
+        import sqlite3
+        from db_fake import load_schema
+        mig = Path(__file__).resolve().parents[1] / 'migrations'
+        sql = (mig / '007_calls.sql').read_text(encoding='utf-8')
+        self.assertEqual(len(re.findall(r'CREATE TABLE IF NOT EXISTS', sql)), len(re.findall(r'CREATE TABLE', sql)))
+        code = re.sub(r'--[^\n]*', '', sql).upper()
+        for banned in ('ON DUPLICATE KEY', 'ENUM(', ' JSON', 'COLLATE'):
+            self.assertNotIn(banned, code)
+        with tempfile.TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / 'm.sqlite')
+            load_schema(mig / '006_identity_attendance.sql', db)
+            load_schema(mig / '007_calls.sql', db)
+            load_schema(mig / '007_calls.sql', db)
+            cx = sqlite3.connect(db)
+            try:
+                ins = "INSERT INTO call_logs (tenant,channel_code,date_j,direction,channel_status,call_status,raw_json,row_sha256,core_sha256,batch_id,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+                r = ('t', '1', '1405/06/01', 'in', 'success', 'answered', '{}', 'x', 'y', 1, 'n')
+                cx.execute(ins, r)
+                with self.assertRaises(sqlite3.IntegrityError):
+                    cx.execute(ins, r)
+                cx.execute(ins, ('t2',) + r[1:])
+                cx.executescript((mig / '007_calls.down.sql.txt').read_text(encoding='utf-8'))
+                names = {n for (n,) in cx.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                self.assertFalse({'call_batches', 'call_logs', 'call_summaries'} & names)
+                self.assertIn('identity_aliases', names)
+            finally:
+                cx.close()
+
+
+class RouteOrder(unittest.TestCase):
+    def test_calls_routes_before_catch_all_and_http_reaches_handler(self):
+        import server
+        from db_fake import Connection, load_schema
+        from fastapi.testclient import TestClient
+        paths = [(getattr(r, 'path', ''), getattr(r, 'methods', set())) for r in server.app.routes]
+        idx = lambda path: next(i for i, (p, m) in enumerate(paths) if p == path and 'GET' in m)
+        for p in ('/api/performance/calls/daily', '/api/performance/calls/log', '/api/performance/calls/summary', '/api/performance/calls/batches'):
+            self.assertLess(idx(p), idx('/api/performance/{view}'))
+        with tempfile.TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / 't.sqlite')
+            for mig in ('006_identity_attendance.sql', '007_calls.sql'):
+                load_schema(Path(server.HERE) / 'migrations' / mig, db)
+            with patch.object(server, 'kb_identity', return_value={'user': 'mgr', 'role': 'manager'}), \
+                    patch.object(server, '_tenant_full', return_value={'people': FIXTURE['people']}), \
+                    patch.object(server, 'db_conn', side_effect=lambda: Connection(db)):
+                r = TestClient(server.app).get('/api/performance/calls/daily?tenant=t1&start=1405/06/01&end=1405/06/31')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual((r.json()['people'], r.json()['scope']), ([], 'organization'))
 
 
 if __name__ == '__main__':

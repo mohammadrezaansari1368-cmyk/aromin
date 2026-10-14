@@ -1,6 +1,6 @@
 # WP-C — تماس‌ها روی سرور (ریزِ تماس + عملکردِ تماس)
 
-وضعیت: ماژولِ خالص (`aromin_calls.py` + `tests/test_calls.py`) پیاده شد؛ مهاجرت/اندپوینت/فرانت باقی است · الگو: عیناً WP-A/B (`006_identity_attendance.sql`، `aromin_attendance.py`، مسیرهای حضور در `server.py`).
+وضعیت (2026-10-14): ماژولِ خالص، مهاجرت ۰۰۷، اندپوینت‌ها، فرانت و آزمون‌ها پیاده شد؛ فقط سیم‌کشیِ WP-3 (records/metrics و کاشی‌ها) باقی است. انحرافِ آگاهانه از §۷: چون `salesmgr` در `ATT_ADMIN_ROLES` است، ریزِ تماس (`GET …/calls/log`) با `CALL_DETAIL_ROLES` = ATT_ADMIN_ROLES بدونِ salesmgr محدود شد (تصمیمِ مالک §۱۳-۱). aliasهای `rejected` در `unmapped` نمی‌آیند (تصمیمِ انسانی است، نه کارِ باز) · الگو: عیناً WP-A/B (`006_identity_attendance.sql`، `aromin_attendance.py`، مسیرهای حضور در `server.py`).
 اصول: پارسِ اکسل در مرورگر، ردیفِ خام بدون تغییر به سرور؛ ماژولِ پارس خالص (بی DB/FastAPI)؛ نگاشتِ شخص **در زمانِ خواندن** از `identity_aliases`؛ هیچ شخصِ جدیدی ساخته نمی‌شود.
 
 ## ۱. مشاهده‌ها از نمونهٔ واقعی (`calldetail_sample.json`، `callsummary_sample.json`)

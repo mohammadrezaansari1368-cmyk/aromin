@@ -19,6 +19,8 @@ import { CARD } from '@/components/ui/tokens'
 import DealImport, { importSummary } from '@/components/ledger/DealImport'
 const AttendanceStatus = lazy(() => import('@/components/performance/PerformancePage').then((m) => ({ default: m.AttendanceStatus })))
 const IdentityReview = lazy(() => import('@/components/identity/IdentityReview'))
+import CallSummaryOptions from '@/components/import/CallSummaryOptions'
+import { callOptsError, ingestCallFile, resetCallsCache, type CallDetailItem, type CallOpts } from '@/lib/callsApi'
 
 interface QItem {
 	id: string
@@ -28,6 +30,8 @@ interface QItem {
 	hash?: string
 	duplicateContent?: boolean
 	buf: ArrayBuffer
+	/** فقط «عملکردِ تماس»: جهت و دوره (بدونِ پیش‌فرض) */
+	callOpts?: CallOpts
 	type: ImportKind
 	rows: number
 	hdr: string[]
@@ -42,6 +46,7 @@ interface Result {
 	routed: boolean
 	err: string
 	note?: string
+	conflicts?: CallDetailItem[]
 }
 type Bridge = 'connecting' | 'ready' | 'failed'
 
@@ -179,7 +184,28 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		}
 		return out
 	}
+	/** ریز/عملکردِ تماس برای مدیران و مالی علاوه بر موتورِ قبلی به سرور هم می‌رود (WP-C)؛ داشبوردهای فعلی همچنان از موتورِ قبلی‌اند */
+	const importCalls = async (items: QItem[]): Promise<Result[]> => {
+		const out: Result[] = []
+		if (!session || !canSeeAll(session)) return out
+		for (const q of items) {
+			const kind = q.type as 'calllog' | 'calls'
+			try {
+				const r = await ingestCallFile(session, kind, q.buf, q.name, q.callOpts)
+				const b = r.batch, warn = r.warnings ? [...r.warnings.sums, ...r.warnings.overlaps.map((o) => `دورهٔ هم‌پوشان ${o.from}–${o.to}`)] : []
+				const note = r.duplicate ? 'سرور: این فایل قبلاً ثبت شده است (تکراری)'
+					: [`سرور: ${faNum(b.inserted)} جدید · ${faNum(b.updated)} به‌روز · ${faNum(b.conflicts)} تعارض`, r.unmapped?.length ? `${faNum(r.unmapped.length)} شناسه نیازمند تأیید نگاشت` : '', ...warn].filter(Boolean).join(' · ')
+				out.push({ name: q.name, type: kind, rows: q.rows, dup: r.duplicate, routed: true, err: '', note, conflicts: b.details?.conflicts?.length ? b.details.conflicts : undefined })
+			} catch (e) {
+				out.push({ name: q.name, type: kind, rows: q.rows, dup: false, routed: false, err: 'سرور: ' + (e as Error).message })
+			}
+		}
+		if (out.some((r) => r.routed)) resetCallsCache()
+		return out
+	}
+	const callsBlocked = !!session && canSeeAll(session) && valid.some((q) => q.type === 'calls' && callOptsError(q.callOpts))
 	const run = async () => {
+		if (callsBlocked) return
 		const att = valid.filter((q) => q.type === 'attendance')
 		const deals = valid.filter((q) => q.type === 'deal')
 		const eng = valid.filter((q) => q.type !== 'attendance' && q.type !== 'deal')
@@ -195,6 +221,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		}
 		if (bridge !== 'ready' || !frame.current?.contentWindow) return
 		const attRes = await importAttendance(att)
+		const callRes = await importCalls(eng.filter((q) => q.type === 'calllog' || q.type === 'calls'))
 		setBusy(true)
 		setStatus({ tone: 'info', text: 'بک‌آپ روی سرور، ورودِ داده و ذخیره…' })
 		const id = uid()
@@ -212,7 +239,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 			}, 120000)
 		})) as { ok: boolean; saved?: boolean; error?: string; results?: Result[] }
 		setBusy(false)
-		setResults([...(res.results || []), ...attRes])
+		setResults([...(res.results || []), ...attRes, ...callRes])
 		if (res.ok) {
 			setStatus({ tone: 'ok', text: `${faNum((res.results || []).length)} فایل وارد و ذخیره شد.` + (attRes.length ? ` ${faNum(attRes.filter((x) => x.routed).length)} فایلِ حضور روی سرور ثبت شد.` : '') })
 			setQueue((q) => q.filter((x) => !valid.includes(x)))
@@ -304,6 +331,9 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 											<div className="mt-1 text-[11.5px] text-muted-foreground">
 												{q.error ? <span className="text-error">{q.error}</span> : <>{faNum(q.rows)} ردیف · {kb(q.size)} · مقصد: {k.dest}</>}
 											</div>
+											{q.type === 'calls' && !q.error && session && canSeeAll(session) && (
+												<CallSummaryOptions value={q.callOpts} onChange={(callOpts) => setQueue((x) => x.map((y) => (y.id === q.id ? { ...y, callOpts } : y)))} />
+											)}
 										</div>
 										<button type="button" onClick={() => setQueue((x) => x.filter((y) => y.id !== q.id))} className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-card hover:text-foreground" aria-label="حذف از صف">✕</button>
 									</li>
@@ -313,13 +343,13 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 						<div className="mt-3 flex flex-wrap items-center gap-3">
 							<button
 								type="button"
-								disabled={!valid.length || (bridge !== 'ready' && valid.some((q) => q.type !== 'attendance' && q.type !== 'deal')) || busy || dealQ.length > 0}
+								disabled={!valid.length || (bridge !== 'ready' && valid.some((q) => q.type !== 'attendance' && q.type !== 'deal')) || busy || dealQ.length > 0 || callsBlocked}
 								onClick={run}
 								className="h-11 rounded-xl bg-gradient-to-l from-primary to-active px-6 text-[14px] font-extrabold text-primary-foreground shadow-lg shadow-primary/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
 								{busy ? 'در حال ورود…' : `ورودِ ${faNum(valid.length)} فایل به سیستم`}
 							</button>
 							<button type="button" disabled={busy} onClick={() => setQueue([])} className="h-11 rounded-xl px-4 text-[13px] font-bold text-muted-foreground ring-1 ring-border transition hover:bg-muted">پاک‌کردنِ صف</button>
-							<span className="text-[11.5px] text-muted-foreground">پیش از ورود، خودکار بک‌آپِ سرور گرفته می‌شود.</span>
+							<span className="text-[11.5px] text-muted-foreground">{callsBlocked ? 'جهت و دورهٔ فایلِ عملکردِ تماس را انتخاب کنید' : 'پیش از ورود، خودکار بک‌آپِ سرور گرفته می‌شود.'}</span>
 						</div>
 					</Shell>
 				</Card>
@@ -343,6 +373,11 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 									{r.dup && <span className="text-error">🔁 تکراری</span>}
 									{r.note && <span className={r.dup ? 'text-error' : 'text-warning'}>{r.note}</span>}
 									{!r.routed && <span className="text-error">⚠ {r.err || 'فرستاده نشد'}</span>}
+									{r.conflicts && (
+										<details className="w-full text-warning"><summary className="cursor-pointer">{faNum(r.conflicts.length)} تعارض (ردیفِ موجود دست‌نخورده ماند)</summary>
+											<ul className="mt-1 space-y-0.5" dir="ltr">{r.conflicts.map((c) => <li key={c.key + c.reason}>{c.key} · {c.reason}{c.fields?.length ? ' · ' + c.fields.join(', ') : ''}</li>)}</ul>
+										</details>
+									)}
 								</li>
 							))}
 						</ul>
