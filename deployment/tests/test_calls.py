@@ -438,6 +438,20 @@ class Endpoints(unittest.TestCase):
         args.update(kw)
         return self.res(self.server.performance_read(view, None, **args))
 
+    def test_sales_axes_from_calls_owner_decision(self):
+        import aromin_performance as perf
+        rows = [dict(personId='1', date='1405/06/19', metric=m, value=v, source='call_logs') for m, v in
+                (('calls_in', 2), ('calls_out', 6), ('calls_answered', 5), ('calls_internal', 4))]
+        ax = {m['id']: m for m in perf.metrics('sales', rows, [], '1405/06/19', '1405/06/19', None)}
+        self.assertEqual((ax['activity']['value'], ax['activity']['status'], ax['activity']['detailsMetric']), (5, 'valid', 'calls_answered'))
+        self.assertEqual((ax['efficiency']['value'], ax['efficiency']['numerator'], ax['efficiency']['denominator']), (62.5, 5, 8))
+        self.assertEqual(perf.metrics('sales', rows, [{'personId': '1', 'reason': 'x'}], '', '', None)[1]['status'], 'partial')
+        empty = {m['id']: m for m in perf.metrics('sales', [], [], '', '', None)}
+        self.assertEqual((empty['activity']['status'], empty['efficiency']['value']), ('no_data', None))
+        internal_only = perf.metrics('sales', rows[3:], [], '', '', None)[1]
+        self.assertEqual(internal_only['status'], 'no_data')   # no in/out base: no division by zero, no guessed 0%
+        self.assertEqual(perf.metrics('support', rows, [], '', '', None)[0]['status'], 'no_data')   # decision is sales-only
+
     def test_performance_wiring_wp3(self):
         code, out = self.perf('summary')
         self.assertEqual(code, 200)
@@ -449,6 +463,10 @@ class Endpoints(unittest.TestCase):
                          {'calls_out': 3, 'calls_internal': 1, 'calls_answered': 2, 'calls_missed': 0})
         self.assertEqual((calls_by['2']['calls_in'], calls_by['2']['calls_missed']), (1, 1))   # queue 999 never credited to its owner
         self.assertTrue(any('call_logs' in n for n in out['notes']))
+        for p in self.full['people']:
+            p['role'] = 'sales'
+        ax = {m['id']: m for m in next(p for p in self.perf('summary')[1]['people'] if p['id'] == '1')['metrics']}
+        self.assertEqual((ax['activity']['value'], ax['efficiency']['source']), (2, ['call_logs']))
         code, out = self.perf('details', metric='calls_out', person='1')
         self.assertEqual((out['total'], {r['source'] for r in out['rows']}), (sum(r['value'] > 0 for r in out['rows']), {'call_logs'}))
         daily = self.perf('daily', metric='calls_out', person='1')[1]

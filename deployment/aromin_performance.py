@@ -5,7 +5,7 @@ from aromin_stage import parse_stage_change
 
 UNITS = {'sales':'sales','online':'sales','salesmgr':'sales','finance':'finance','accmgr':'finance','support':'support'}
 AXES = {
- 'sales': [('activity','میزان فعالیت','تعامل','تماس، ویزیت و پیگیری معتبر با شناسه یکتا لازم است.'),('efficiency','راندمان','٪','اتصال تماس به مشتری واجد شرایط موجود نیست.'),('conversion','نرخ تبدیل','٪','تاریخچه ورود به گروه واجد شرایط و نتیجه همان گروه لازم است.'),('contract_average','میانگین ارزش قرارداد','تومان','مجموع مبلغ خام قراردادهای بستن ÷ تعداد همان قراردادها؛ خالص از مالیات/تخفیف ادعا نمی‌شود.')],
+ 'sales': [('activity','میزان فعالیت','تماس','تماس‌های پاسخ‌دادهٔ ورودی و خروجی از ریز تماسِ سرور (تصمیم مالک)؛ تماس صف، داخلی و بی‌نگاشت شمرده نمی‌شود.'),('efficiency','راندمان','٪','تماس پاسخ‌داده ÷ (ورودی + خروجی) × ۱۰۰ از ریز تماسِ سرور (تصمیم مالک)؛ تماس صف و داخلی شمرده نمی‌شود.'),('conversion','نرخ تبدیل','٪','تاریخچه ورود به گروه واجد شرایط و نتیجه همان گروه لازم است.'),('contract_average','میانگین ارزش قرارداد','تومان','مجموع مبلغ خام قراردادهای بستن ÷ تعداد همان قراردادها؛ خالص از مالیات/تخفیف ادعا نمی‌شود.')],
  'support':[('activity','میزان فعالیت','خدمت','شناسه پرونده یکتا، مسئول و تاریخ واقعی خدمت لازم است.'),('efficiency','راندمان','٪','تیکت‌های فعلی تاریخ خدمت/سررسید و وضعیت باز قابل اتکا ندارند.'),('resolution','نرخ حل موفق','٪','FCR به سابقه تماس اول و بازه مشاهده نیاز دارد.'),('quality','کیفیت خدمات','٪','نظرسنجی معتبر و تعداد پاسخ‌ها موجود نیست.')],
  'finance':[('finance_documents','میزان فعالیت','سند','اسناد یکتای دارای رویداد fin_by برای حسابدار منتخب؛ ثبت‌کننده با مسئول مالی متفاوت است.'),('efficiency','راندمان','٪','وظایف دارای سررسید و زمان انجام موجود نیست.'),('accuracy','دقت مالی','٪','نتیجه اولین بررسی و علت اصلاح ساخت‌یافته موجود نیست.'),('effectiveness','اثربخشی مالی','٪','مسئول وصول، گروه سررسید و پرداخت جزئی قابل انتساب موجود نیست.')]
 }
@@ -109,13 +109,23 @@ def records(full, people, stamp_to_j):
 
 def in_period(rows,start,end): return [r for r in rows if start<=r['date']<=end]
 
+# Owner decision (2026-10-14): sales activity = answered calls; sales efficiency = answered ÷ (in + out) × 100.
+SALES_CALL_AXES={'activity':'calls_answered','efficiency':'calls_answered'}
+
 def metrics(unit,rows,issues,start,end,updated):
     result=[]
     for key,label,measure,definition in AXES.get(unit,[]):
-        group=[r for r in rows if r['metric']==('contracts' if key=='contract_average' else key)]
+        call=SALES_CALL_AXES.get(key) if unit=='sales' else None
+        source_metric='contracts' if key=='contract_average' else call or key
+        group=[r for r in rows if r['metric']==source_metric]
         value=None; num=None; den=None; status='no_data'
-        if group:
+        if call and key=='efficiency':
+            base=[r for r in rows if r['metric'] in ('calls_in','calls_out')]
+            if base and sum(r['value'] for r in base):
+                num=sum(r['value'] for r in group); den=sum(r['value'] for r in base)
+                value=num/den*100; status='partial' if issues else 'valid'; group=group+base
+        elif group:
             num=sum(r['value'] for r in group); den=len(group) if key=='contract_average' else None
             value=num/den if den else num; status='partial' if issues or key=='contract_average' else 'valid'
-        result.append({'id':key,'label':label,'unit':measure,'definition':definition,'value':value,'numerator':num,'denominator':den,'status':status,'target':None,'period':{'from':start,'to':end},'updatedAt':updated,'coverage':{'records':len(group),'issues':len(issues)},'source':sorted({r['source'] for r in group}),'detailsMetric':'contracts' if key=='contract_average' else key})
+        result.append({'id':key,'label':label,'unit':measure,'definition':definition,'value':value,'numerator':num,'denominator':den,'status':status,'target':None,'period':{'from':start,'to':end},'updatedAt':updated,'coverage':{'records':len(group),'issues':len(issues)},'source':sorted({r['source'] for r in group}),'detailsMetric':source_metric})
     return result

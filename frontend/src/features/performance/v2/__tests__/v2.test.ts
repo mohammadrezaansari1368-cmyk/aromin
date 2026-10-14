@@ -100,4 +100,9 @@ describe('WP-3 call stats', () => {
 		expect(toPerson({ id: '1', name: 'الف', calls: full }).calls).toEqual(full)
 		expect(faDuration(3725)).toBe('۱:۰۲'); expect(faDuration(null)).toBe('—')
 	})
+	it('sales activity trends on answered calls; percentage axes get no count trend', () => {
+		expect(toMetric({ id: 'activity', unit: 'تماس', detailsMetric: 'calls_answered' }).dailyMetric).toBe('calls_answered')
+		expect(toMetric({ id: 'efficiency', unit: '٪', detailsMetric: 'calls_answered' }).dailyMetric).toBeNull()
+		expect(toMetric({ id: 'activity', unit: 'خدمت', detailsMetric: 'activity' }).dailyMetric).toBeNull()
+	})
 })

@@ -23,7 +23,7 @@ export function toMetric(raw: Partial<ApiMetric> | null | undefined): Metric {
 		status: computable && num(r.value) === null ? 'not_computable' : status,
 		target: num(r.target), records: num(r.coverage?.records) ?? 0, issues: num(r.coverage?.issues) ?? 0,
 		source: Array.isArray(r.source) ? r.source.map(String) : [], detailsMetric: String(r.detailsMetric || r.id || ''),
-		dailyMetric: DAILY_OF[String(r.id)] || null, updatedAt: num(r.updatedAt) ?? undefined,
+		dailyMetric: DAILY_OF[String(r.id)] || (r.unit !== '٪' && String(r.detailsMetric || '').startsWith('calls_') ? DAILY_OF[String(r.detailsMetric)] : undefined) || null, updatedAt: num(r.updatedAt) ?? undefined,
 	}
 }
 /** Tasks are a person field, not an axis metric; expose them as a selectable pseudo-metric. */
