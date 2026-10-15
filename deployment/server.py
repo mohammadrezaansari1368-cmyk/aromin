@@ -43,6 +43,7 @@ import aromin_publish as pub
 import aromin_identity as idmap
 import aromin_attendance as att
 import aromin_calls as calls
+import aromin_tickets as tickets
 import uuid
 from pathlib import Path as FilePath
 from fastapi.responses import FileResponse
@@ -2596,6 +2597,117 @@ def calls_delete(request: Request, tenant: str = "team", batch: str = "", all: s
     return {"ok": True, "removedRows": rows, "removedBatches": batches}
 
 
+_TICKET_COLS = ("ticket_no",) + tickets.CORE
+
+
+def _ticket_batch(b):
+    return {"id": b["id"], "fileName": b["file_name"], "sha256": b["file_sha256"], "source": b["source"], "uploadedBy": b["uploaded_by"],
+            "createdAt": _att_iso(b["created_at"]), "periodFrom": b["period_from"], "periodTo": b["period_to"], "rows": b["rows_total"],
+            "inserted": b["inserted"], "updated": b["updated"], "unchanged": b["unchanged"], "conflicts": b["conflicts"],
+            "skipped": json.loads(b["skipped"] or "[]"), "details": json.loads(b["details"] or "{}")}
+
+
+@app.post("/api/performance/tickets")
+def tickets_upload(request: Request, payload: dict = Body(default={})):
+    """WP-4: Joolio ticket export -> ticket_logs (key = ticket number). Agents become name aliases; nobody is created or guessed."""
+    tenant = str((payload or {}).get("tenant") or "team")
+    ident, full, people, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    try:
+        parsed = tickets.parse_payload(payload)
+    except att.TooLarge as e:
+        return _att_deny(413, str(e))
+    except ValueError as e:
+        return _att_deny(400, str(e))
+    found, now = parsed["tickets"], _att_now()
+    try:
+        with _SaTx() as t:
+            old = t.one("SELECT * FROM ticket_batches WHERE tenant=%s AND file_sha256=%s FOR UPDATE", (tenant, parsed["sha256"]))
+            if old:
+                return {"ok": True, "duplicate": True, "batch": _ticket_batch(old)}
+            if not found:
+                raise _AttFail(400, "هیچ ردیفِ معتبری در فایل نیست.", skipped=parsed["skipped"][:200], conflicts=parsed["in_file_conflicts"][:200])
+            nos, existing = sorted(x["ticket_no"] for x in found), {}
+            for i in range(0, len(nos), 500):
+                part = nos[i:i + 500]
+                for r in t.x("SELECT " + ",".join(_TICKET_COLS) + ",row_sha256 FROM ticket_logs WHERE tenant=%s AND ticket_no IN (" + _in(part) + ") FOR UPDATE", [tenant] + part).fetchall():
+                    existing[r["ticket_no"]] = r
+            plan = tickets.plan(existing, found)
+            conflicts = parsed["in_file_conflicts"]
+            details = {"conflicts": conflicts[:200], "updates": [{"key": u["key"], "fields": [tickets.LABELS[f] for f in u["fields"]]} for u in plan["update"]][:200]}
+            dates = [x["date_j"] for x in found]
+            t.x("INSERT INTO ticket_batches (tenant,file_sha256,file_name,source,uploaded_by,period_from,period_to,rows_total,inserted,updated,unchanged,conflicts,skipped,details,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (tenant, parsed["sha256"], parsed["file_name"], parsed["source"], ident["user"], min(dates), max(dates), len(payload["rows"]),
+                 len(plan["insert"]), len(plan["update"]), plan["unchanged"], len(conflicts), json.dumps(parsed["skipped"][:200], ensure_ascii=False),
+                 json.dumps(details, ensure_ascii=False), now))
+            bid = t.cur.lastrowid
+            cols = _TICKET_COLS + ("raw_json", "row_sha256")
+            for x in plan["insert"]:
+                t.x("INSERT INTO ticket_logs (tenant," + ",".join(cols) + ",batch_id,updated_at) VALUES (" + _in(cols) + ",%s,%s,%s)",
+                    [tenant] + [x[k] for k in cols] + [bid, now])
+            for u in plan["update"]:
+                x = u["ticket"]
+                t.x("UPDATE ticket_logs SET " + ",".join(k + "=%s" for k in cols[1:]) + ",batch_id=%s,updated_at=%s WHERE tenant=%s AND ticket_no=%s",
+                    [x[k] for k in cols[1:]] + [bid, now, tenant, x["ticket_no"]])
+            parties = {}
+            for x in found:
+                if x["agent_key"] and not parties.get(("name", x["agent_key"])):
+                    parties[("name", x["agent_key"])] = x["agent_name"]
+            unmapped = _call_aliases(t, tenant, people, parties, "tickets", now)
+            batch = t.one("SELECT * FROM ticket_batches WHERE id=%s", (bid,))
+    except _AttFail as e:
+        return _att_deny(e.code, e.msg, **e.extra)
+    except pymysql.err.IntegrityError:
+        old = q("SELECT * FROM ticket_batches WHERE tenant=%s AND file_sha256=%s", (tenant, parsed["sha256"]))
+        if not old:
+            raise
+        return {"ok": True, "duplicate": True, "batch": _ticket_batch(old[0])}
+    return JSONResponse({"ok": True, "duplicate": False, "batch": _ticket_batch(batch), "unmapped": unmapped}, status_code=201)
+
+
+@app.get("/api/performance/tickets/batches")
+def tickets_batches(request: Request, tenant: str = "team"):
+    ident, _, _, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    with _SaTx() as t:
+        rows = t.x("SELECT * FROM ticket_batches WHERE tenant=%s ORDER BY id DESC", (tenant,)).fetchall()
+    return {"ok": True, "batches": [_ticket_batch(b) for b in rows]}
+
+
+@app.delete("/api/performance/tickets")
+def tickets_delete(request: Request, tenant: str = "team", batch: str = "", all: str = ""):
+    ident, _, _, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    if (batch and not str(batch).isdigit()) or (not batch and all != "1"):
+        return _att_deny(400, "batch یا all=1 لازم است.")
+    with _SaTx() as t:
+        if batch:
+            b = t.one("SELECT id FROM ticket_batches WHERE tenant=%s AND id=%s FOR UPDATE", (tenant, int(batch)))
+            if not b:
+                return _att_deny(404, "پیدا نشد.")
+            rows = t.x("DELETE FROM ticket_logs WHERE tenant=%s AND batch_id=%s", (tenant, b["id"])).rowcount
+            batches = t.x("DELETE FROM ticket_batches WHERE tenant=%s AND id=%s", (tenant, b["id"])).rowcount
+        else:
+            rows = t.x("DELETE FROM ticket_logs WHERE tenant=%s", (tenant,)).rowcount
+            batches = t.x("DELETE FROM ticket_batches WHERE tenant=%s", (tenant,)).rowcount
+    return {"ok": True, "removedRows": rows, "removedBatches": batches}
+
+
+def _perf_ticket_records(tenant, s, e, pids):
+    """WP-4: ticket_logs as records()-shaped rows for already-scoped people only; None if ticket storage is unreachable."""
+    try:
+        with _SaTx() as t:
+            aliases = t.x("SELECT kind,alias_key,person_id,status FROM identity_aliases WHERE tenant=%s AND kind='name'", (tenant,)).fetchall()
+            rows = t.x("SELECT ticket_no,date_j,agent_name,agent_key,sla_ok,ola_ok FROM ticket_logs WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant, s, e)).fetchall()
+    except Exception as ex:
+        print("[perf] ticket records unavailable:", ex)
+        return None
+    return [r for r in tickets.records(rows, aliases)[0] if r["personId"] in pids]
+
+
 # Fields the effort formula (legacy effortOf) reads; projection only, no calculation here.
 PERF_SOURCE_KEYS=('dailyTasks','dayStatus','dayType','tasks','callsIn','callsOut','callAns','talkIn','talkOut','talkMin','taskMins','effortMin','activeDays')
 # Read-only performance workspace: scope checked for every projection and export page.
@@ -2625,6 +2737,8 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
         all_rows, issues = perf.records(full,selected,stamp_to_j)
         call_rows=_perf_call_records(tenant,start,end,{str(p['id']) for p in selected})
         all_rows+=call_rows or []
+        ticket_rows=_perf_ticket_records(tenant,start,end,{str(p['id']) for p in selected})
+        all_rows+=ticket_rows or []
         rows=perf.in_period(all_rows,start,end)
         if view == 'details':
             selected_rows=[r for r in rows if r['metric']==metric]
@@ -2632,11 +2746,11 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
             return {'ok':True,'rows':selected_rows[offset:offset+limit],'total':len(selected_rows),'offset':offset,'limit':limit}
         if view == 'daily':
             if not person: raise ValueError('برای نمای سالانه یک شخص را انتخاب کنید.')
-            if metric not in ('tasks','contracts','finance_documents')+perf.CALL_METRICS: raise ValueError('شاخص نامعتبر')
+            if metric not in ('tasks','contracts','finance_documents','tickets')+perf.CALL_METRICS: raise ValueError('شاخص نامعتبر')
             days={}
             for r in rows:
                 if r['metric']==metric: days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
-            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
+            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else 'تیکت' if metric=='tickets' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
         entries=[]
         for p in selected:
             pid=str(p['id']); own=[r for r in rows if r['personId']==pid]; warnings=[i for i in issues if i['personId']==pid]
@@ -2645,7 +2759,7 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
         for u in ('sales','support','finance'):
             members=[p for p in selected if perf.UNITS.get(p.get('role'))==u]; pids={str(p['id']) for p in members}
             if members: groups.append({'unit':u,'people':len(members),'metrics':perf.metrics(u,[r for r in rows if r['personId'] in pids],[i for i in issues if i['personId'] in pids],start,end,full.get('ts')),'calls':perf.call_totals([r for r in rows if r['personId'] in pids]) if call_rows is not None else None})
-        return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['حضور از جدول سروری attendance_days و فقط برای نگاشت تأییدشده کارت↔شخص.','تماس از جدول سروری call_logs و فقط برای نگاشت تأییدشده julio/داخلی↔شخص؛ تماس صف و بی‌نگاشت به شخص نسبت داده نمی‌شود.' if call_rows is not None else 'دادهٔ سروریِ تماس در دسترس نبود؛ آمار تماس نمایش داده نمی‌شود.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف دارای تاریخ اعتبار در منابع عملکرد یافت نشد.']}
+        return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['حضور از جدول سروری attendance_days و فقط برای نگاشت تأییدشده کارت↔شخص.','تماس از جدول سروری call_logs و فقط برای نگاشت تأییدشده julio/داخلی↔شخص؛ تماس صف و بی‌نگاشت به شخص نسبت داده نمی‌شود.' if call_rows is not None else 'دادهٔ سروریِ تماس در دسترس نبود؛ آمار تماس نمایش داده نمی‌شود.','تیکت از جدول سروری ticket_logs به تاریخ ثبت و فقط برای نگاشت تأییدشدهٔ نام کارشناس↔شخص.' if ticket_rows is not None else 'دادهٔ سروریِ تیکت در دسترس نبود؛ محورهای پشتیبانی بی‌داده‌اند.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف دارای تاریخ اعتبار در منابع عملکرد یافت نشد.']}
     except PermissionError as e:
         return JSONResponse({'ok':False,'error':str(e)},status_code=403)
     except ValueError as e:
