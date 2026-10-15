@@ -148,6 +148,11 @@ class Plan(unittest.TestCase):
         self.assertEqual(calls.plan_calls(no_old_sync, [newer])['conflicts'][0]['reason'], 'no_sync')
         shas_only = {'1002': {k: stored['1002'][k] for k in ('row_sha256', 'core_sha256', 'sync_at')}}
         self.assertEqual(calls.plan_calls(shas_only, [newer])['update'][0]['fields'], [])
+        # review PR11-003: an older export with the same core never moves sync_at backwards
+        old_meta, _ = calls.parse_call_row(row(**{'نام مقصد': 'مشتری ب۲', 'تاریخ همگام‌سازی': '08:00 1405/06/19'}), CMAP)
+        self.assertEqual(old_meta['core_sha256'], c1002['core_sha256'])
+        plan = calls.plan_calls(stored, [old_meta])
+        self.assertEqual((plan['update'], plan['unchanged'], plan['conflicts']), ([], 1, []))
 
     def test_parse_period(self):
         self.assertEqual(calls.parse_period({'month': '1405/06'}), ('1405/06/01', '1405/06/31'))
@@ -385,6 +390,7 @@ class Endpoints(unittest.TestCase):
         self.assertEqual((code, out['scope'], [p['personId'] for p in out['people']]), (200, 'self', ['2']))
         self.assertNotIn('issues', out)
         self.assertNotIn('unassigned', out)
+        self.assertNotIn('queues', out)   # review PR11-001: team queue buckets are organization data
         self.assertEqual(self.daily(person='1')[0], 403)
         self.assertEqual(self.daily(start='1405/06/20', end='1405/06/19')[0], 400)
         self.assertEqual(self.daily(start='1404/01/01', end='1405/06/19')[0], 400)   # over 366 days
@@ -451,6 +457,10 @@ class Endpoints(unittest.TestCase):
         self.assertEqual((empty['activity']['status'], empty['efficiency']['value']), ('no_data', None))
         internal_only = perf.metrics('sales', rows[3:], [], '', '', None)[1]
         self.assertEqual(internal_only['status'], 'no_data')   # no in/out base: no division by zero, no guessed 0%
+        # review PR11-002: calls with none answered (daily_records skips zeros) are activity 0, consistent with efficiency 0%
+        none_answered = {m['id']: m for m in perf.metrics('sales', rows[:2], [], '', '', None)}
+        self.assertEqual((none_answered['activity']['value'], none_answered['activity']['status']), (0, 'valid'))
+        self.assertEqual((none_answered['efficiency']['value'], none_answered['efficiency']['status']), (0, 'valid'))
         self.assertEqual(perf.metrics('support', rows, [], '', '', None)[0]['status'], 'no_data')   # decision is sales-only
 
     def test_performance_wiring_wp3(self):

@@ -17,12 +17,36 @@ export interface TicketBatch {
 }
 export interface TicketPostResult { ok: true; duplicate: boolean; batch: TicketBatch; unmapped?: { kind: 'name'; key: string; rawName: string; status: string }[] }
 
-/** ستون‌هایی که سرور ممکن است بخواند (هم‌خوان با aromin_tickets.COLUMNS)؛ بقیه هرگز از مرورگر خارج نمی‌شوند */
-const KEEP = ['تیکت', 'تاریخ ثبت', 'کارشناس', 'آخرین ارجاع به', 'تغییر وضعیت دهنده', 'تاخیر', 'سرشاخه', 'موضوع', 'وضعیت', 'شرکت']
+/** همان انتخابِ aromin_tickets.pick_columns: برای هر فیلد فقط یک ستون (اول تطبیقِ دقیق، بعد زیررشته)؛ بقیه هرگز از مرورگر خارج نمی‌شوند */
+const COLUMNS: Record<string, [string[], string[]]> = {
+	no: [['شماره تیکت', 'تیکت'], ['تیکت']],
+	date: [['تاریخ ثبت'], ['تاریخ ثبت']],
+	agent: [['کارشناس', 'آخرین ارجاع به', 'تغییر وضعیت دهنده'], ['کارشناس']],
+	sla: [['تاخیر SLA'], ['تاخیر sla']],
+	ola: [['تاخیر OLA'], ['تاخیر ola']],
+	channel: [['سرشاخه'], []],
+	subject: [['موضوع اصلی', 'موضوع'], []],
+	status: [['وضعیت'], []],
+	company: [['شرکت'], []],
+}
+const NOT_NUMBER = ['نحوه', 'نوع', 'عنوان', 'موضوع', 'وضعیت', 'تاریخ']
 const norm = (s: string) => s.replace(/[يى]/g, 'ی').replace(/ك/g, 'ک').replace(/[آأ]/g, 'ا').replace(/[‌ ]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
-const KEEP_N = KEEP.map(norm)
+export function pickTicketColumns(headers: string[]): Set<string> {
+	const hs = headers.map((h) => [norm(h), h] as const)
+	const keep = new Set<string>()
+	for (const [field, [exact, partial]] of Object.entries(COLUMNS)) {
+		let hit: string | undefined = exact.map(norm).flatMap((c) => hs.filter(([n]) => n === c)).map(([, h]) => h)[0]
+		for (const c of partial.map(norm)) {
+			if (hit !== undefined) break
+			hit = hs.find(([n]) => n.includes(c) && !(field === 'no' && NOT_NUMBER.some((w) => n.includes(w))))?.[1]
+		}
+		if (hit !== undefined) keep.add(hit)
+	}
+	return keep
+}
 export function projectTicketRows(rows: Row[]): Row[] {
-	return rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => { const n = norm(k); return KEEP_N.some((w) => n.includes(w)) })))
+	const keep = pickTicketColumns([...new Set(rows.flatMap((r) => Object.keys(r)))])
+	return rows.map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => keep.has(k))))
 }
 
 export const postTickets = (s: Session, p: { fileName: string; sha256: string; source?: 'import-center'; rows: Row[] }) =>

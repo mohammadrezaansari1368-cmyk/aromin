@@ -2467,9 +2467,9 @@ def calls_daily(request: Request, tenant: str = "team", start: str = "", end: st
     out = {"ok": True, "scope": "organization" if admin else "self", "period": {"from": s, "to": e},
            "settings": {"workStart": settings.get("workStart"), "workEnd": settings.get("workEnd")},
            "people": [dict(p, personName=names.get(p["personId"])) for p in stats["people"] if p["personId"] in keep],
-           "queues": stats["queues"], "updatedAt": _att_iso(max((r["updated_at"] for r in rows), default=None))}
-    if admin:
-        out["unassigned"], out["issues"] = stats["unassigned"], stats["issues"]
+           "updatedAt": _att_iso(max((r["updated_at"] for r in rows), default=None))}
+    if admin:   # team queue buckets are organization data, like unassigned/issues
+        out["queues"], out["unassigned"], out["issues"] = stats["queues"], stats["unassigned"], stats["issues"]
     return out
 
 

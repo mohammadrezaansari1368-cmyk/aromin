@@ -205,6 +205,8 @@ def plan_calls(existing, calls):
             plan['unchanged'] += 1; continue
         fields = [k for k in CORE_FIELDS if k in old and old[k] != c[k]]
         if old.get('core_sha256') == c['core_sha256']:
+            if c.get('sync_at') and old.get('sync_at') and c['sync_at'] < old['sync_at']:
+                plan['unchanged'] += 1; continue   # an older export never moves sync_at backwards
             plan['update'].append({'key': c['channel_code'], 'reason': 'meta', 'fields': [], 'call': c})
         elif c.get('sync_at') and old.get('sync_at') and c['sync_at'] > old['sync_at']:
             plan['update'].append({'key': c['channel_code'], 'reason': 'newer_sync', 'fields': fields, 'call': c})

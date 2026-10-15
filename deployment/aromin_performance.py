@@ -133,6 +133,11 @@ def metrics(unit,rows,issues,start,end,updated):
                 num=sum(r['onTime'] for r in known); den=len(known)
                 value=num/den*100; status='partial' if issues or den<len(group) else 'valid'
             group=known
+        elif call and not group:
+            # daily_records skips zeros: calls with none answered are activity 0, not no_data
+            base=[r for r in rows if r['metric'] in ('calls_in','calls_out')]
+            if base and sum(r['value'] for r in base):
+                num=0; value=0; status='partial' if issues else 'valid'; group=base
         elif group:
             num=sum(r['value'] for r in group); den=len(group) if key=='contract_average' else None
             value=num/den if den else num; status='partial' if issues or key=='contract_average' else 'valid'
