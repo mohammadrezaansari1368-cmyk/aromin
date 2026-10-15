@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>آرومین | تخلیه دستگاه حضور و غیاب</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f4f6f5;--panel:#ffffff;--panel2:#f8faf9;--line:#e3e8e6;--text:#1d2b27;--muted:#6b7c76;
+  --brand:#0f766e;--brand2:#14b8a6;--brandSoft:#e6f4f2;--ok:#16a34a;--okSoft:#e8f6ec;--warn:#d97706;--warnSoft:#fdf3e3;
+  --err:#dc2626;--errSoft:#fdecec;--info:#2563eb;--infoSoft:#e8effd;--shadow:0 1px 2px rgba(0,0,0,.04),0 4px 16px rgba(15,60,50,.06);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e1513;--panel:#151f1c;--panel2:#1a2622;--line:#26332f;--text:#e5eeeb;--muted:#8fa29b;
+  --brandSoft:#123430;--okSoft:#12301d;--warnSoft:#33270f;--errSoft:#3a1616;--infoSoft:#142443;--shadow:none;}}
+:root[data-theme="dark"]{--bg:#0e1513;--panel:#151f1c;--panel2:#1a2622;--line:#26332f;--text:#e5eeeb;--muted:#8fa29b;
+  --brandSoft:#123430;--okSoft:#12301d;--warnSoft:#33270f;--errSoft:#3a1616;--infoSoft:#142443;--shadow:none;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:Vazirmatn,Tahoma,sans-serif;font-size:14px;line-height:1.7}
+button,input,select,textarea{font:inherit;color:inherit}
+.app{display:flex;min-height:100vh}
+aside{width:232px;background:var(--panel);border-left:1px solid var(--line);padding:18px 12px;position:sticky;top:0;height:100vh;flex-shrink:0}
+.logo{display:flex;gap:10px;align-items:center;padding:4px 8px 18px}
+.logo b{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:linear-gradient(135deg,var(--brand),var(--brand2));color:#fff;font-size:18px}
+.logo div small{display:block;color:var(--muted);font-size:11px;margin-top:-4px}
+nav a{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;color:var(--text);text-decoration:none;cursor:pointer;margin-bottom:2px}
+nav a:hover{background:var(--panel2)}
+nav a.on{background:var(--brandSoft);color:var(--brand);font-weight:700}
+nav svg{width:18px;height:18px;flex-shrink:0}
+nav .sep{height:1px;background:var(--line);margin:10px 6px}
+main{flex:1;min-width:0;padding:22px 26px 60px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+h1{font-size:20px;margin:0}
+.sub{color:var(--muted);font-size:12.5px}
+.conn{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:12px;background:var(--panel);border:1px solid var(--line)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.ok{background:var(--ok)}.dot.err{background:var(--err)}.dot.warn{background:var(--warn)}.dot.run{background:var(--info);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.3}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+.pad{padding:16px}
+.grid{display:grid;gap:14px}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.kpi{padding:14px 16px}.kpi .v{font-size:24px;font-weight:800}.kpi .l{color:var(--muted);font-size:12.5px}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);padding:7px 13px;border-radius:10px;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--panel2)}
+.btn.pri{background:var(--brand);border-color:var(--brand);color:#fff}.btn.pri:hover{filter:brightness(1.08)}
+.btn.danger{color:var(--err)}
+.btn.sm{padding:4px 9px;font-size:12.5px;border-radius:8px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn svg{width:15px;height:15px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end;padding:14px 16px;border-bottom:1px solid var(--line)}
+.f{display:flex;flex-direction:column;gap:3px}.f label{font-size:11.5px;color:var(--muted)}
+input,select,textarea{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:6px 10px;outline:none;min-width:0}
+input:focus,select:focus,textarea:focus{border-color:var(--brand2)}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--brand)}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th,td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;color:var(--muted);font-weight:500;background:var(--panel2);position:sticky;top:0}
+tr:hover td{background:var(--panel2)}
+td.num,th.num{font-variant-numeric:tabular-nums}
+.tag{display:inline-block;padding:1px 9px;border-radius:99px;font-size:11.5px;background:var(--panel2);border:1px solid var(--line)}
+.tag.ok{background:var(--okSoft);color:var(--ok);border-color:transparent}
+.tag.err{background:var(--errSoft);color:var(--err);border-color:transparent}
+.tag.warn{background:var(--warnSoft);color:var(--warn);border-color:transparent}
+.tag.info{background:var(--infoSoft);color:var(--info);border-color:transparent}
+.tag.brand{background:var(--brandSoft);color:var(--brand);border-color:transparent}
+tr.deleted td{opacity:.5;text-decoration:line-through}
+.pager{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;color:var(--muted);font-size:12.5px}
+.devs{grid-template-columns:repeat(auto-fill,minmax(320px,1fr))}
+.dev h3{margin:0;font-size:15.5px}.dev .meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;margin:12px 0;font-size:12.5px}
+.dev .meta span{color:var(--muted)}
+.dev .err{background:var(--errSoft);color:var(--err);padding:6px 10px;border-radius:8px;font-size:12px;margin-bottom:10px;word-break:break-word}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+.modal-bg{position:fixed;inset:0;background:rgba(10,20,18,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+.modal-bg.on{display:flex}
+.modal{background:var(--panel);border-radius:16px;width:min(560px,100%);max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.modal header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.modal header h2{font-size:16px;margin:0}
+.modal .body{padding:16px 18px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.modal .body .full{grid-column:1/-1}
+.modal footer{display:flex;gap:8px;justify-content:flex-start;padding:12px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
+.hint{font-size:12px;color:var(--muted)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{padding:3px 10px;border-radius:99px;border:1px solid var(--line);cursor:pointer;font-size:12.5px;background:var(--panel2)}
+.chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.switch{display:flex;align-items:center;gap:8px;cursor:pointer}
+.note{padding:10px 12px;border-radius:10px;font-size:12.5px;background:var(--infoSoft);color:var(--info)}
+.note.warn{background:var(--warnSoft);color:var(--warn)}
+.note.ok{background:var(--okSoft);color:var(--ok)}
+.note.err{background:var(--errSoft);color:var(--err)}
+.toast{position:fixed;bottom:18px;left:18px;display:flex;flex-direction:column;gap:8px;z-index:80}
+.toast div{background:var(--text);color:var(--bg);padding:10px 14px;border-radius:10px;font-size:13px;max-width:360px;box-shadow:0 6px 20px rgba(0,0,0,.2)}
+.tabs{display:flex;gap:4px;padding:4px;background:var(--panel2);border-radius:11px;border:1px solid var(--line);width:fit-content}
+.tabs button{border:0;background:none;padding:6px 14px;border-radius:8px;cursor:pointer}
+.tabs button.on{background:var(--panel);box-shadow:var(--shadow);font-weight:700;color:var(--brand)}
+.neg{color:var(--err)}.pos{color:var(--ok)}
+.menu-btn{display:none}
+.hist{font-size:12.5px;border-right:3px solid var(--line);padding:4px 10px;margin-bottom:8px}
+@media (max-width:860px){
+  aside{position:fixed;right:-260px;z-index:60;transition:right .2s;box-shadow:0 0 40px rgba(0,0,0,.2)}
+  aside.open{right:0}
+  .menu-btn{display:inline-flex}
+  main{padding:16px}
+  .modal .body{grid-template-columns:1fr}
+}
+@media print{aside,.top .row,.filters,.pager,.no-print{display:none!important}main{padding:0}.card{box-shadow:none;border:0}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside id="side">
+  <div class="logo"><b>آ</b><div><strong>آرومین</strong><small>حضور و غیاب</small></div></div>
+  <nav id="nav"></nav>
+</aside>
+<main>
+  <div class="top">
+    <div class="row">
+      <button class="btn menu-btn" onclick="side.classList.toggle('open')">☰</button>
+      <div><h1 id="title"></h1><div class="sub" id="subtitle"></div></div>
+    </div>
+    <div class="row">
+      <span class="conn" id="conn"><span class="dot"></span><span>در حال اتصال…</span></span>
+    </div>
+  </div>
+  <div id="view"></div>
+</main>
+</div>
+<div class="modal-bg" id="modalBg"><div class="modal" id="modal"></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   آرومین — ماژول تخلیه دستگاه حضور و غیاب
+   ارتباط با سرویس aromin-zk (FastAPI) روی سرور دبیان.
+   سرویس با SDK روی TCP:4370 به دستگاه وصل می‌شود، فقط می‌خواند و هرگز حذف نمی‌کند.
+   ============================================================ */
+const ICONS={
+  home:'<path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z"/>',
+  dev:'<rect x="5" y="2" width="14" height="20" rx="2"/><circle cx="12" cy="10" r="3.2"/><path d="M9 17h6"/>',
+  list:'<path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/>',
+  chart:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  people:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0113 0"/><path d="M16 4.5a3.5 3.5 0 010 7M18 14a6 6 0 013.5 6"/>',
+  hist:'<path d="M3 12a9 9 0 103-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-2.7 1.1V21a2 2 0 11-4 0v-.1a1.6 1.6 0 00-2.7-1.1l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.6 1.6 0 003 15H3a2 2 0 110-4h.1a1.6 1.6 0 001.1-2.7l-.1-.1a2 2 0 112.8-2.8l.1.1A1.6 1.6 0 009 4.6V4a2 2 0 114 0v.1a1.6 1.6 0 002.7 1.1l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 001.1 2.7H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/>',
+  sync:'<path d="M21 12a9 9 0 01-15.5 6.3L3 16M3 12a9 9 0 0115.5-6.3L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  dl:'<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
+  edit:'<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  plug:'<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 01-12 0zM12 18v4"/>',
+  print:'<path d="M6 9V3h12v6M6 18H4v-7h16v7h-2M8 14h8v7H8z"/>'
+};
+const ic=(n)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
+const PAGES=[
+  {id:'overview',t:'نمای کلی',s:'وضعیت دستگاه‌ها و تخلیه امروز',i:'home'},
+  {id:'devices',t:'دستگاه‌ها',s:'افزودن، ویرایش و زمان‌بندی تخلیه خودکار',i:'dev'},
+  {id:'records',t:'ترددهای تخلیه‌شده',s:'مشاهده، ویرایش و ثبت دستی تردد',i:'list'},
+  {id:'reports',t:'گزارش‌ها',s:'کارکرد روزانه و خلاصه دوره',i:'chart'},
+  {id:'people',t:'پرسنل',s:'نام‌گذاری کدهای پرسنلی دستگاه',i:'people'},
+  {id:'runs',t:'سابقه تخلیه',s:'گزارش هر بار اتصال به دستگاه',i:'hist'},
+  {sep:1},
+  {id:'settings',t:'تنظیمات اتصال',s:'آدرس سرویس و کلید API',i:'gear'},
+];
+const PUNCH={0:'ورود',1:'خروج',2:'خروج موقت',3:'بازگشت',4:'ورود اضافه‌کار',5:'خروج اضافه‌کار'};
+const $=(s,r=document)=>r.querySelector(s);
+const esc=(v)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fa=(n)=>n==null?'—':Number(n).toLocaleString('fa-IR');
+const store={get(k,d){try{const v=localStorage.getItem('azk_'+k);return v==null?d:JSON.parse(v)}catch(e){return d}},
+             set(k,v){try{localStorage.setItem('azk_'+k,JSON.stringify(v))}catch(e){}}};
+
+/* ---------- تاریخ شمسی ---------- */
+function g2j(gy,gm,gd){const g=[0,31,59,90,120,151,181,212,243,273,304,334];let jy=gy<=1600?0:979;gy-=gy<=1600?621:1600;
+  const gy2=gm>2?gy+1:gy;let days=365*gy+Math.floor((gy2+3)/4)-Math.floor((gy2+99)/100)+Math.floor((gy2+399)/400)-80+gd+g[gm-1];
+  jy+=33*Math.floor(days/12053);days%=12053;jy+=4*Math.floor(days/1461);days%=1461;
+  if(days>365){jy+=Math.floor((days-1)/365);days=(days-1)%365}
+  const jm=days<186?1+Math.floor(days/31):7+Math.floor((days-186)/30);const jd=1+(days<186?days%31:(days-186)%30);return[jy,jm,jd]}
+function j2g(jy,jm,jd){let gy=jy<=979?621:1600;jy-=jy<=979?0:979;
+  let days=365*jy+Math.floor(jy/33)*8+Math.floor(((jy%33)+3)/4)+78+jd+(jm<7?(jm-1)*31:(jm-7)*30+186);
+  gy+=400*Math.floor(days/146097);days%=146097;if(days>36524){gy+=100*Math.floor(--days/36524);days%=36524;if(days>=365)days++}
+  gy+=4*Math.floor(days/1461);days%=1461;if(days>365){gy+=Math.floor((days-1)/365);days=(days-1)%365}
+  let gd=days+1;const sal=[0,31,(gy%4===0&&gy%100!==0)||gy%400===0?29:28,31,30,31,30,31,31,30,31,30,31];let gm=0;
+  for(gm=0;gm<13&&gd>sal[gm];gm++)gd-=sal[gm];return[gy,gm,gd]}
+const pad=(n)=>String(n).padStart(2,'0');
+const isoD=(d)=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const JM=['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+const WD=['یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه','شنبه'];
+function jdate(s,withDay){if(!s)return'—';const[y,m,d]=s.slice(0,10).split('-').map(Number);const[jy,jm,jd]=g2j(y,m,d);
+  const out=`${jy}/${pad(jm)}/${pad(jd)}`;return (withDay?WD[new Date(y,m-1,d).getDay()]+' ':'')+out.replace(/\d/g,c=>'۰۱۲۳۴۵۶۷۸۹'[c])}
+const faDigits=(s)=>String(s??'').replace(/\d/g,c=>'۰۱۲۳۴۵۶۷۸۹'[c]);
+const jdt=(s)=>s?`${jdate(s)} ${faDigits(s.slice(11,16))}`:'—';
+const hm=(m)=>{if(m==null)return'—';const s=m<0?'-':'';m=Math.abs(m);return faDigits(`${s}${Math.floor(m/60)}:${pad(m%60)}`)};
+const hmh=(m)=>`<bdi dir="ltr">${hm(m)}</bdi>`;
+function ago(s){if(!s)return'هرگز';const d=(Date.now()-new Date(s.replace(' ','T')).getTime())/1000;
+  if(d<60)return'لحظاتی پیش';if(d<3600)return fa(Math.floor(d/60))+' دقیقه پیش';if(d<86400)return fa(Math.floor(d/3600))+' ساعت پیش';return jdt(s)}
+function until(s){if(!s)return'—';const d=(new Date(s.replace(' ','T')).getTime()-Date.now())/1000;
+  if(d<=30)return'به‌زودی';if(d<3600)return fa(Math.ceil(d/60))+' دقیقه دیگر';return fa(Math.round(d/3600))+' ساعت دیگر'}
+function ranges(){const t=new Date();const[jy,jm]=g2j(t.getFullYear(),t.getMonth()+1,t.getDate());
+  const gd=(a)=>{const[g1,g2,g3]=j2g(...a);return`${g1}-${pad(g2)}-${pad(g3)}`};
+  const mLen=(y,m)=>m<=6?31:m<=11?30:(((y+12)%33)%4===1?30:29);
+  const pm=jm===1?[jy-1,12]:[jy,jm-1];const sat=new Date(t);sat.setDate(t.getDate()-((t.getDay()+1)%7));
+  const y=new Date(t);y.setDate(t.getDate()-1);
+  return{today:[isoD(t),isoD(t)],yesterday:[isoD(y),isoD(y)],week:[isoD(sat),isoD(t)],
+    month:[gd([jy,jm,1]),isoD(t)],prev:[gd([pm[0],pm[1],1]),gd([pm[0],pm[1],mLen(pm[0],pm[1])])]}}
+const RANGE_LABELS={today:'امروز',yesterday:'دیروز',week:'این هفته',month:'این ماه',prev:'ماه قبل'};
+
+/* ---------- تنظیمات و API ---------- */
+const cfg={
+  url:store.get('url',location.protocol==='file:'?'demo':(location.pathname.startsWith('/zk')?'/zk-api':'/api')),
+  key:store.get('key',''),user:store.get('user','')
+};
+async function api(path,opt={}){
+  if(cfg.url==='demo')return Demo.handle(path,opt);
+  const r=await fetch(cfg.url.replace(/\/$/,'')+path,{method:opt.method||'GET',
+    headers:{'Content-Type':'application/json','X-API-Key':cfg.key,'X-User':encodeURIComponent(cfg.user||'dashboard')},
+    body:opt.body?JSON.stringify(opt.body):undefined});
+  if(!r.ok){let m='خطای '+r.status;try{const j=await r.json();m=typeof j.detail==='string'?j.detail:(j.detail?.[0]?.msg||m)}catch(e){}throw new Error(m)}
+  return r.json();
+}
+function download(path,params){
+  const q=new URLSearchParams(Object.entries(params).filter(([,v])=>v!==''&&v!=null));
+  if(cfg.url==='demo'){Demo.csv(path,q);return}
+  q.set('key',cfg.key);window.open(cfg.url.replace(/\/$/,'')+path+'?'+q,'_blank');
+}
+function toast(m){const d=document.createElement('div');d.textContent=m;$('#toast').appendChild(d);setTimeout(()=>d.remove(),4200)}
+async function guard(fn,btn){if(btn){btn.disabled=true}try{return await fn()}catch(e){toast('⚠ '+e.message)}finally{if(btn)btn.disabled=false}}
+
+/* ---------- مسیریابی ---------- */
+let page=store.get('page','overview'),timer=null;
+let cache={devices:[],people:[],stats:null};
+function renderNav(){$('#nav').innerHTML=PAGES.map(p=>p.sep?'<div class="sep"></div>':
+  `<a class="${p.id===page?'on':''}" onclick="go('${p.id}')">${ic(p.i)}<span>${p.t}</span></a>`).join('')}
+function go(p){page=p;store.set('page',p);$('#side').classList.remove('open');render()}
+async function render(){
+  renderNav();const P=PAGES.find(x=>x.id===page)||PAGES[0];$('#title').textContent=P.t;$('#subtitle').textContent=P.s;
+  clearInterval(timer);$('#view').innerHTML='<div class="empty">در حال بارگذاری…</div>';
+  try{await VIEWS[page]()}catch(e){$('#view').innerHTML=`<div class="card pad"><div class="note err">${esc(e.message)}</div>
+    <p class="hint">آدرس سرویس و کلید API را در «تنظیمات اتصال» بررسی کنید.</p><button class="btn" onclick="go('settings')">رفتن به تنظیمات</button></div>`}
+}
+async function ping(){const c=$('#conn');
+  try{const h=cfg.url==='demo'?{driver:'demo'}:await api('/health');
+    c.innerHTML=`<span class="dot ${h.driver==='pyzk'?'ok':'warn'}"></span><span>${cfg.url==='demo'?'حالت نمایشی (بدون سرور)':h.driver==='pyzk'?'متصل به سرویس':'سرویس در حالت شبیه‌ساز'}</span>`}
+  catch(e){c.innerHTML='<span class="dot err"></span><span>سرویس در دسترس نیست</span>'}}
+async function loadBase(){[cache.devices,cache.people]=await Promise.all([api('/devices'),api('/people')])}
+const personName=(uid)=>cache.people.find(p=>p.user_id==uid)?.name||'';
+
+/* ---------- صفحات ---------- */
+const VIEWS={};
+const devStatus=(d)=>d.running?['run','در حال تخلیه…','info']:!d.active?['','غیرفعال','']:
+  d.last_status==='error'?['err','خطا در اتصال','err']:d.last_status?['ok','آماده','ok']:['warn','هنوز تخلیه نشده','warn'];
+
+VIEWS.overview=async()=>{
+  const[st,devs,runs]=await Promise.all([api('/stats'),api('/devices'),api('/sync-runs?limit=8')]);cache.devices=devs;
+  $('#view').innerHTML=`
+  <div class="grid kpis">
+    <div class="card kpi"><div class="l">ترددهای امروز</div><div class="v">${fa(st.today_records)}</div></div>
+    <div class="card kpi"><div class="l">پرسنل حاضر امروز</div><div class="v">${fa(st.today_people)}</div></div>
+    <div class="card kpi"><div class="l">کل رکوردهای تخلیه‌شده</div><div class="v">${fa(st.total_records)}</div></div>
+    <div class="card kpi"><div class="l">دستگاه‌ها</div><div class="v">${fa(st.devices)} ${st.devices_error?`<span class="tag err">${fa(st.devices_error)} خطا</span>`:''}</div></div>
+  </div>
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin-top:14px">
+    <div class="card"><div class="filters" style="justify-content:space-between"><b>دستگاه‌ها</b>
+      <button class="btn sm pri" id="syncAll">${ic('sync')} تخلیه همه</button></div>
+      ${devs.length?`<div class="tbl-wrap"><table><tr><th>دستگاه</th><th>وضعیت</th><th>آخرین تخلیه</th><th>تخلیه بعدی</th></tr>
+      ${devs.map(d=>{const s=devStatus(d);return`<tr><td>${esc(d.name)}<div class="hint">${esc(d.ip)}:${d.port}</div></td>
+        <td><span class="tag ${s[2]}">${s[1]}</span></td><td>${ago(d.last_sync_at)}</td>
+        <td>${d.auto_sync&&d.active?until(d.next_run_at):'<span class="hint">دستی</span>'}</td></tr>`}).join('')}</table></div>`
+      :`<div class="empty">هنوز دستگاهی ثبت نشده.<br><br><button class="btn pri" onclick="go('devices')">${ic('plus')} افزودن دستگاه</button></div>`}
+    </div>
+    <div class="card"><div class="filters"><b>آخرین تخلیه‌ها</b></div>${runsTable(runs,true)}</div>
+  </div>`;
+  $('#syncAll')?.addEventListener('click',e=>guard(async()=>{const r=await api('/sync-all',{method:'POST'});
+    toast(`تخلیه انجام شد: ${fa(r.reduce((a,x)=>a+(x.inserted||0),0))} رکورد جدید`);render()},e.currentTarget));
+  timer=setInterval(()=>{if(page==='overview'&&!$('#modalBg').classList.contains('on'))VIEWS.overview().catch(()=>{})},30000);
+};
+
+function runsTable(runs,compact){
+  if(!runs.length)return'<div class="empty">هنوز تخلیه‌ای انجام نشده</div>';
+  const st={ok:['موفق','ok'],skipped:['بدون رکورد جدید','brand'],error:['خطا','err'],running:['در حال اجرا','info']};
+  return`<div class="tbl-wrap"><table><tr><th>زمان</th><th>دستگاه</th><th>نوع</th><th>وضعیت</th>
+    <th class="num">رکورد دستگاه</th><th class="num">جدید</th>${compact?'':'<th class="num">تکراری (رد شد)</th><th class="num">مدت</th><th>پیام</th>'}</tr>
+  ${runs.map(r=>`<tr><td>${jdt(r.started_at)}</td><td>${esc(r.device_name||'—')}</td><td>${r.trigger==='auto'?'خودکار':'دستی'}</td>
+    <td><span class="tag ${st[r.status]?.[1]||''}">${st[r.status]?.[0]||r.status}</span></td>
+    <td class="num">${fa(r.device_count)}</td><td class="num"><b>${fa(r.inserted)}</b></td>
+    ${compact?'':`<td class="num">${fa(r.duplicates)}</td><td class="num">${r.duration_ms!=null?faDigits((r.duration_ms/1000).toFixed(1))+' ث':'—'}</td>
+    <td style="white-space:normal;max-width:320px" class="hint">${esc(r.message||'')}</td>`}</tr>`).join('')}</table></div>`;
+}
+
+VIEWS.devices=async()=>{
+  const devs=await api('/devices');cache.devices=devs;
+  $('#view').innerHTML=`
+  <div class="row" style="justify-content:space-between;margin-bottom:14px">
+    <div class="note" style="flex:1;min-width:260px">اتصال مستقیم با SDK روی <b>TCP 4370</b>. سرویس فقط رکوردها را می‌خواند؛ هیچ رکوردی از دستگاه پاک نمی‌شود و سیستم‌های دیگر متصل به دستگاه آسیبی نمی‌بینند. رکوردهایی که قبلاً تخلیه شده‌اند دوباره ثبت نمی‌شوند.</div>
+    <button class="btn pri" onclick="deviceForm()">${ic('plus')} افزودن دستگاه</button>
+  </div>
+  ${devs.length?`<div class="grid devs">${devs.map(devCard).join('')}</div>`:'<div class="card empty">هنوز دستگاهی ثبت نشده است.</div>'}`;
+  timer=setInterval(async()=>{if(page!=='devices'||$('#modalBg').classList.contains('on'))return;
+    try{cache.devices=await api('/devices');$('.devs')&&($('.devs').innerHTML=cache.devices.map(devCard).join(''))}catch(e){}},15000);
+};
+function devCard(d){const s=devStatus(d);return`<div class="card pad dev">
+  <div class="row" style="justify-content:space-between"><div><h3>${esc(d.name)}</h3><div class="hint">${esc(d.location||'')}</div></div>
+    <span class="conn"><span class="dot ${s[0]}"></span>${s[1]}</span></div>
+  <div class="meta">
+    <div><span>آدرس: </span><b dir="ltr">${esc(d.ip)}:${d.port}</b></div>
+    <div><span>تخلیه خودکار: </span>${d.auto_sync?'هر '+fa(d.interval_min)+' دقیقه':'خاموش'}</div>
+    <div><span>آخرین تخلیه: </span>${ago(d.last_sync_at)}</div>
+    <div><span>تخلیه بعدی: </span>${d.auto_sync&&d.active?until(d.next_run_at):'—'}</div>
+    <div><span>رکورد روی دستگاه: </span>${fa(d.last_record_count)}</div>
+    <div><span>تخلیه‌شده در سیستم: </span>${fa(d.record_total)}</div>
+    ${d.serial_number?`<div class="full" style="grid-column:1/-1"><span>سریال: </span><span dir="ltr">${esc(d.serial_number)}</span> ${d.firmware?'· '+esc(d.firmware):''}</div>`:''}
+  </div>
+  ${d.last_status==='error'&&d.last_error?`<div class="err">${esc(d.last_error)}</div>`:''}
+  <div class="row">
+    <button class="btn sm pri" onclick="syncNow(${d.id},this)" ${d.running?'disabled':''}>${ic('sync')} تخلیه الان</button>
+    <button class="btn sm" onclick="testDev(${d.id},this)">${ic('plug')} تست اتصال</button>
+    <button class="btn sm" onclick="deviceForm(${d.id})">${ic('edit')} ویرایش</button>
+    <button class="btn sm" onclick="go('runs');setTimeout(()=>{const s=$('#runDev');if(s){s.value=${d.id};s.dispatchEvent(new Event('change'))}},300)">سابقه</button>
+  </div></div>`}
+async function syncNow(id,btn){btn.innerHTML=ic('sync')+' در حال تخلیه…';await guard(async()=>{
+  const r=await api(`/devices/${id}/sync`,{method:'POST'});
+  toast(r.status==='error'?'⚠ '+r.message:r.status==='busy'?r.message:`✓ ${fa(r.inserted)} رکورد جدید · ${fa(r.duplicates)} تکراری رد شد`)},btn);render()}
+async function testDev(id,btn){await guard(async()=>{const r=await api(`/devices/${id}/test`,{method:'POST'});
+  toast(r.ok?`✓ اتصال برقرار شد (${fa(r.latency_ms)} ms) · ${fa(r.record_count)} رکورد · ${fa(r.user_count)} کاربر`:'⚠ '+r.error)},btn)}
+
+function jHints(){document.querySelectorAll('input[type=date]').forEach(i=>{let h=i.nextElementSibling;
+  if(!h||!h.classList.contains('jh')){if(i.id==='rDate')return;h=document.createElement('span');h.className='hint jh';i.after(h);i.addEventListener('change',()=>h.textContent=jdate(i.value))}
+  h.textContent=jdate(i.value)})}
+function modal(html){$('#modal').innerHTML=html;$('#modalBg').classList.add('on')}
+function closeModal(){$('#modalBg').classList.remove('on')}
+$('#modalBg').addEventListener('click',e=>{if(e.target.id==='modalBg')closeModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+function deviceForm(id){
+  const d=id?cache.devices.find(x=>x.id===id):{name:'',ip:'',port:4370,comm_password:0,timeout_sec:10,location:'',auto_sync:true,interval_min:5,disable_during_read:false,active:true};
+  const presets=[1,5,10,15,30,60,120];
+  modal(`<header><h2>${id?'ویرایش دستگاه':'افزودن دستگاه'}</h2><button class="btn sm" onclick="closeModal()">✕</button></header>
+  <div class="body">
+    <div class="f full"><label>نام دستگاه *</label><input id="dName" value="${esc(d.name)}" placeholder="مثلاً ورودی دفتر رشت"></div>
+    <div class="f"><label>آدرس IP دستگاه *</label><input id="dIp" dir="ltr" value="${esc(d.ip)}" placeholder="192.168.1.201"></div>
+    <div class="f"><label>پورت TCP</label><input id="dPort" dir="ltr" type="number" value="${d.port}"></div>
+    <div class="f"><label>رمز ارتباطی (Comm Key)</label><input id="dPass" dir="ltr" type="number" value="${d.comm_password||0}"><span class="hint">اگر روی دستگاه تنظیم نشده، ۰</span></div>
+    <div class="f"><label>مهلت اتصال (ثانیه)</label><input id="dTimeout" dir="ltr" type="number" value="${d.timeout_sec}"></div>
+    <div class="f full"><label>محل نصب</label><input id="dLoc" value="${esc(d.location||'')}"></div>
+    <div class="full card pad" style="background:var(--panel2)">
+      <label class="switch"><input type="checkbox" id="dAuto" ${d.auto_sync?'checked':''}> <b>تخلیه خودکار</b></label>
+      <div style="margin-top:10px" id="intervalBox">
+        <div class="f"><label>هر چند دقیقه یک بار به دستگاه وصل شود و تخلیه کند؟</label>
+        <div class="row"><input id="dInt" type="number" min="1" max="1440" value="${d.interval_min}" style="width:100px" dir="ltr"> <span>دقیقه</span></div></div>
+        <div class="chips" style="margin-top:8px">${presets.map(p=>`<span class="chip ${p==d.interval_min?'on':''}" data-v="${p}">${fa(p)} دقیقه</span>`).join('')}</div>
+      </div>
+    </div>
+    <label class="switch full"><input type="checkbox" id="dDis" ${d.disable_during_read?'checked':''}> قفل موقت صفحه دستگاه حین خواندن</label>
+    <div class="hint full" style="margin-top:-8px">پیشنهاد: خاموش بماند. در حالت روشن، دستگاه چند ثانیه حین خواندن ثبت تردد نمی‌پذیرد.</div>
+    <label class="switch full"><input type="checkbox" id="dAct" ${d.active?'checked':''}> دستگاه فعال است</label>
+    <div class="full" id="testOut"></div>
+  </div>
+  <footer>
+    <button class="btn pri" id="dSave">ذخیره</button>
+    <button class="btn" id="dTest">${ic('plug')} تست اتصال</button>
+    <span style="flex:1"></span>
+    ${id?`<button class="btn danger" id="dDel">حذف دستگاه</button>`:''}
+  </footer>`);
+  const syncChips=()=>document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.v==$('#dInt').value));
+  document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{$('#dInt').value=c.dataset.v;syncChips()});
+  $('#dInt').oninput=syncChips;
+  const tog=()=>$('#intervalBox').style.opacity=$('#dAuto').checked?1:.4;$('#dAuto').onchange=tog;tog();
+  const val=()=>({name:$('#dName').value.trim(),ip:$('#dIp').value.trim(),port:+$('#dPort').value||4370,comm_password:+$('#dPass').value||0,
+    timeout_sec:+$('#dTimeout').value||10,location:$('#dLoc').value.trim(),auto_sync:$('#dAuto').checked,
+    interval_min:Math.min(1440,Math.max(1,+$('#dInt').value||5)),disable_during_read:$('#dDis').checked,active:$('#dAct').checked});
+  $('#dTest').onclick=(e)=>guard(async()=>{const v=val();if(!v.ip)throw new Error('آدرس IP را وارد کنید');
+    $('#testOut').innerHTML='<div class="note">در حال اتصال به دستگاه…</div>';
+    const r=await api('/devices/test',{method:'POST',body:{ip:v.ip,port:v.port,comm_password:v.comm_password,timeout_sec:v.timeout_sec}});
+    $('#testOut').innerHTML=r.ok?`<div class="note ok">✓ اتصال برقرار شد · ${esc(r.device_name||'')} ${r.serial_number?'· سریال '+esc(r.serial_number):''}<br>
+      رکوردهای روی دستگاه: ${fa(r.record_count)} · کاربران: ${fa(r.user_count)} · ساعت دستگاه: ${jdt(r.device_time)} · ${fa(r.latency_ms)} ms</div>`
+      :`<div class="note err">اتصال برقرار نشد: ${esc(r.error)}</div>`},e.currentTarget);
+  $('#dSave').onclick=(e)=>guard(async()=>{const v=val();if(!v.name||!v.ip)throw new Error('نام و IP الزامی است');
+    await api(id?`/devices/${id}`:'/devices',{method:id?'PUT':'POST',body:v});closeModal();toast('✓ ذخیره شد');render()},e.currentTarget);
+  $('#dDel')&&($('#dDel').onclick=(e)=>{if(!confirm('دستگاه از فهرست حذف شود؟ رکوردهای تخلیه‌شده باقی می‌مانند و روی خود دستگاه هم چیزی پاک نمی‌شود.'))return;
+    guard(async()=>{await api(`/devices/${id}`,{method:'DELETE'});closeModal();toast('دستگاه حذف شد');render()},e.currentTarget)});
+}
+
+/* --- ترددها --- */
+let rf=store.get('rf',null)||{date_from:ranges().week[0],date_to:ranges().week[1],user_id:'',device_id:'',source:'',status:'active',q:'',page:1,page_size:50};
+VIEWS.records=async()=>{
+  await loadBase();
+  $('#view').innerHTML=`<div class="card">
+   <div class="filters">
+    <div class="f"><label>از تاریخ</label><input type="date" id="fFrom" value="${rf.date_from}"></div>
+    <div class="f"><label>تا تاریخ</label><input type="date" id="fTo" value="${rf.date_to}"></div>
+    <div class="f"><label>بازه سریع</label><div class="chips">${Object.keys(RANGE_LABELS).map(k=>`<span class="chip" data-r="${k}">${RANGE_LABELS[k]}</span>`).join('')}</div></div>
+    <div class="f"><label>پرسنل</label><select id="fUser"><option value="">همه</option>${cache.people.map(p=>`<option value="${esc(p.user_id)}" ${p.user_id==rf.user_id?'selected':''}>${esc(p.name||'بدون نام')} (${esc(p.user_id)})</option>`).join('')}</select></div>
+    <div class="f"><label>دستگاه</label><select id="fDev"><option value="">همه</option>${cache.devices.map(d=>`<option value="${d.id}" ${d.id==rf.device_id?'selected':''}>${esc(d.name)}</option>`).join('')}</select></div>
+    <div class="f"><label>منبع</label><select id="fSrc"><option value="">همه</option><option value="device">دستگاه</option><option value="manual">ثبت دستی</option></select></div>
+    <div class="f"><label>وضعیت</label><select id="fSt"><option value="active">فعال</option><option value="edited">ویرایش‌شده</option><option value="deleted">حذف‌شده</option><option value="all">همه</option></select></div>
+    <div class="f"><label>جستجو</label><input id="fQ" value="${esc(rf.q)}" placeholder="کد، نام، توضیح"></div>
+    <span style="flex:1"></span>
+    <button class="btn" id="fExport">${ic('dl')} خروجی اکسل</button>
+    <button class="btn pri" onclick="recordForm()">${ic('plus')} ثبت دستی</button>
+   </div>
+   <div id="recTable"><div class="empty">…</div></div></div>`;
+  $('#fSrc').value=rf.source;$('#fSt').value=rf.status;
+  const upd=()=>{Object.assign(rf,{date_from:$('#fFrom').value,date_to:$('#fTo').value,user_id:$('#fUser').value,device_id:$('#fDev').value,
+    source:$('#fSrc').value,status:$('#fSt').value,q:$('#fQ').value.trim(),page:1});store.set('rf',rf);loadRecords()};
+  jHints();['fFrom','fTo','fUser','fDev','fSrc','fSt'].forEach(i=>$('#'+i).onchange=upd);
+  let qt;$('#fQ').oninput=()=>{clearTimeout(qt);qt=setTimeout(upd,350)};
+  document.querySelectorAll('[data-r]').forEach(c=>c.onclick=()=>{const r=ranges()[c.dataset.r];$('#fFrom').value=r[0];$('#fTo').value=r[1];jHints();upd()});
+  $('#fExport').onclick=()=>{const{page,page_size,...p}=rf;download('/attendance/export.csv',p)};
+  loadRecords();
+};
+let recItems=[];
+async function loadRecords(){
+  const q=new URLSearchParams(Object.entries(rf).filter(([,v])=>v!==''&&v!=null));
+  const r=await api('/attendance?'+q);recItems=r.items;const pages=Math.max(1,Math.ceil(r.total/rf.page_size));
+  $('#recTable').innerHTML=r.items.length?`<div class="tbl-wrap"><table>
+    <tr><th>تاریخ</th><th>ساعت</th><th>کد</th><th>نام</th><th>نوع</th><th>دستگاه</th><th>منبع</th><th>توضیح</th><th></th></tr>
+    ${r.items.map(a=>`<tr class="${a.is_deleted?'deleted':''}">
+      <td>${jdate(a.ts,true)}</td><td class="num"><b>${faDigits(a.ts.slice(11,16))}</b></td><td class="num">${esc(a.user_id)}</td>
+      <td>${esc(a.person_name||'—')}</td>
+      <td><span class="tag ${a.punch==0?'ok':a.punch==1?'info':''}">${PUNCH[a.punch]??a.punch}</span></td>
+      <td>${esc(a.device_name||'—')}</td>
+      <td>${a.source==='manual'?'<span class="tag warn">دستی</span>':'<span class="tag">دستگاه</span>'} ${a.is_edited?'<span class="tag brand" title="مقدار اصلی دستگاه: '+esc(a.raw_ts||'')+'">ویرایش‌شده</span>':''}</td>
+      <td class="hint" style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(a.note||'')}</td>
+      <td class="no-print"><div class="row" style="flex-wrap:nowrap">
+        ${a.is_deleted?`<button class="btn sm" onclick="recAct(${a.id},'restore',this)">بازگردانی</button>`:
+        `<button class="btn sm" onclick="recordForm(${a.id})">${ic('edit')} ویرایش</button>`}
+      </div></td></tr>`).join('')}</table></div>
+    <div class="pager"><span>${fa(r.total)} رکورد · صفحه ${fa(rf.page)} از ${fa(pages)}</span>
+      <div class="row"><button class="btn sm" ${rf.page<=1?'disabled':''} onclick="rf.page--;loadRecords()">قبلی</button>
+      <button class="btn sm" ${rf.page>=pages?'disabled':''} onclick="rf.page++;loadRecords()">بعدی</button>
+      <select onchange="rf.page_size=+this.value;rf.page=1;store.set('rf',rf);loadRecords()">${[25,50,100,250].map(n=>`<option ${n==rf.page_size?'selected':''} value="${n}">${fa(n)} در صفحه</option>`).join('')}</select></div></div>`
+    :'<div class="empty">در این بازه رکوردی پیدا نشد</div>';
+}
+async function recAct(id,act,btn){await guard(async()=>{
+  if(act==='delete'){await api(`/attendance/${id}`,{method:'DELETE'})}else{await api(`/attendance/${id}/${act}`,{method:'POST'})}
+  closeModal();toast({delete:'رکورد حذف شد (قابل بازگردانی)',restore:'رکورد بازگردانی شد',revert:'به مقدار اصلی دستگاه برگشت'}[act]);loadRecords()},btn)}
+async function recordForm(id){
+  const a=id?recItems.find(x=>x.id===id):{user_id:'',ts:isoD(new Date())+' 09:00:00',punch:0,note:'',source:'manual'};
+  const hist=id?await api(`/attendance/${id}/history`).catch(()=>[]):[];
+  const AL={edit:'ویرایش',delete:'حذف',restore:'بازگردانی',revert:'بازگشت به اصل',manual_add:'ثبت دستی'};
+  modal(`<header><h2>${id?'ویرایش تردد':'ثبت دستی تردد'}</h2><button class="btn sm" onclick="closeModal()">✕</button></header>
+  <div class="body">
+    ${id&&a.source==='device'?`<div class="note full">مقدار اصلی ثبت‌شده در دستگاه: <b>${jdt(a.raw_ts)}</b> · کد ${esc(a.raw_user_id)} · ${PUNCH[a.raw_punch]??a.raw_punch}<br>
+      <span class="hint">ویرایش فقط در این سیستم انجام می‌شود؛ رکورد روی دستگاه دست نمی‌خورد و در تخلیه‌های بعدی دوباره وارد نمی‌شود.</span></div>`:''}
+    <div class="f"><label>پرسنل</label><input id="rUser" list="peopleList" value="${esc(a.user_id)}" dir="ltr">
+      <datalist id="peopleList">${cache.people.map(p=>`<option value="${esc(p.user_id)}">${esc(p.name)}</option>`).join('')}</datalist>
+      <span class="hint" id="rUserName">${esc(personName(a.user_id))}</span></div>
+    <div class="f"><label>نوع تردد</label><select id="rPunch">${Object.entries(PUNCH).map(([k,v])=>`<option value="${k}" ${k==a.punch?'selected':''}>${v}</option>`).join('')}</select></div>
+    <div class="f"><label>تاریخ</label><input type="date" id="rDate" value="${a.ts.slice(0,10)}"><span class="hint" id="rJ">${jdate(a.ts,true)}</span></div>
+    <div class="f"><label>ساعت</label><input type="time" id="rTime" value="${a.ts.slice(11,16)}" dir="ltr"></div>
+    <div class="f full"><label>توضیح / علت</label><textarea id="rNote" rows="2">${esc(a.note||'')}</textarea></div>
+    ${hist.length?`<div class="full"><div class="hint" style="margin-bottom:6px">تاریخچه تغییرات</div>${hist.map(h=>`<div class="hist"><b>${AL[h.action]||h.action}</b> · ${esc(decodeURIComponent(h.actor||''))} · ${jdt(h.at)}
+      ${h.before_json?`<div class="hint">قبل: ${esc(h.before_json)}</div>`:''}</div>`).join('')}</div>`:''}
+  </div>
+  <footer><button class="btn pri" id="rSave">ذخیره</button>
+    ${id&&a.is_edited&&a.source==='device'?`<button class="btn" onclick="recAct(${id},'revert',this)">بازگشت به مقدار دستگاه</button>`:''}
+    <span style="flex:1"></span>${id?`<button class="btn danger" onclick="if(confirm('رکورد حذف شود؟ (از گزارش‌ها کنار گذاشته می‌شود و قابل بازگردانی است)'))recAct(${id},'delete',this)">حذف</button>`:''}</footer>`);
+  $('#rUser').oninput=()=>$('#rUserName').textContent=personName($('#rUser').value);
+  $('#rDate').onchange=()=>$('#rJ').textContent=jdate($('#rDate').value,true);
+  $('#rSave').onclick=(e)=>guard(async()=>{const body={user_id:$('#rUser').value.trim(),ts:`${$('#rDate').value} ${$('#rTime').value}`,
+    punch:+$('#rPunch').value,note:$('#rNote').value.trim()};if(!body.user_id)throw new Error('کد پرسنلی را وارد کنید');
+    if(id)await api(`/attendance/${id}`,{method:'PUT',body});else await api('/attendance',{method:'POST',body});
+    closeModal();toast('✓ ذخیره شد');loadRecords()},e.currentTarget);
+}
+
+/* --- گزارش‌ها --- */
+let rp=store.get('rp',null)||{tab:'daily',date_from:ranges().month[0],date_to:ranges().month[1],user_id:'',device_id:''};
+VIEWS.reports=async()=>{
+  await loadBase();
+  $('#view').innerHTML=`<div class="card">
+   <div class="filters">
+    <div class="tabs"><button data-t="daily">کارکرد روزانه</button><button data-t="summary">خلاصه دوره</button></div>
+    <div class="f"><label>از تاریخ</label><input type="date" id="pFrom" value="${rp.date_from}"></div>
+    <div class="f"><label>تا تاریخ</label><input type="date" id="pTo" value="${rp.date_to}"></div>
+    <div class="f"><label>بازه سریع</label><div class="chips">${Object.keys(RANGE_LABELS).map(k=>`<span class="chip" data-r="${k}">${RANGE_LABELS[k]}</span>`).join('')}</div></div>
+    <div class="f" id="pUserBox"><label>پرسنل</label><select id="pUser"><option value="">همه</option>${cache.people.map(p=>`<option value="${esc(p.user_id)}" ${p.user_id==rp.user_id?'selected':''}>${esc(p.name||p.user_id)}</option>`).join('')}</select></div>
+    <div class="f"><label>دستگاه</label><select id="pDev"><option value="">همه</option>${cache.devices.map(d=>`<option value="${d.id}" ${d.id==rp.device_id?'selected':''}>${esc(d.name)}</option>`).join('')}</select></div>
+    <span style="flex:1"></span>
+    <button class="btn" id="pCsv">${ic('dl')} خروجی اکسل</button><button class="btn" onclick="print()">${ic('print')} چاپ</button>
+   </div><div id="repOut"></div></div>`;
+  const upd=()=>{Object.assign(rp,{date_from:$('#pFrom').value,date_to:$('#pTo').value,user_id:$('#pUser').value,device_id:$('#pDev').value});store.set('rp',rp);loadReport()};
+  jHints();['pFrom','pTo','pUser','pDev'].forEach(i=>$('#'+i).onchange=upd);
+  document.querySelectorAll('[data-r]').forEach(c=>c.onclick=()=>{const r=ranges()[c.dataset.r];$('#pFrom').value=r[0];$('#pTo').value=r[1];jHints();upd()});
+  document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{rp.tab=b.dataset.t;store.set('rp',rp);loadReport()});
+  $('#pCsv').onclick=()=>{const p={date_from:rp.date_from,date_to:rp.date_to,device_id:rp.device_id};if(rp.tab==='daily')p.user_id=rp.user_id;
+    download(rp.tab==='daily'?'/reports/daily.csv':'/reports/summary.csv',p)};
+  loadReport();
+};
+async function loadReport(){
+  document.querySelectorAll('[data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===rp.tab));
+  $('#pUserBox').style.display=rp.tab==='daily'?'':'none';
+  const q=new URLSearchParams(Object.entries({date_from:rp.date_from,date_to:rp.date_to,device_id:rp.device_id,user_id:rp.tab==='daily'?rp.user_id:''}).filter(([,v])=>v));
+  const out=$('#repOut');out.innerHTML='<div class="empty">…</div>';
+  const head=`<div class="pad hint">بازه ${jdate(rp.date_from)} تا ${jdate(rp.date_to)} · ساعت موظفی روزانه ${hm(cache.stats?.standard_work_min??450)}</div>`;
+  if(rp.tab==='daily'){
+    const d=await api('/reports/daily?'+q);
+    out.innerHTML=head+(d.length?`<div class="tbl-wrap"><table><tr><th>تاریخ</th><th>کد</th><th>نام</th><th>اولین ورود</th><th>آخرین خروج</th>
+      <th class="num">تعداد ثبت</th><th>همه ساعت‌ها</th><th class="num">کارکرد</th><th class="num">اختلاف با موظفی</th><th>وضعیت</th></tr>
+      ${d.map(x=>`<tr><td>${jdate(x.date,true)}</td><td class="num">${esc(x.user_id)}</td><td>${esc(x.name||'—')}</td>
+      <td class="num">${faDigits(x.first_in)}</td><td class="num">${faDigits(x.last_out||'—')}</td><td class="num">${fa(x.punches)}</td>
+      <td class="hint num">${faDigits(x.times.join('  '))}</td><td class="num"><b>${hmh(x.worked_min)}</b></td>
+      <td class="num ${x.incomplete?'':x.diff_min<0?'neg':'pos'}">${x.incomplete?'—':hmh(x.diff_min)}</td>
+      <td>${x.incomplete?'<span class="tag warn">ناقص (تعداد ثبت فرد)</span>':'<span class="tag ok">کامل</span>'}</td></tr>`).join('')}</table></div>`:'<div class="empty">داده‌ای در این بازه نیست</div>');
+  }else{
+    const d=await api('/reports/summary?'+q);
+    out.innerHTML=head+(d.length?`<div class="tbl-wrap"><table><tr><th>کد</th><th>نام</th><th class="num">روزهای حضور</th><th class="num">کارکرد کل</th>
+      <th class="num">میانگین روزانه</th><th class="num">کسرکار</th><th class="num">اضافه‌کار</th><th class="num">روزهای ناقص</th></tr>
+      ${d.map(x=>`<tr><td class="num">${esc(x.user_id)}</td><td>${esc(x.name||'—')}</td><td class="num">${fa(x.days)}</td>
+      <td class="num"><b>${hmh(x.worked_min)}</b></td><td class="num">${hmh(x.avg_min)}</td><td class="num neg">${hmh(x.shortfall_min)}</td>
+      <td class="num pos">${hmh(x.overtime_min)}</td><td class="num">${x.incomplete_days?`<span class="tag warn">${fa(x.incomplete_days)}</span>`:'۰'}</td></tr>`).join('')}</table></div>`:'<div class="empty">داده‌ای در این بازه نیست</div>');
+  }
+}
+
+/* --- پرسنل --- */
+VIEWS.people=async()=>{
+  const ppl=await api('/people');cache.people=ppl;
+  $('#view').innerHTML=`<div class="card"><div class="filters"><span class="hint">نام‌ها در هر تخلیه از دستگاه خوانده می‌شوند. اگر نامی را اینجا تغییر دهید، از این به بعد همان نام حفظ می‌شود.</span></div>
+  ${ppl.length?`<div class="tbl-wrap"><table><tr><th>کد پرسنلی</th><th>نام</th><th>واحد</th><th>آخرین تردد</th><th>فعال</th><th></th></tr>
+  ${ppl.map(p=>`<tr><td class="num">${esc(p.user_id)}</td><td><input value="${esc(p.name)}" id="pn_${esc(p.user_id)}"></td>
+    <td><input value="${esc(p.department||'')}" id="pd_${esc(p.user_id)}"></td><td>${jdt(p.last_ts)}</td>
+    <td><input type="checkbox" id="pa_${esc(p.user_id)}" ${p.active?'checked':''}></td>
+    <td><button class="btn sm" onclick="savePerson('${esc(p.user_id)}',this)">ذخیره</button></td></tr>`).join('')}</table></div>`
+  :'<div class="empty">پس از اولین تخلیه، کاربران دستگاه اینجا نمایش داده می‌شوند.</div>'}</div>`;
+};
+async function savePerson(uid,btn){await guard(async()=>{await api('/people/'+encodeURIComponent(uid),{method:'PUT',body:{
+  name:$('#pn_'+CSS.escape(uid)).value.trim(),department:$('#pd_'+CSS.escape(uid)).value.trim(),active:$('#pa_'+CSS.escape(uid)).checked}});toast('✓ ذخیره شد')},btn)}
+
+/* --- سابقه تخلیه --- */
+VIEWS.runs=async()=>{
+  const devs=await api('/devices');
+  $('#view').innerHTML=`<div class="card"><div class="filters"><div class="f"><label>دستگاه</label><select id="runDev"><option value="">همه</option>
+    ${devs.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></div></div><div id="runsOut"></div></div>`;
+  const load=async()=>{const v=$('#runDev').value;$('#runsOut').innerHTML=runsTable(await api('/sync-runs?limit=200'+(v?'&device_id='+v:'')))};
+  $('#runDev').onchange=load;await load();
+};
+
+/* --- تنظیمات --- */
+VIEWS.settings=async()=>{
+  $('#view').innerHTML=`<div class="card pad" style="max-width:640px">
+   <div class="grid">
+    <div class="f"><label>آدرس سرویس API</label><input id="sUrl" dir="ltr" value="${esc(cfg.url)}">
+      <span class="hint">روی همان دامنه داشبورد: <code dir="ltr">/zk-api</code> · مستقیم: <code dir="ltr">http://SERVER-IP:8470/api</code> · برای دیدن نمونه بدون سرور: <code>demo</code></span></div>
+    <div class="f"><label>کلید API</label><input id="sKey" dir="ltr" type="password" value="${esc(cfg.key)}"><span class="hint">همان AZK_API_KEY در فایل /etc/aromin-zk/aromin-zk.env</span></div>
+    <div class="f"><label>نام کاربر (برای ثبت در تاریخچه ویرایش‌ها)</label><input id="sUser" value="${esc(cfg.user)}"></div>
+    <div class="row"><button class="btn pri" id="sSave">ذخیره و تست</button>
+      <button class="btn" onclick="document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark'">تغییر تم</button></div>
+    <div id="sOut"></div>
+   </div></div>`;
+  $('#sSave').onclick=(e)=>guard(async()=>{cfg.url=$('#sUrl').value.trim()||'/api';cfg.key=$('#sKey').value.trim();cfg.user=$('#sUser').value.trim();
+    store.set('url',cfg.url);store.set('key',cfg.key);store.set('user',cfg.user);
+    try{await api('/stats');$('#sOut').innerHTML='<div class="note ok">✓ اتصال به سرویس برقرار است</div>'}
+    catch(er){$('#sOut').innerHTML=`<div class="note err">${esc(er.message)}</div>`}ping()},e.currentTarget);
+};
+
+/* ============================================================
+   حالت نمایشی (بدون سرور) — فقط برای دیدن رابط کاربری
+   ============================================================ */
+const Demo=(()=>{
+  const now=()=>{const d=new Date();return`${isoD(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`};
+  const S={devices:[],att:[],people:[{user_id:'1',name:'نورا مقدس',department:'مالی',active:1},{user_id:'2',name:'کیمیا نصرت‌آبادی',department:'فروش',active:1},
+    {user_id:'3',name:'نیلوفر حبیب‌دوست',department:'فروش',active:1},{user_id:'4',name:'محمدرضا انصاری',department:'مدیریت',active:1}],runs:[],audit:[],seq:1,dev:{}};
+  function devRecords(id){if(S.dev[id])return S.dev[id];const recs=[];const t=new Date();
+    for(let i=20;i>=0;i--){const d=new Date(t);d.setDate(t.getDate()-i);if(d.getDay()===5)continue;
+      S.people.forEach((p,k)=>{if((i+k)%9===0)return;const inM=8*60+30+((i*7+k*13)%45),outM=16*60+((i*11+k*17)%80);
+        recs.push({user_id:p.user_id,ts:`${isoD(d)} ${pad(Math.floor(inM/60))}:${pad(inM%60)}:00`,punch:0});
+        if(!(i===0)&&!((i+k)%11===0))recs.push({user_id:p.user_id,ts:`${isoD(d)} ${pad(Math.floor(outM/60))}:${pad(outM%60)}:00`,punch:1})})}
+    return S.dev[id]=recs}
+  function sync(d,trigger){const t0=Date.now();const recs=devRecords(d.id);let ins=0;
+    recs.forEach(r=>{const k=`${d.id}|${r.user_id}|${r.ts}|${r.punch}`;if(S.att.some(a=>a.key===k))return;ins++;
+      S.att.push({id:S.seq++,key:k,device_id:d.id,raw_user_id:r.user_id,raw_ts:r.ts,raw_punch:r.punch,user_id:r.user_id,ts:r.ts,punch:r.punch,note:'',source:'device',is_edited:0,is_deleted:0})});
+    Object.assign(d,{last_sync_at:now(),last_success_at:now(),last_status:'ok',last_record_count:recs.length,serial_number:'CKUX20'+(1000+d.id),firmware:'Ver 6.60'});
+    const run={id:S.runs.length+1,device_id:d.id,device_name:d.name,trigger,started_at:now(),status:'ok',device_count:recs.length,fetched:recs.length,inserted:ins,duplicates:recs.length-ins,duration_ms:Date.now()-t0+620,message:`${ins} رکورد جدید از ${recs.length} رکورد دستگاه`};
+    S.runs.unshift(run);return{...run,status:'ok'}}
+  const out=(d)=>({...d,record_total:S.att.filter(a=>a.device_id===d.id).length,running:false,
+    next_run_at:d.auto_sync&&d.active?(()=>{const x=new Date((d.last_sync_at||now()).replace(' ','T'));x.setMinutes(x.getMinutes()+d.interval_min);return`${isoD(x)} ${pad(x.getHours())}:${pad(x.getMinutes())}:00`})():null});
+  const full=(a)=>({...a,person_name:S.people.find(p=>p.user_id==a.user_id)?.name||'',device_name:S.devices.find(d=>d.id==a.device_id)?.name||''});
+  function filt(q){return S.att.filter(a=>{const st=q.get('status')||'active';
+    if(st==='deleted'&&!a.is_deleted)return false;if(st==='edited'&&!(a.is_edited&&!a.is_deleted))return false;if(st==='active'&&a.is_deleted)return false;
+    if(q.get('date_from')&&a.ts<q.get('date_from'))return false;if(q.get('date_to')&&a.ts>q.get('date_to')+' 23:59:59')return false;
+    if(q.get('user_id')&&a.user_id!=q.get('user_id'))return false;if(q.get('device_id')&&a.device_id!=q.get('device_id'))return false;
+    if(q.get('source')&&a.source!==q.get('source'))return false;const s=q.get('q');if(s&&!(a.user_id+full(a).person_name+a.note).includes(s))return false;return true}).map(full)}
+  function daily(q){const g={};filt(q).sort((a,b)=>a.ts<b.ts?-1:1).forEach(a=>{(g[a.user_id+'|'+a.ts.slice(0,10)]??=[]).push(a)});
+    return Object.entries(g).map(([k,it])=>{const[uid,day]=k.split('|');const t=it.map(a=>a.ts.slice(11,16));const m=t.map(x=>+x.slice(0,2)*60+ +x.slice(3));
+      let w=0;for(let i=0;i+1<m.length;i+=2)w+=m[i+1]-m[i];return{user_id:uid,name:it[0].person_name,date:day,first_in:t[0],last_out:t.length>1?t[t.length-1]:null,
+      punches:it.length,times:t,worked_min:w,standard_min:450,diff_min:w-450,incomplete:t.length%2===1}}).sort((a,b)=>a.date===b.date?a.user_id-b.user_id:a.date<b.date?-1:1)}
+  async function handle(path,opt){await new Promise(r=>setTimeout(r,120+Math.random()*200));
+    const[p,qs]=path.split('?');const q=new URLSearchParams(qs||'');const m=opt.method||'GET';const b=opt.body||{};let x;
+    if(p==='/stats'){const t=isoD(new Date());const a=S.att.filter(z=>!z.is_deleted);
+      return{total_records:a.length,today_records:a.filter(z=>z.ts.startsWith(t)).length,today_people:new Set(a.filter(z=>z.ts.startsWith(t)).map(z=>z.user_id)).size,
+        devices:S.devices.length,devices_error:S.devices.filter(d=>d.last_status==='error').length,standard_work_min:450}}
+    if(p==='/devices'&&m==='GET')return S.devices.map(out);
+    if(p==='/devices'&&m==='POST'){const d={id:S.devices.length+1,...b,last_sync_at:null,last_status:null};S.devices.push(d);return out(d)}
+    if(p==='/devices/test')return b.ip.startsWith('10.')?{ok:false,error:'timed out — دستگاه در دسترس نیست'}:{ok:true,device_name:'ZKTeco K40',serial_number:'CKUX201001',record_count:420,user_count:4,device_time:now(),latency_ms:84};
+    if((x=p.match(/^\/devices\/(\d+)$/))){const d=S.devices.find(z=>z.id==x[1]);if(m==='DELETE'){S.devices=S.devices.filter(z=>z!==d);return{ok:true}}Object.assign(d,b);return out(d)}
+    if((x=p.match(/^\/devices\/(\d+)\/sync$/)))return sync(S.devices.find(z=>z.id==x[1]),'manual');
+    if((x=p.match(/^\/devices\/(\d+)\/test$/)))return{ok:true,device_name:'ZKTeco K40',record_count:devRecords(+x[1]).length,user_count:4,latency_ms:91};
+    if(p==='/sync-all')return S.devices.filter(d=>d.active).map(d=>sync(d,'manual'));
+    if(p==='/sync-runs')return S.runs.filter(r=>!q.get('device_id')||r.device_id==q.get('device_id'));
+    if(p==='/people'&&m==='GET')return S.people.map(pp=>({...pp,last_ts:S.att.filter(a=>a.user_id==pp.user_id).map(a=>a.ts).sort().pop()}));
+    if((x=p.match(/^\/people\/(.+)$/))){const pp=S.people.find(z=>z.user_id==decodeURIComponent(x[1]));Object.assign(pp,b);return pp}
+    if(p==='/attendance'&&m==='GET'){const all=filt(q).sort((a,b)=>a.ts<b.ts?1:-1);const ps=+q.get('page_size')||50,pg=+q.get('page')||1;return{total:all.length,items:all.slice((pg-1)*ps,pg*ps)}}
+    if(p==='/attendance'&&m==='POST'){const a={id:S.seq++,device_id:null,...b,ts:b.ts+':00',source:'manual',is_edited:0,is_deleted:0};S.att.push(a);S.audit.push({attendance_id:a.id,action:'manual_add',actor:cfg.user||'dashboard',at:now()});return full(a)}
+    if((x=p.match(/^\/attendance\/(\d+)(?:\/(\w+))?$/))){const a=S.att.find(z=>z.id==x[1]);const act=x[2];
+      if(act==='history')return S.audit.filter(h=>h.attendance_id==a.id).slice().reverse();
+      const log=(action,before)=>S.audit.push({attendance_id:a.id,action,actor:cfg.user||'dashboard',at:now(),before_json:before?JSON.stringify(before):null});
+      if(m==='DELETE'){a.is_deleted=1;log('delete');return{ok:true}}
+      if(act==='restore'){a.is_deleted=0;log('restore');return full(a)}
+      if(act==='revert'){log('revert',{ts:a.ts});Object.assign(a,{ts:a.raw_ts,user_id:a.raw_user_id,punch:a.raw_punch,is_edited:0});return full(a)}
+      if(m==='PUT'){log('edit',{ts:a.ts,user_id:a.user_id,punch:a.punch});Object.assign(a,b,{ts:b.ts.length===16?b.ts+':00':b.ts,is_edited:1});return full(a)}}
+    if(p==='/reports/daily')return daily(q);
+    if(p==='/reports/summary'){const ag={};daily(q).forEach(d=>{const a=ag[d.user_id]??={user_id:d.user_id,name:d.name,days:0,worked_min:0,shortfall_min:0,overtime_min:0,incomplete_days:0};
+      a.days++;a.worked_min+=d.worked_min;if(d.incomplete)a.incomplete_days++;else if(d.diff_min<0)a.shortfall_min-=d.diff_min;else a.overtime_min+=d.diff_min});
+      return Object.values(ag).map(a=>({...a,avg_min:Math.floor(a.worked_min/a.days)}))}
+    throw new Error('مسیر نمایشی پیدا نشد: '+p)}
+  function csv(path,q){let rows;if(path.includes('daily'))rows=[['تاریخ','کد','نام','ورود','خروج','کارکرد']].concat(daily(q).map(d=>[jdate(d.date),d.user_id,d.name,d.first_in,d.last_out||'',hm(d.worked_min)]));
+    else if(path.includes('summary'))rows=[['کد','نام','روز','کارکرد']];else rows=[['کد','نام','زمان','نوع']].concat(filt(q).map(a=>[a.user_id,a.person_name,a.ts,PUNCH[a.punch]]));
+    const blob=new Blob(['﻿'+rows.map(r=>r.map(c=>`"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n')],{type:'text/csv'});
+    const l=document.createElement('a');l.href=URL.createObjectURL(blob);l.download=path.split('/').pop();l.click()}
+  return{handle,csv};
+})();
+
+/* ---------- شروع ---------- */
+(async()=>{ping();setInterval(ping,60000);try{cache.stats=await api('/stats')}catch(e){}render()})();
+</script>
+</body>
+</html>
