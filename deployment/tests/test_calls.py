@@ -153,6 +153,10 @@ class Plan(unittest.TestCase):
         self.assertEqual(old_meta['core_sha256'], c1002['core_sha256'])
         plan = calls.plan_calls(stored, [old_meta])
         self.assertEqual((plan['update'], plan['unchanged'], plan['conflicts']), ([], 1, []))
+        # review PR11-R04: a same-core export without a sync time keeps the stored watermark
+        meta_nosync, _ = calls.parse_call_row(row(**{'نام مقصد': 'مشتری ب۲', 'تاریخ همگام‌سازی': None}), CMAP)
+        u = calls.plan_calls(stored, [meta_nosync])['update'][0]
+        self.assertEqual((u['reason'], u['call']['sync_at']), ('meta', c1002['sync_at']))
 
     def test_parse_period(self):
         self.assertEqual(calls.parse_period({'month': '1405/06'}), ('1405/06/01', '1405/06/31'))
