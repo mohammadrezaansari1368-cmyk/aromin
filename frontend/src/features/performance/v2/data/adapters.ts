@@ -8,7 +8,7 @@ export const CALL_KEYS: [CallKey, string, string][] = [
 	['calls_out', 'تماس خروجی', 'تماس'], ['calls_in', 'تماس ورودی', 'تماس'], ['calls_answered', 'پاسخ‌داده', 'تماس'],
 	['calls_missed', 'ازدست‌رفته', 'تماس'], ['calls_internal', 'تماس داخلی', 'تماس'], ['talk_seconds', 'زمان مکالمه', 'ثانیه'],
 ]
-const DAILY_OF: Record<string, DailyKey> = { contract_average: 'contracts', finance_documents: 'finance_documents', tasks: 'tasks', ...Object.fromEntries(CALL_KEYS.map(([k]) => [k, k])) }
+const DAILY_OF: Record<string, DailyKey> = { contract_average: 'contracts', finance_documents: 'finance_documents', tasks: 'tasks', tickets: 'tickets', ...Object.fromEntries(CALL_KEYS.map(([k]) => [k, k])) }
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 export const toStatus = (s: unknown): Status => (typeof s === 'string' && s in STATUS_MAP ? STATUS_MAP[s as ApiStatus] : 'not_computable')
@@ -23,7 +23,7 @@ export function toMetric(raw: Partial<ApiMetric> | null | undefined): Metric {
 		status: computable && num(r.value) === null ? 'not_computable' : status,
 		target: num(r.target), records: num(r.coverage?.records) ?? 0, issues: num(r.coverage?.issues) ?? 0,
 		source: Array.isArray(r.source) ? r.source.map(String) : [], detailsMetric: String(r.detailsMetric || r.id || ''),
-		dailyMetric: DAILY_OF[String(r.id)] || (r.unit !== '٪' && String(r.detailsMetric || '').startsWith('calls_') ? DAILY_OF[String(r.detailsMetric)] : undefined) || null, updatedAt: num(r.updatedAt) ?? undefined,
+		dailyMetric: DAILY_OF[String(r.id)] || (r.unit !== '٪' && /^(calls_|tickets$)/.test(String(r.detailsMetric || '')) ? DAILY_OF[String(r.detailsMetric)] : undefined) || null, updatedAt: num(r.updatedAt) ?? undefined,
 	}
 }
 /** Tasks are a person field, not an axis metric; expose them as a selectable pseudo-metric. */

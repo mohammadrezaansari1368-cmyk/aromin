@@ -21,6 +21,7 @@ const AttendanceStatus = lazy(() => import('@/components/performance/Performance
 const IdentityReview = lazy(() => import('@/components/identity/IdentityReview'))
 import CallSummaryOptions from '@/components/import/CallSummaryOptions'
 import { callOptsError, ingestCallFile, resetCallsCache, type CallDetailItem, type CallOpts } from '@/lib/callsApi'
+import { ingestTicketFile } from '@/lib/ticketsApi'
 
 interface QItem {
 	id: string
@@ -203,6 +204,23 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		if (out.some((r) => r.routed)) resetCallsCache()
 		return out
 	}
+	/** تیکتِ جولیو برای مدیران و مالی علاوه بر موتورِ قبلی به جدولِ سروری هم می‌رود (WP-4)؛ کارشناس فقط با نگاشتِ تأییدشده به شخص می‌رسد */
+	const importTickets = async (items: QItem[]): Promise<Result[]> => {
+		const out: Result[] = []
+		if (!session || !canSeeAll(session)) return out
+		for (const q of items) {
+			try {
+				const r = await ingestTicketFile(session, q.buf, q.name)
+				const b = r.batch
+				const note = r.duplicate ? 'سرور: این فایل قبلاً ثبت شده است (تکراری)'
+					: [`سرور: ${faNum(b.inserted)} جدید · ${faNum(b.updated)} به‌روز · ${faNum(b.conflicts)} تعارض`, r.unmapped?.length ? `${faNum(r.unmapped.length)} کارشناس نیازمند تأیید نگاشت` : ''].filter(Boolean).join(' · ')
+				out.push({ name: q.name, type: 'ticket', rows: q.rows, dup: r.duplicate, routed: true, err: '', note, conflicts: b.details?.conflicts?.length ? b.details.conflicts : undefined })
+			} catch (e) {
+				out.push({ name: q.name, type: 'ticket', rows: q.rows, dup: false, routed: false, err: 'سرور: ' + (e as Error).message })
+			}
+		}
+		return out
+	}
 	const callsBlocked = !!session && canSeeAll(session) && valid.some((q) => q.type === 'calls' && callOptsError(q.callOpts))
 	const run = async () => {
 		if (callsBlocked) return
@@ -222,6 +240,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		if (bridge !== 'ready' || !frame.current?.contentWindow) return
 		const attRes = await importAttendance(att)
 		const callRes = await importCalls(eng.filter((q) => q.type === 'calllog' || q.type === 'calls'))
+		const ticketRes = await importTickets(eng.filter((q) => q.type === 'ticket'))
 		setBusy(true)
 		setStatus({ tone: 'info', text: 'بک‌آپ روی سرور، ورودِ داده و ذخیره…' })
 		const id = uid()
@@ -239,7 +258,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 			}, 120000)
 		})) as { ok: boolean; saved?: boolean; error?: string; results?: Result[] }
 		setBusy(false)
-		setResults([...(res.results || []), ...attRes, ...callRes])
+		setResults([...(res.results || []), ...attRes, ...callRes, ...ticketRes])
 		if (res.ok) {
 			setStatus({ tone: 'ok', text: `${faNum((res.results || []).length)} فایل وارد و ذخیره شد.` + (attRes.length ? ` ${faNum(attRes.filter((x) => x.routed).length)} فایلِ حضور روی سرور ثبت شد.` : '') })
 			setQueue((q) => q.filter((x) => !valid.includes(x)))
