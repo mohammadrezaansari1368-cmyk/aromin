@@ -24,7 +24,7 @@ COLUMNS = {
     'company': (('شرکت',), ()),
 }
 REQUIRED = ('no', 'date', 'agent')
-_NOT_NUMBER = ('نحوه', 'نوع', 'عنوان', 'موضوع', 'وضعیت', 'تاریخ')   # «نحوه ثبت تیکت» etc. are never the ticket number
+_NOT_NUMBER = ('نحوه', 'نوع', 'عنوان', 'موضوع', 'وضعیت', 'تاریخ', 'توضیح', 'شرح', 'یادداشت', 'متن')   # «نحوه ثبت تیکت», «شرح تیکت» etc. are never the ticket number
 CORE = ('date_j', 'agent_name', 'agent_key', 'channel', 'subject', 'status', 'company', 'sla_ok', 'ola_ok')
 LABELS = {'date_j': 'تاریخ ثبت', 'agent_name': 'کارشناس', 'agent_key': 'کارشناس', 'channel': 'سرشاخه', 'subject': 'موضوع',
           'status': 'وضعیت', 'company': 'شرکت', 'sla_ok': 'SLA', 'ola_ok': 'OLA'}

@@ -259,9 +259,12 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		})) as { ok: boolean; saved?: boolean; error?: string; results?: Result[] }
 		setBusy(false)
 		setResults([...(res.results || []), ...attRes, ...callRes, ...ticketRes])
+		// a failed server upload keeps its file in the queue for retry, even when the legacy engine succeeded
+		const serverFailed = [...attRes, ...callRes, ...ticketRes].filter((x) => !x.routed)
 		if (res.ok) {
-			setStatus({ tone: 'ok', text: `${faNum((res.results || []).length)} فایل وارد و ذخیره شد.` + (attRes.length ? ` ${faNum(attRes.filter((x) => x.routed).length)} فایلِ حضور روی سرور ثبت شد.` : '') })
-			setQueue((q) => q.filter((x) => !valid.includes(x)))
+			setStatus({ tone: serverFailed.length ? 'err' : 'ok', text: `${faNum((res.results || []).length)} فایل وارد و ذخیره شد.` + (attRes.length ? ` ${faNum(attRes.filter((x) => x.routed).length)} فایلِ حضور روی سرور ثبت شد.` : '')
+				+ (serverFailed.length ? ` ارسال به سرور برای ${faNum(serverFailed.length)} فایل انجام نشد و در صف ماند: ` + serverFailed.map((x) => x.err).join('، ') : '') })
+			setQueue((q) => q.filter((x) => !valid.includes(x) || serverFailed.some((y) => y.name === x.name)))
 			reload()
 		} else setStatus({ tone: 'err', text: 'انجام نشد: ' + (res.error || 'نامشخص') })
 	}

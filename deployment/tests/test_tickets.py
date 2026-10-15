@@ -36,6 +36,8 @@ class Pure(unittest.TestCase):
         self.assertEqual((cols['no'], cols['date'], cols['agent'], cols['sla']), ('شماره تیکت', 'تاریخ ثبت', 'کارشناس', 'تاخیر SLA'))
         self.assertEqual(tk.pick_columns(['نحوه ثبت تیکت', 'کد تیکت'])['no'], 'کد تیکت')   # descriptive columns never become the number
         self.assertNotIn('no', tk.pick_columns(['نحوه ثبت تیکت']))
+        # review PR11-R03: description/history columns never become the number, so the upload is rejected instead
+        self.assertNotIn('no', tk.pick_columns(['شرح تیکت', 'توضیحات تیکت', 'یادداشت تیکت', 'متن تیکت']))
         self.assertEqual([tk.on_time(v) for v in ('عدم تاخیر', 'عدم‌تاخیر', 'تاخیر ۲ ساعت', '', None)], [1, 1, 0, None, None])
         self.assertEqual([tk.ticket_no(v) for v in ('۱۰۴', 101.0, '#12', 1.5, 'abc', True)], ['104', '101', '12', None, None, None])
         self.assertEqual((tk.reg_date('۱۴۰۵/۶/۹ ۱۰:۲۰'), tk.reg_date('1405/13/01')), ('1405/06/09', None))

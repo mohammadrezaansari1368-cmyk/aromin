@@ -29,7 +29,7 @@ const COLUMNS: Record<string, [string[], string[]]> = {
 	status: [['وضعیت'], []],
 	company: [['شرکت'], []],
 }
-const NOT_NUMBER = ['نحوه', 'نوع', 'عنوان', 'موضوع', 'وضعیت', 'تاریخ']
+const NOT_NUMBER = ['نحوه', 'نوع', 'عنوان', 'موضوع', 'وضعیت', 'تاریخ', 'توضیح', 'شرح', 'یادداشت', 'متن']
 const norm = (s: string) => s.replace(/[يى]/g, 'ی').replace(/ك/g, 'ک').replace(/[آأ]/g, 'ا').replace(/[‌ ]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
 export function pickTicketColumns(headers: string[]): Set<string> {
 	const hs = headers.map((h) => [norm(h), h] as const)
