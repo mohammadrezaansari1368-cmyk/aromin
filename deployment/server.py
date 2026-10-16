@@ -2874,13 +2874,27 @@ def _mcp_ask(tenant, args):
     return r["text"]
 
 
+def _mcp_key_ok(kind, key):
+    """Jalali-valid export key: month YYYY/MM, day YYYY/MM/DD (months 1-6: 31 days, 7-11: 30, 12: 29 or 30 in leap years)."""
+    pattern = {"day": _MCP_DAY_RE, "month": _MCP_MONTH_RE}.get(kind)
+    if pattern is None or not isinstance(key, str) or not pattern.match(key):
+        return False
+    y, m, *d = (int(x) for x in key.split("/"))
+    if not 1300 <= y <= 1600 or not 1 <= m <= 12:
+        return False
+    if not d:
+        return True
+    last = 31 if m <= 6 else 30 if m <= 11 else (30 if _j2g(y, 12, 30) != _j2g(y + 1, 1, 1) else 29)
+    return 1 <= d[0] <= last
+
+
 def _mcp_export_check(ex):
     """Validated HKE export → (kind, key, canonical JSON, people count)."""
     if not isinstance(ex, dict):
         raise _McpToolError("export باید شیء باشد.")
     kind, key = ex.get("kind"), ex.get("key")
-    if kind not in ("day", "month") or not isinstance(key, str) or not (_MCP_DAY_RE if kind == "day" else _MCP_MONTH_RE).match(key):
-        raise _McpToolError("kind باید day (key مثل 1405/07/25) یا month (key مثل 1405/07) باشد.")
+    if kind not in ("day", "month") or not _mcp_key_ok(kind, key):
+        raise _McpToolError("kind باید day (key مثل 1405/07/25) یا month (key مثل 1405/07) با تاریخِ شمسیِ معتبر باشد.")
     raw = att.canonical(ex)
     if len(raw.encode("utf-8")) > MCP_EXPORT_MAX:
         raise _McpToolError("export بزرگ‌تر از ۲ مگابایت است.")
@@ -2894,8 +2908,14 @@ def _mcp_export_check(ex):
         for f in ("present", "absent", "leave", "mission", "attendance"):
             v = ex.get(f, [])
             if not isinstance(v, list) or len(v) > 1000:
-                raise _McpToolError(f + " باید فهرست باشد.")
-            codes |= {str(x.get("code") if isinstance(x, dict) else x) for x in v}
+                raise _McpToolError(f + " باید فهرستِ حداکثر ۱۰۰۰ مورد باشد.")
+            for x in v:
+                c = x.get("code") if f == "attendance" and isinstance(x, dict) else (x if f != "attendance" else None)
+                if isinstance(c, bool) or not isinstance(c, (str, int)) or not str(c).strip() or len(str(c)) > 32:
+                    raise _McpToolError(f + " فقط کدِ پرسنلی (یا در attendance شیءِ دارای code) می‌پذیرد.")
+                codes.add(str(c).strip())
+        if len(codes) > 1000:
+            raise _McpToolError("بیش از ۱۰۰۰ نفر در یک خروجیِ روزانه.")
         count = len(codes)
     return kind, key, raw, count
 
@@ -2925,8 +2945,8 @@ def _mcp_save_export(tenant, args):
 
 def _mcp_get_export(tenant, args):
     kind, key = args.get("kind"), args.get("key")
-    if kind not in ("day", "month") or not isinstance(key, str):
-        raise _McpToolError("kind (day|month) و key لازم است.")
+    if kind not in ("day", "month") or not _mcp_key_ok(kind, key):
+        raise _McpToolError("kind (day|month) و key با تاریخِ شمسیِ معتبر لازم است.")
     with _SaTx() as t:
         r = t.one("SELECT payload FROM harikan_exports WHERE tenant=%s AND kind=%s AND export_key=%s", (tenant, kind, key))
     if not r:
@@ -2992,7 +3012,8 @@ def _mcp_dispatch(tenant, method, params):
     if method == "tools/list":
         return {"tools": [{k: v for k, v in t.items() if k != "handler"} for t in MCP_TOOLS]}, None
     if method == "tools/call":
-        tool = _MCP_BY_NAME.get(params.get("name"))
+        name = params.get("name")
+        tool = _MCP_BY_NAME.get(name) if isinstance(name, str) else None
         args = params.get("arguments") if params.get("arguments") is not None else {}
         if not tool or not isinstance(args, dict):
             return None, (-32602, "ابزارِ ناشناخته یا آرگومانِ نامعتبر")
@@ -3026,7 +3047,9 @@ async def mcp_endpoint(request: Request):
         return _rpc(msg.get("id") if isinstance(msg, dict) else None, error=(-32600, "invalid request (batch is not supported)"))
     if "id" not in msg:   # notification
         return Response(status_code=202)
-    params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+    params = msg.get("params", {})
+    if not isinstance(params, dict):
+        return _rpc(msg["id"], error=(-32602, "params must be an object"))
     result, error = await _in_pool(_mcp_dispatch, cfg["tenant"], msg["method"], params)
     return _rpc(msg["id"], result, error)
 

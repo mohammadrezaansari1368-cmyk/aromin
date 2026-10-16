@@ -79,6 +79,11 @@ class Mcp(unittest.TestCase):
         self.assertEqual(self.client.post('/api/mcp', content=b'{bad', headers=h).json()['error']['code'], -32700)
         self.assertEqual(self.client.post('/api/mcp', content=b'[{"jsonrpc":"2.0","id":1,"method":"ping"}]', headers=h).json()['error']['code'], -32600)
         self.assertEqual(self.client.get('/api/mcp').status_code, 405)
+        # review MCP-R04: malformed params / tool name → -32602, never a server error
+        self.assertEqual(self.rpc('tools/call', {"name": [], "arguments": {}}).json()['error']['code'], -32602)
+        self.assertEqual(self.rpc('tools/call', {"name": "ask_aromin_agent", "arguments": "x"}).json()['error']['code'], -32602)
+        self.assertEqual(self.rpc('ping', "invalid").json()['error']['code'], -32602)
+        self.assertEqual(self.rpc('ping').json()['result'], {})
 
     def test_exports_upsert_get_list(self):
         r = self.call('save_attendance_export', {"export": MONTH})
@@ -96,6 +101,17 @@ class Mcp(unittest.TestCase):
                     {"export": dict(DAY, present="x")}, {"export": "x"}, {}):
             self.assertTrue(self.call('save_attendance_export', bad)['isError'], bad)
         self.assertTrue(self.call('get_attendance_export', {"kind": "day", "key": "1405/01/01"})['isError'])
+        # review MCP-R03: Jalali-valid keys only (1403 is a leap year: Esfand has 30 days; 1405 is not)
+        for kind, key, ok in (("day", "1405/99/99", False), ("month", "1405/00", False), ("month", "1405/13", False), ("day", "1405/07/31", False),
+                              ("day", "1405/06/31", True), ("day", "1405/12/30", False), ("day", "1403/12/30", True), ("day", "1405/12/29", True)):
+            ex = dict(DAY, key=key) if kind == "day" else dict(MONTH, key=key)
+            self.assertEqual(self.call('save_attendance_export', {"export": ex})['isError'], not ok, key)
+        self.assertTrue(self.call('get_attendance_export', {"kind": "month", "key": "1405/00"})['isError'])
+        # review MCP-R02: day entries must be codes; the union of people is capped at 1000
+        for bad in (dict(DAY, present=[{}]), dict(DAY, absent=[None]), dict(DAY, attendance=[{"in": "10:00"}]), dict(DAY, leave=[True]),
+                    dict(DAY, present=[str(i) for i in range(600)], absent=[str(i) for i in range(600, 1200)])):
+            self.assertTrue(self.call('save_attendance_export', {"export": bad})['isError'])
+        self.assertEqual(self.call('save_attendance_export', {"export": dict(DAY, key="1405/07/24", present=[4, "00005"])})["structuredContent"]["people"], 3)   # 4, 00005 and attendance 00004
         self.assertTrue(self.call('list_attendance_exports', {"limit": 0})['isError'])
         with patch.dict(os.environ, {'MCP_TENANT': 't2'}):   # tenant isolation
             self.assertEqual(json.loads(self.call('list_attendance_exports', {})['content'][0]['text']), [])

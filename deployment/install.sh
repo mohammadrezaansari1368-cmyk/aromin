@@ -69,26 +69,32 @@ if [ -n "$SVC_USER" ] && [ "$SVC_USER" != "root" ]; then
   echo "  + دسترسیِ نوشتن به $SVC_USER داده شد"
 fi
 # کلیدِ سرورِ MCP (/api/mcp) — فقط روی سرور؛ هرگز در مخزن یا بسته نیست. مثلِ setup-arvan.sh: مالک root، گروهِ کاربرِ سرویس، 640.
-# اگر /var/tmp/aromin-mcp-token.txt (۳۲ تا ۲۰۰ نویسهٔ [A-Za-z0-9._-]) باشد جایگزین می‌شود و فایل پاک می‌شود؛ وگرنه فقط بارِ اول کلیدِ تصادفی ساخته می‌شود.
+# جایگزینی فقط با درخواستِ صریح: MCP_TOKEN_IMPORT=/root/aromin-mcp-token.txt bash install.sh — فایل باید regular، نه symlink، مالکِ root
+# و بدونِ نوشتنِ گروه/دیگران باشد؛ پس از ورود پاک می‌شود. بدونِ آن، کلیدِ موجود دست نمی‌خورد و فقط بارِ اول کلیدِ تصادفی ساخته می‌شود.
 MCP_ENVF="${MCP_ENV:-/etc/aromin/mcp.env}"
-MCP_SRC=/var/tmp/aromin-mcp-token.txt
 mkdir -p "$(dirname "$MCP_ENVF")"
 MCP_NEW=""
-if [ -f "$MCP_SRC" ]; then
-  MCP_NEW="$(tr -d ' \t\r\n' < "$MCP_SRC")"
-  if ! printf '%s' "$MCP_NEW" | grep -Eq '^[A-Za-z0-9._-]{32,200}$'; then echo "✗ $MCP_SRC شبیهِ کلید نیست؛ کلیدِ MCP تغییر نکرد."; MCP_NEW=""; fi
-  shred -u "$MCP_SRC" 2>/dev/null || rm -f "$MCP_SRC"
+MCP_TEN="$( [ -f "$MCP_ENVF" ] && sed -n "s/^MCP_TENANT=//p" "$MCP_ENVF" | head -n1 || true )"
+if [ -n "${MCP_TOKEN_IMPORT:-}" ]; then
+  if [ -f "$MCP_TOKEN_IMPORT" ] && [ ! -L "$MCP_TOKEN_IMPORT" ] && [ "$(stat -c %u "$MCP_TOKEN_IMPORT")" = 0 ] \
+     && [ $(( 0$(stat -c %a "$MCP_TOKEN_IMPORT") & 022 )) -eq 0 ]; then
+    MCP_NEW="$(tr -d ' \t\r\n' < "$MCP_TOKEN_IMPORT")"
+    if ! printf '%s' "$MCP_NEW" | grep -Eq '^[A-Za-z0-9._-]{32,200}$'; then echo "✗ $MCP_TOKEN_IMPORT شبیهِ کلید نیست؛ کلیدِ MCP تغییر نکرد."; MCP_NEW=""; fi
+    shred -u "$MCP_TOKEN_IMPORT" 2>/dev/null || rm -f "$MCP_TOKEN_IMPORT"
+  else
+    echo "✗ MCP_TOKEN_IMPORT باید فایلِ معمولیِ مالکِ root، نه symlink و بدونِ مجوزِ نوشتنِ گروه/دیگران باشد؛ کلیدِ MCP تغییر نکرد."
+  fi
 elif [ ! -f "$MCP_ENVF" ]; then
   MCP_NEW="$(openssl rand -hex 32 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(32))')"
 fi
 if [ -n "$MCP_NEW" ]; then
-  ( umask 077; printf 'MCP_TOKEN=%s\nMCP_TENANT=team\n' "$MCP_NEW" > "$MCP_ENVF.new" ) && mv -f "$MCP_ENVF.new" "$MCP_ENVF"
+  ( umask 077; printf 'MCP_TOKEN=%s\nMCP_TENANT=%s\n' "$MCP_NEW" "${MCP_TEN:-team}" > "$MCP_ENVF.new" ) && mv -f "$MCP_ENVF.new" "$MCP_ENVF"
   echo "  + کلیدِ MCP ذخیره شد: $MCP_ENVF   (دیدن: sudo grep MCP_TOKEN $MCP_ENVF)"
 fi
 if [ -f "$MCP_ENVF" ]; then
   if [ -n "$SVC_USER" ] && [ "$SVC_USER" != root ] && chgrp "$SVC_USER" "$MCP_ENVF" 2>/dev/null; then chmod 640 "$MCP_ENVF"; else chmod 600 "$MCP_ENVF"; fi
 fi
-unset MCP_NEW
+unset MCP_NEW MCP_TEN
 echo "› ری‌استارتِ سرویس ($SERVICE)"
 RS=""
 if command -v systemctl >/dev/null 2>&1; then
