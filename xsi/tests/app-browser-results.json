@@ -1,0 +1,15 @@
+{
+  "status": "CONFIRMED",
+  "scope": "Independent XSI customer basics; isolated synthetic records and generated credentials only",
+  "node": {"passed":30,"failed":0,"skipped":0,"final_command":"node --max-old-space-size=128 --test --test-isolation=none tests/*.test.mjs","prior_aborted_run":"Fatal process out of memory: Zone; excluded from passing counts"},
+  "browser": {
+    "bootstrap": {"passed":14,"failed":0,"evidence_id":"ev_39278a802cf22259bcd9c228fbd82295837aa5b7eaaaec0f7cd769c49a99bc54"},
+    "desktop": {"passed":31,"failed":0,"steps":54,"evidence_id":"ev_0907d61ad99ef553163e59225342660ab08fdf9eda4c1a6a74cd05d9a248112f"},
+    "mobile": {"passed":31,"failed":0,"steps":55,"evidence_id":"ev_be308e8797a4c308e77723830ddc3fd3fe48b235832961b536ca32eab83be23a"},
+    "errors_loading_mobile_form": {"passed":9,"failed":0,"evidence_id":"ev_8818d67e409ed9885710ee2fafcc792d20c9341bed39342092faaf518d02880c"},
+    "total_passed":85,"total_failed":0
+  },
+  "persistence": {"status":"CONFIRMED","method":"Actual owned test-process exit/restart with same SQLite files; browser re-login and persisted row; independent API session/database reopen"},
+  "reference_form": {"status":"BLOCKED","reason":"No reliable form evidence; pending manual unsaved opening"},
+  "not_run": ["Reference form submit/mutation tests forbidden by read-only scope", "Exact reference financial/permission parity unknown", "Production TLS/backup/recovery/multi-device deployment outside local slice"]
+}

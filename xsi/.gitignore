@@ -7,3 +7,8 @@ node_modules/
 *.cookies
 tests/browser-*-capture.json
 .delivery/
+.data/
+*.sqlite
+*.sqlite-*
+*.db
+tests/app-browser-capture.json

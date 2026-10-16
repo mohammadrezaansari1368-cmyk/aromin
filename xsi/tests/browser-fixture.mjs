@@ -1,0 +1,11 @@
+import { createApplication } from '../backend/app.mjs';
+import { existsSync, mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
+import path from 'node:path';
+const control=path.resolve('.data/browser-control');mkdirSync(control,{recursive:true});
+const directory=process.env.XSI_TEST_DATA_DIR; if(!directory)throw new Error('Isolated test data directory required');
+if(!path.resolve(directory).startsWith(path.resolve('.data/browser-tests')+path.sep))throw new Error('Browser fixture must use its isolated test directory');
+const app=await createApplication({dataDir:directory,port:8083,fault:async()=>{if(existsSync(path.join(control,'fail-once.flag'))){unlinkSync(path.join(control,'fail-once.flag'));throw new Error('test-only failure');}if(existsSync(path.join(control,'fail.flag')))throw new Error('test-only failure');if(existsSync(path.join(control,'delay.flag')))await new Promise(r=>setTimeout(r,1000));}});
+writeFileSync(path.join(control,'pid.txt'),String(process.pid));
+console.log('Isolated XSI browser-test server ready; PID '+process.pid);
+let stopping=false;
+setInterval(async()=>{if(!stopping&&existsSync(path.join(control,'stop.flag'))){stopping=true;await app.close();process.exit(0);}},150);

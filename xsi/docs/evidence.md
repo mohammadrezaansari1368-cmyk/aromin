@@ -89,4 +89,34 @@ BLOCKED: Shell Git error: "Failed to connect to github.com:443 over proxy 127.0.
 
 CONFIRMED: Authorized GitHub connector authenticated mohammadrezaansari1368-cmyk; aromin reports push/pull true. Agreed branch head 493e1a58cb8cf4e93dd766388f9da6013c126237, base tree afdddefc25c9abd886c45f0685afbfe3abc2edfa. Complete xsi/ tree inventory contains only .gitkeep. Root AGENTS.md was read; no nested instructions exist under xsi/. Delivery adds allowlisted xsi/ files using that base, preserves existing entries and uses a leased non-force update of the agreed branch only. Final receipt records publication verification.
 
+## Independent customer-basics vertical slice
+
+CONFIRMED: Installed skill v42 reread; actual binary_session verified live REA server 6.5.0. No setup, reinstall or repeated list/search/filter discovery. Existing reference evidence is reused in the coverage matrix in product-map.md. This milestone adds a real local API/database, not additional claims about SmartX business rules.
+
+CONFIRMED: Current target inventory ev_2dfb7d940cb7f867b63f35b8e91c4b9b481fb4fac2464580c2073ab90d1f2e11 selected the branch tab. Only opening the new-customer form was attempted; no submit/financial action was declared. No usable new reference-form evidence was retained. The orchestration hit an undefined evidence_id storage error, so no outcome is inferred. Passive inspection subsequently remained pending and was cancelled after extended waiting without a specific server error.
+
+BLOCKED: Separate shell browser diagnostics returned `browserType.launch: spawn EPERM` and `browserType.connectOverCDP: Timeout 5000ms exceeded` (websocket connected, handshake incomplete). No restriction, browser profile, proxy or global configuration was changed. These are observed client diagnostics, not asserted REA server errors. One manual action is pending: open «مشتری جدید» in the reference tab without saving and reply ready. Groups/credit/history remain UNKNOWN.
+
+CONFIRMED: Local readiness evidence ev_3991230b63e4a70e3ea97210f047fa44f58fd6dcc9b86dabde276083b30d644e confirmed the first-owner setup UI on 8082. The default real application remains unconfigured; test users are isolated in .data/browser-tests/, not seeded into the user's application database.
+
+CONFIRMED: Local bootstrap/browser evidence ev_39278a802cf22259bcd9c228fbd82295837aa5b7eaaaec0f7cd769c49a99bc54 completed 35 steps with 14/14 assertions: anonymous redirect, first-owner setup, empty live list, invalid field errors, basic customer create, unknown financial fields, owner-scoped detail, duplicate rejection, reload persistence, logout, bad login and successful re-login. Generated test passwords are not stored in source, reports or committed scenario files.
+
+CONFIRMED: Actual owned test server process 15280 exited, process 11588 opened the same database files, and later process 4416 did so again. The stored synthetic customer and hashed credentials persisted. Desktop evidence ev_0907d61ad99ef553163e59225342660ab08fdf9eda4c1a6a74cd05d9a248112f completed 54 steps; mobile evidence ev_be308e8797a4c308e77723830ddc3fd3fe48b235832961b536ca32eab83be23a completed 55. Each passed 31 assertions covering persistent live record, explicit demo separation, API-backed search/filters/paging/menu and disabled finance/delete/export. tests/app-browser-checks.mjs contains the current assertions.
+
+CONFIRMED: Error/loading/mobile-form evidence ev_8818d67e409ed9885710ee2fafcc792d20c9341bed39342092faaf518d02880c passed 9 assertions. A private test-only injected list failure produced HTTP 500, safe visible error and retry; a delayed response displayed loading; retry restored the persisted fixture; the 390x844 dialog showed name/mobile validation and reachable save/cancel controls. Fault injection exists only in the isolated test harness, not an HTTP control route.
+
+CONFIRMED: Current browser total is 85 passed / 0 failed (14 + 31 + 31 + 9). Local desktop and mobile screenshots were visually reviewed; mobile menu was collapsed for usable space and the form fit the viewport. Numeric clipping/pixel equality against reference is UNKNOWN. No reference customer screenshots or raw reference data were saved.
+
+CONFIRMED: All existing/new Node suites ran with `node --test --test-isolation=none tests/*.test.mjs`: 30 passed / 0 failed / 0 skipped, including 12 API subtests plus parent/error-boundary cases. Coverage includes invalid/extra fields, duplicate/digit normalization, anonymous access, CSRF/origin denial, owner isolation, search/filter/page combinations, SQL wildcard escaping, unimplemented financial routes, database/server reopen, session persistence, logout and private-file denial. Separate syntax checks passed. Earlier static-preview browser assertions remain historical rather than current backend evidence.
+
+INFERRED: Local minimum name/mobile validation, first-owner setup, per-owner access, matching predicates and defaults are proposed XSI policies, explicitly documented in architecture.md. There is no claim of reference create-form, permission or credit-rule parity. Financial fields stay null; the API rejects additional credit/group fields and has no mutation/history implementation.
+
+UNKNOWN: SmartX validation, groups/credit/purchase schemas, real mutation outcomes, OTP and role policies. Reference submit/write tests were deliberately not run because outside read-only scope. Production TLS, recovery and multi-device deployment checks were not run because this slice is loopback-only.
+
+CONFIRMED: Connected GitHub identity and push access reverified; continuation starts from branch commit 16cd2ed31ad1eecc55e3d755baf4fff57d28f356 and preserves all existing entries. Publication remains restricted to xsi/ on the agreed branch using expected-head/non-force verification. .data/, SQLite/WAL, both browser profiles, raw local captures and .delivery/ are excluded.
+
+BLOCKED: One subsequent unlimited-heap rerun aborted during the API suite with native `Fatal process out of memory: Zone`; that incomplete run is not counted as passing. It was an observed environment failure, not an assertion result.
+
+CONFIRMED: After stopping the completed owned browser-test server, the complete final run `node --max-old-space-size=128 --test --test-isolation=none tests/*.test.mjs` passed 30, failed 0, skipped 0, exit 0. No global/security setting changed. Both local synthetic browser-result verifiers also passed 31/31. The ordinary user application remains running at 8082 with configured=false and no seeded owner/test account.
+
 

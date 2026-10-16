@@ -1,19 +1,23 @@
 # XSI unknowns and blockers
 
-| ID | Status | Scope / next evidence |
+| ID | Status | Missing evidence / dependency |
 |---|---|---|
-| U1 | CONFIRMED | Authenticated dashboard and separate branch list tab inspected; read-only branch controls exercised |
-| U2 | UNKNOWN | OTP, login outcomes, validation, expiry and remember-me persistence |
-| U3 | UNKNOWN | Role-based visibility, authorization and cross-tenant isolation; labels alone do not prove enforcement |
-| U4 | BLOCKED | Shell HTTP_PROXY/HTTPS_PROXY/ALL_PROXY point at http://127.0.0.1:9; connection refused. No global setting or network restriction changed |
-| U5 | CONFIRMED | GitHub connector identity mohammadrezaansari1368-cmyk; aromin reports push/pull access; agreed branch exists |
-| U6 | UNKNOWN | Exact reference search matching fields, normalization, filter predicates, sort order, page-reset behavior and first/last boundaries |
-| U7 | UNKNOWN | Loading/error/permission-denied states and exact empty-view presentation. Only absence of rows for a nonmatch was observed |
-| U8 | BLOCKED | Historical desk-tab navigation target_not_allowed; no retry. Branch-tab read-only scenario succeeded independently |
-| U9 | UNKNOWN | New customer, Excel import/export, credit, purchases, sent messages, edit and delete workflows; all local operations remain disabled |
+| U1 | CONFIRMED | Existing list/search/filter/page/menu evidence reused; completed discovery was not rerun |
+| U2 | BLOCKED | Reference customer form has no reliable new evidence; manual action requested: open «مشتری جدید», leave unsaved, reply ready |
+| U3 | UNKNOWN | SmartX field validation, duplicates, additional profile fields and edit/create submission results; no reference submission performed |
+| U4 | UNKNOWN | Groups, eligibility, assignment and group-management forms; local assignment disabled |
+| U5 | UNKNOWN | Credit calculations, permission to alter credit, received/used credit and purchase-history schema; local financial writes/history remain disabled |
+| U6 | UNKNOWN | Exact reference role enforcement, matching predicates, sort/reset behavior, loading/error copy and visual parity |
+| U7 | INFERRED | XSI minimum field validation, ownership policy, credential/session policy and category matching are explicit local design choices |
+| U8 | BLOCKED | Shell browser launch: browserType.launch: spawn EPERM. No escalation, security edit or restriction bypass attempted |
+| U9 | BLOCKED | Existing Chrome CDP websocket check: browserType.connectOverCDP: Timeout 5000ms exceeded; websocket connected but handshake did not complete |
+| U10 | CONFIRMED | REA 6.5.0 remains connected; its permitted owned-browser launch works for local tests, independently of the stalled reference tab |
+| U11 | BLOCKED | Existing shell Git proxy blocker remains; global settings unchanged |
+| U12 | CONFIRMED | Authorized GitHub connector verifies identity, repository push access and agreed branch |
+| U13 | CONFIRMED | One test rerun aborted with native OOM; after completed test server shutdown, full bounded-heap rerun passed 30/30. Resource capacity under sustained load remains UNKNOWN |
 
-CONFIRMED: Direct checking of the styled SMS radio input timed out with "Analysis operation timed out after 5000ms: capture_browser_scenario". Clicking the associated visible label succeeded without force or restriction changes. No manual navigation is currently needed for confirmed branch controls.
+CONFIRMED: The first new-form scenario result was not retained because the orchestration tried to store an undefined evidence_id ("Unable to store newCustomerEvidenceId. Only plain serializable objects can be stored."). Its outcome cannot be claimed. The follow-up passive inspection remained pending and was cancelled after extended waiting; no specific REA server error was received. The separate CDP timeout above is an observed client diagnostic, not an invented server message.
 
-INFERRED: Local synthetic matching rules demonstrate control composition. They are not claimed as exact SmartX query parity.
+CONFIRMED: One precise manual request is pending. No rejected desk navigation was retried, no setup rerun, no SmartX form submitted, no live credit/customer record changed, and no profile/security/global proxy setting was modified.
 
-CONFIRMED: The reference was left with original filter selections, empty search and page size 20 after read-only checks. No record operation, export or customer-data file was performed.
+UNKNOWN: Full reference workflow reconstruction remains incomplete. The next priority is read-only inspection of the new-customer form after the requested manual action, then its group/credit/purchase read views, before expanding local workflows.

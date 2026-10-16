@@ -2,19 +2,24 @@
 <html lang="fa" dir="rtl">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>XSI — مدیریت مشتریان</title><link rel="stylesheet" href="./src/styles.css"></head>
 <body>
-<header><strong>XSI</strong><span>برند نمونه / شعبه نمونه / فعالیت‌ مشتریان</span><a href="./index.html">بازگشت به داشبورد</a></header>
+<header><strong>XSI</strong><span id="auth-user">حساب محلی</span><a href="./index.html">بازگشت به داشبورد</a><button id="logout">خروج محلی</button></header>
 <main class="branch-layout">
-<aside aria-label="منوی شعبه"><h2>شعبه نمونه</h2><nav id="branch-menu"></nav></aside>
+<aside aria-label="منوی شعبه"><h2>مدیریت مستقل XSI</h2><details id="branch-navigation"><summary>منوی شعبه</summary><nav id="branch-menu"></nav></details></aside>
 <div>
 <section aria-labelledby="customer-title"><h1 id="customer-title">مدیریت مشتریان</h1>
-<p id="unknown-notice" role="note">تمام ردیف‌ها و اعداد این صفحه مصنوعی و آزمایشی هستند. جستجو، انتخاب فیلتر، اندازه صفحه و صفحه‌بندی بر اساس تعامل مشاهده‌شده بازسازی شده‌اند؛ تطبیق داده‌ها قواعد مستقل نمونه دارد. عملیات مشتری و خروجی پیاده‌سازی نشده است.</p>
-<div id="primary-actions"></div>
+<p id="unknown-notice" role="note">اطلاعات پایهٔ محلی در SQLite مستقل ذخیره می‌شود. این برنامه به SmartX متصل نیست. قواعد اعتبار، گروه و عملیات مالی هنوز پیاده‌سازی نشده‌اند.</p>
+<label>مجموعه داده <select id="dataset"><option value="live">اطلاعات حساب محلی</option><option value="demo">نمایش آزمایشی — فقط داده مصنوعی</option></select></label><p id="dataset-notice" role="status"></p>
+<div id="primary-actions"><button id="create-customer">مشتری جدید محلی</button></div>
+<p id="request-state" role="status" aria-live="polite"></p><p id="request-error" role="alert"></p><button id="retry" hidden>تلاش دوباره</button>
 <div class="search-bar"><label>جستجو <input id="search" type="search" placeholder="جستجو" aria-describedby="unknown-notice"></label><button id="apply-search">جستجو</button><fieldset id="page-sizes"><legend>تعداد در صفحه</legend></fieldset></div>
 <div id="branch-filters" class="filters"></div>
 <div class="counts" aria-live="polite"><span id="total-count"></span><span id="filtered-count"></span></div>
 <p class="note">در خروجی اکسل کلیه فیلتر ها و متن جستجو اعمال خواهد شد — متن مشاهده‌شده در مرجع؛ خروجی در این نسخه پیاده‌سازی نشده است.</p>
-<div class="table-scroll"><table aria-label="لیست مشتریان — داده مصنوعی"><thead><tr id="customer-columns"></tr></thead><tbody id="customer-rows"></tbody></table></div>
+<div class="table-scroll"><table aria-label="لیست مشتریان" id="customer-table"><thead><tr id="customer-columns"></tr></thead><tbody id="customer-rows"></tbody></table></div>
 <nav id="pagination" aria-label="صفحه‌بندی"></nav>
 </section>
 <section><h2>عملیات مشاهده‌شده — پیاده‌سازی نشده</h2><p class="note">منوی «سایر» فقط نام عملیات را نشان می‌دهد. هیچ عملیاتی روی رکوردها اجرا نمی‌شود.</p><div id="row-actions"></div></section>
-</div></main><script type="module" src="./src/branch.mjs"></script></body></html>
+</div></main>
+<dialog id="customer-dialog" aria-labelledby="new-title"><h2 id="new-title">اطلاعات پایهٔ مشتری محلی</h2><p>فرم حداقلی XSI؛ فیلدها و اعتبارسنجی تکمیلی SmartX هنوز تأیید نشده‌اند. هیچ اعتبار یا خریدی ثبت نمی‌شود.</p><form id="customer-form" novalidate><label>نام<input id="customer-name" name="name" maxlength="100" autocomplete="off" required></label><p id="name-error" class="field-error"></p><label>موبایل<input id="customer-mobile" name="mobile" inputmode="tel" maxlength="15" autocomplete="off" required></label><p id="mobile-error" class="field-error"></p><p id="form-error" role="alert"></p><button id="save-customer" type="submit">ذخیره در XSI</button><button id="cancel-customer" type="button">انصراف</button></form></dialog>
+<dialog id="basic-dialog" aria-labelledby="basic-title"><h2 id="basic-title">اطلاعات پایهٔ محلی</h2><p id="basic-info"></p><button id="close-basic">بستن</button></dialog>
+<script type="module" src="./src/branch.mjs"></script></body></html>

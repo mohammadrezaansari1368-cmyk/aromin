@@ -1,13 +1,17 @@
-# XSI
+# XSI — independent local customer basics
 
-CONFIRMED: Independent partial SmartX reconstruction. No reference API integration or copied customer records. See docs/evidence.md and docs/product-map.md for observations and limits.
+CONFIRMED: Run `node run.mjs` (or `node serve.mjs`) with installed Node 24.20+ and open http://127.0.0.1:8082/login.html. No packages need installation. First setup creates your own local owner account. Never enter SmartX credentials here.
 
-CONFIRMED: Start the loopback allowlisted preview with `node serve.mjs`, then open http://127.0.0.1:8081/. The club dashboard/customer-list buttons open branch.html. All 125 fixtures are generated and labeled synthetic, with TEST-PHONE identifiers rather than real phone numbers.
+CONFIRMED: You can create name/mobile customer records in the independent SQLite database, view their basic details, search/filter/page the account, log out/in and restart without losing stored records. Demo is explicitly selected and uses a physically separate read-only database. Credit/groups/purchases/edit/delete/import/export stay unimplemented and disabled.
 
-CONFIRMED: Search applies with the adjacent button; draft and Enter leave the current results unchanged. Filters, page sizes, pagination and more-menu disclosure work locally. Exports, imports, record creation/edit/delete/credit and unvisited destinations remain disabled.
+INFERRED: The minimum XSI form, name/mobile validation and ownership policy are proposed local rules, not verified SmartX form/permission parity. See the coverage matrix in docs/product-map.md, architecture.md and unknowns.md. The reference form currently needs manual read-only inspection.
 
-INFERRED: Local substring matching fields, synthetic filter predicates, page reset/clamping and visual styling are independent choices. They do not assert exact SmartX data or visual parity.
+CONFIRMED: Runtime files live under ignored .data/. Per-process XSI_DATA_DIR and XSI_PORT can override location/port. Back up local data yourself before using it for important information; backup/recovery/remote deployment are not implemented. Both browser profiles stay local and excluded from Git; no profile/database/credential/customer records belong in commits.
 
-CONFIRMED: Run all unit suites with `node --test --test-isolation=none tests/*.test.mjs`. Latest result: 16 passed, 0 failed. tests/browser-scenario.json is the reproducible REA input (Windows Edge executable path is host-specific). Capture its local-only result, then run `node tests/verify-browser.mjs path/to/capture.json`. Desktop and mobile each passed 34 assertions; return-navigation regression passed 8. tests/browser-results.json records evidence IDs and totals. Raw local captures are ignored.
+CONFIRMED: Run all unit/API/integration tests: `node --max-old-space-size=128 --test --test-isolation=none tests/*.test.mjs`. Current complete result: 30 passed, 0 failed. An earlier unbounded rerun aborted with native OOM; it was not counted as passing. Tests use temporary databases, generated passwords and synthetic records only.
 
-UNKNOWN: Authentication outcomes, backend rules, role enforcement, exact matching/sorting and record-changing workflows. Never add browser profiles, credentials, tokens, cookies or reference customer data. Both .local-browser/ and .local-browser-chrome/ are ignored and excluded from delivery.
+CONFIRMED: Current API-backed browser assertions are in tests/app-browser-checks.mjs. Verify an ignored local capture with `node tests/verify-app-browser.mjs path/to/capture.json`. tests/app-scenario.mjs generates a generic REA scenario using an environment-secret reference, never a stored password. tests/browser-fixture.mjs runs an isolated server on 8083 only when XSI_TEST_DATA_DIR is beneath .data/browser-tests/. Provision its throwaway account locally; keep credentials in memory/environment. Never point browser fixtures at the real application database.
+
+CONFIRMED: Current browser result is 85 assertions passed, 0 failed: setup/create/auth 14, desktop controls 31, mobile controls 31, error/loading/mobile form 9. tests/app-browser-results.json records IDs and exact scope. The earlier browser-scenario.json/browser-checks.mjs and browser-results.json are preserved historical static-preview artifacts, not claims about the new backend.
+
+UNKNOWN: Exact SmartX create/edit validation, groups, credit rules, history, role enforcement and visual parity. Only basic local customer management is delivered, not the full application.
