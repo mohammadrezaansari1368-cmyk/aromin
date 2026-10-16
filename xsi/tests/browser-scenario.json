@@ -1,0 +1,290 @@
+{
+  "browser": {
+    "mode": "launch",
+    "executable_path": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+    "headless": true
+  },
+  "environment": {
+    "viewport": {
+      "width": 1280,
+      "height": 800
+    }
+  },
+  "start_url": {
+    "url": "http://127.0.0.1:8081/"
+  },
+  "actions": [
+    {
+      "step_id": "open-branch",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "#products section:first-child button:first-of-type"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "size10",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "[data-size='10']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "page2",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "#pagination button:text-is('2')"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "search-draft",
+      "action": "fill",
+      "locator": {
+        "kind": "css",
+        "selector": "#search"
+      },
+      "value": {
+        "source": "literal",
+        "value": "SYNTHETIC-020"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "enter-no-apply",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "#search"
+      },
+      "key": "Enter",
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "search-apply",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "#apply-search"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "menu-open",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "#customer-rows .row-menu > button"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "menu-escape",
+      "action": "press",
+      "locator": {
+        "kind": "css",
+        "selector": "#customer-rows .row-menu > button"
+      },
+      "key": "Escape",
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "no-match-draft",
+      "action": "fill",
+      "locator": {
+        "kind": "css",
+        "selector": "#search"
+      },
+      "value": {
+        "source": "literal",
+        "value": "XSI_READONLY_NONMATCH_20261016"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "no-match-apply",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "#apply-search"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "clear-draft",
+      "action": "fill",
+      "locator": {
+        "kind": "css",
+        "selector": "#search"
+      },
+      "value": {
+        "source": "literal",
+        "value": ""
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "clear-apply",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "#apply-search"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "fixed-yes",
+      "action": "check",
+      "locator": {
+        "kind": "css",
+        "selector": "input[name='fixed'][value='0']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "trust-blocked",
+      "action": "check",
+      "locator": {
+        "kind": "css",
+        "selector": "input[name='trust'][value='2']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "source-sms",
+      "action": "check",
+      "locator": {
+        "kind": "css",
+        "selector": "input[name='source'][value='1']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "active-deleted",
+      "action": "check",
+      "locator": {
+        "kind": "css",
+        "selector": "input[name='active'][value='1']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "sms-yes",
+      "action": "check",
+      "locator": {
+        "kind": "css",
+        "selector": "input[name='sms'][value='0']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "reset-sms",
+      "action": "check",
+      "locator": {
+        "kind": "css",
+        "selector": "input[name='sms'][value='1']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "reset-trust",
+      "action": "check",
+      "locator": {
+        "kind": "css",
+        "selector": "input[name='trust'][value='1']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "reset-fixed",
+      "action": "check",
+      "locator": {
+        "kind": "css",
+        "selector": "input[name='fixed'][value='1']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "reset-source",
+      "action": "check",
+      "locator": {
+        "kind": "css",
+        "selector": "input[name='source'][value='0']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "reset-active",
+      "action": "check",
+      "locator": {
+        "kind": "css",
+        "selector": "input[name='active'][value='0']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "size50",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "[data-size='50']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "size100",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "[data-size='100']"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "last-page",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "#pagination button:text-is('صفحه آخر')"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "first-page",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "#pagination button:text-is('صفحه اول')"
+      },
+      "timeout_ms": 5000
+    },
+    {
+      "step_id": "size20",
+      "action": "click",
+      "locator": {
+        "kind": "css",
+        "selector": "[data-size='20']"
+      },
+      "timeout_ms": 5000
+    }
+  ],
+  "capture": {
+    "after_each_step": [
+      "accessibility"
+    ],
+    "events": [
+      "page-errors",
+      "network",
+      "downloads"
+    ],
+    "network": {
+      "header_values": false,
+      "request_body": false,
+      "response_body": false
+    }
+  }
+}

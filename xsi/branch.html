@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>XSI — مدیریت مشتریان</title><link rel="stylesheet" href="./src/styles.css"></head>
+<body>
+<header><strong>XSI</strong><span>برند نمونه / شعبه نمونه / فعالیت‌ مشتریان</span><a href="./index.html">بازگشت به داشبورد</a></header>
+<main class="branch-layout">
+<aside aria-label="منوی شعبه"><h2>شعبه نمونه</h2><nav id="branch-menu"></nav></aside>
+<div>
+<section aria-labelledby="customer-title"><h1 id="customer-title">مدیریت مشتریان</h1>
+<p id="unknown-notice" role="note">تمام ردیف‌ها و اعداد این صفحه مصنوعی و آزمایشی هستند. جستجو، انتخاب فیلتر، اندازه صفحه و صفحه‌بندی بر اساس تعامل مشاهده‌شده بازسازی شده‌اند؛ تطبیق داده‌ها قواعد مستقل نمونه دارد. عملیات مشتری و خروجی پیاده‌سازی نشده است.</p>
+<div id="primary-actions"></div>
+<div class="search-bar"><label>جستجو <input id="search" type="search" placeholder="جستجو" aria-describedby="unknown-notice"></label><button id="apply-search">جستجو</button><fieldset id="page-sizes"><legend>تعداد در صفحه</legend></fieldset></div>
+<div id="branch-filters" class="filters"></div>
+<div class="counts" aria-live="polite"><span id="total-count"></span><span id="filtered-count"></span></div>
+<p class="note">در خروجی اکسل کلیه فیلتر ها و متن جستجو اعمال خواهد شد — متن مشاهده‌شده در مرجع؛ خروجی در این نسخه پیاده‌سازی نشده است.</p>
+<div class="table-scroll"><table aria-label="لیست مشتریان — داده مصنوعی"><thead><tr id="customer-columns"></tr></thead><tbody id="customer-rows"></tbody></table></div>
+<nav id="pagination" aria-label="صفحه‌بندی"></nav>
+</section>
+<section><h2>عملیات مشاهده‌شده — پیاده‌سازی نشده</h2><p class="note">منوی «سایر» فقط نام عملیات را نشان می‌دهد. هیچ عملیاتی روی رکوردها اجرا نمی‌شود.</p><div id="row-actions"></div></section>
+</div></main><script type="module" src="./src/branch.mjs"></script></body></html>

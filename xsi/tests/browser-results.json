@@ -1,0 +1,48 @@
+{
+  "status": "CONFIRMED",
+  "date": "2026-10-16",
+  "scope": "Local XSI synthetic fixtures only",
+  "unit": {
+    "passed": 16,
+    "failed": 0,
+    "skipped": 0,
+    "command": "node --test --test-isolation=none tests/*.test.mjs"
+  },
+  "desktop": {
+    "passed": 34,
+    "failed": 0,
+    "completedSteps": 28,
+    "evidence_id": "ev_14552d98d5904f9213ce55832fb9d6e642a8dcf0126f466ba98a1011352a1856"
+  },
+  "mobile": {
+    "passed": 34,
+    "failed": 0,
+    "completedSteps": 28,
+    "evidence_id": "ev_eb6b17599b984d744625da252f192eaef939e45b936a57d0bd2f9e79469fdefe"
+  },
+  "regression": {
+    "status": "CONFIRMED",
+    "evidence_id": "ev_0b6b9753b2f4af93c0058f3303f02b3e7e2d686f5e197a7c6b70e8db70cd3958",
+    "passed": 8,
+    "failed": 0,
+    "checks": {
+      "stepsCompleted": true,
+      "returnRoute": true,
+      "unknownDialog": true,
+      "dialogClosed": true,
+      "quickListRoute": true,
+      "syntheticList": true,
+      "onlyLocalReads": true,
+      "noErrorsOrDownloads": true
+    }
+  },
+  "server": {
+    "passed": 5,
+    "failed": 0
+  },
+  "limitations": [
+    "Synthetic matching predicates are independent choices; exact reference rules UNKNOWN",
+    "No visual parity or clipping measurement",
+    "Record writes, exports and unvisited workflows disabled"
+  ]
+}

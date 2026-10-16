@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>XSI — پیش‌نمایش محلی</title><link rel="stylesheet" href="./src/styles.css"></head>
+<body>
+<header><strong>XSI</strong><span>پیش‌نمایش مستقل با دادهٔ نمونه</span><button id="notifications">اعلان‌ها</button></header>
+<main>
+<section class="context"><label>برند <select><option>برند نمونه</option></select></label><label>شعبه <select><option>شعبه نمونه</option></select></label></section>
+<section class="general"><h1>بخش عمومی</h1><nav id="general"></nav><p>ارتباط صندوق به سرور اسمارت <span class="badge">نامشخص</span></p></section>
+<div class="grid" id="products"></div>
+<section><h2>اشتراک‌گیری <small>/۷ روز گذشته/</small></h2><div class="chart">دادهٔ واقعی نمایش داده نمی‌شود</div></section>
+<section><h2>لینک عمومی محصولات</h2><p>در این بخش شما دسترسی به پیش نمایش لینک‌های فعال خود دارید</p><button class="unknown">گردونه شانس</button></section>
+<section><h2>معرفی سایر محصولات</h2><div class="links"><button class="unknown">ارزیابی هوشمند</button><button class="unknown">رزرو و نوبت دهی هوشمند</button><button class="unknown">وایفای هوشمند</button></div></section>
+<p class="note">این نسخه فقط ساختار مشاهده‌شده را بازسازی می‌کند. جریان‌های بررسی‌نشده و عملیات سرور فعال نیستند.</p>
+</main>
+<dialog id="details"><h2 id="detail-title"></h2><p>رفتار این بخش هنوز تأیید نشده است؛ هیچ عملیاتی روی سامانهٔ مرجع انجام نمی‌شود.</p><div id="detail-actions"></div><button id="close">بستن</button></dialog>
+<script type="module" src="./src/app.mjs"></script>
+</body></html>

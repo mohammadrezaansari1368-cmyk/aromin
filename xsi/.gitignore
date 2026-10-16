@@ -1,0 +1,9 @@
+.local-browser/
+.local-browser-chrome/
+node_modules/
+.env
+.env.*
+*.har
+*.cookies
+tests/browser-*-capture.json
+.delivery/
