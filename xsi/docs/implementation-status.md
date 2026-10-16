@@ -25,3 +25,5 @@ CONFIRMED: Actual browser-test process IDs changed from 15280 to 11588 and later
 BLOCKED: Direct shell launch of Playwright failed with spawn EPERM, and connection to the already-open reference Chrome timed out. No restriction changes were made; local browser tests ran through REA's available owned-browser tool. No reference form submission/financial mutation tests were run because prohibited by scope; their business outcomes remain UNKNOWN.
 
 CONFIRMED: Browser profiles remain local and ignored. .data/, databases/WAL, .delivery/, local captures and environment files are excluded by explicit publication allowlist. Local source remains in D:\\xsi. Publication SHA is stored in the ignored delivery receipt and final response, since a commit cannot contain its own SHA.
+
+UNKNOWN: This continuation made no implementation changes while reference discovery is incomplete. Priority gaps are group read/assignment views, credit and purchase-history read views, followed by dashboard selectors/metrics and conditions after their pages become reachable. Financial calculations and role policies remain unimplemented.

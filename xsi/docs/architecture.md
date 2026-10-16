@@ -39,3 +39,5 @@ CONFIRMED: node run.mjs starts http://127.0.0.1:8082. XSI_DATA_DIR and XSI_PORT 
 UNKNOWN: Reference form fields/validation, groups, credit rules, purchase-history schema, authorization and production operations such as backups, recovery, TLS and multi-device access remain outside this milestone.
 
 CONFIRMED: Publication preserves the existing branch tree and all unrelated paths, updates xsi/ only, and never force-pushes or touches main. The user's explicit D:\\xsi/five-doc requirements override destination AGENTS defaults about temporary clones and minimal documentation.
+
+UNKNOWN: No architecture change follows from this discovery-only continuation. Existing local customer slice remains independent from SmartX. Further modules remain unimplemented until the account's reachable read-only behavior and business dependencies are evidenced.

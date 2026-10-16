@@ -120,3 +120,15 @@ BLOCKED: One subsequent unlimited-heap rerun aborted during the API suite with n
 CONFIRMED: After stopping the completed owned browser-test server, the complete final run `node --max-old-space-size=128 --test --test-isolation=none tests/*.test.mjs` passed 30, failed 0, skipped 0, exit 0. No global/security setting changed. Both local synthetic browser-result verifiers also passed 31/31. The ordinary user application remains running at 8082 with configured=false and no seeded owner/test account.
 
 
+
+## Reconnection audit — 2026-10-16 17:15 UTC
+
+CONFIRMED: Installed `reverse-engineer-anything` skill v42 and its `references/connection-and-recovery.md` and `references/runtime-observation.md` were read. No setup, doctor, install, or registration command was run.
+
+CONFIRMED: The actual `binary_session({})` call reported REA server and package `rea-agents` version 6.5.0; browser inspection and target-list tools are available. Server `open=false` is expected for browser-only observation.
+
+BLOCKED: Actual `list_browser_targets({cdp_endpoint:"http://127.0.0.1:9222"})` returned `provider_unavailable`; `details.reason` is `endpoint_unreachable`. The operation's message was: `list_browser_targets could not reach the selected loopback debugging endpoint. Verify that the target process is running with debugging enabled and that the endpoint's port matches it, then retry.` The failed operation emitted no Evidence ID and no targets.
+
+CONFIRMED: A single local PowerShell diagnostic found no TCP listener on port 9222 and `/json/version` failed with `WebException: Unable to connect to the remote server`. Thirteen Chrome processes existed. This proves the requested CDP endpoint was unreachable at observation time; it does not identify whether the existing Chrome window had the authenticated SmartX tab or whether its login was still valid.
+
+CONFIRMED: No repeated target-list attempt, browser navigation, setup, security-policy change, external CDP bind, authentication-secret inspection, or live-record interaction occurred after the endpoint failure. See `page-inventory.md`, `workflow-map.md` and `discovery-coverage.md` for the deduplicated queue and blocked destinations.

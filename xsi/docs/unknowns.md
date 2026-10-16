@@ -21,3 +21,13 @@ CONFIRMED: The first new-form scenario result was not retained because the orche
 CONFIRMED: One precise manual request is pending. No rejected desk navigation was retried, no setup rerun, no SmartX form submitted, no live credit/customer record changed, and no profile/security/global proxy setting was modified.
 
 UNKNOWN: Full reference workflow reconstruction remains incomplete. The next priority is read-only inspection of the new-customer form after the requested manual action, then its group/credit/purchase read views, before expanding local workflows.
+
+## Reconnection audit — 2026-10-16 17:15 UTC
+
+| ID | Status | Missing evidence / dependency |
+|---|---|---|
+| U14 | BLOCKED | REA list_browser_targets returned `provider_unavailable`, details.reason `endpoint_unreachable`; local port 9222 had no listener |
+| U15 | UNKNOWN | Chrome processes existed, but current authenticated target and login state cannot be determined while CDP is unavailable |
+| U16 | CONFIRMED | Current discovered queue: 3 inspected / 9 concrete route patterns; six linked pages blocked; menu candidates without href are separate |
+
+BLOCKED: One manual step is required: restore the existing Chrome session with debugging bound only to `127.0.0.1:9222`, open the locally authenticated SmartX tab, and reply `ready`. Do not send credentials or cookies. After reconnection, relist once and continue from the first uninspected destination.

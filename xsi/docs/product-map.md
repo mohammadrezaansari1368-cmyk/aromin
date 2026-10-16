@@ -52,3 +52,9 @@ CONFIRMED: Branch menu labels include settings, groups, advanced grouping, club 
 CONFIRMED: Same-origin link templates include /BranchPanel/CustomerActivities/AdvancedGrouping, /BranchPanel/ConditionSetting/Index/:id, /BranchPanel/Conditions/Index/:id, /BranchPanel/Groups, /BrandPanel/Finance/BranchList/:id and /HostPanel/Dashboard/Index/:id. These were inventoried, not visited. Query values and customer identifiers are omitted.
 
 UNKNOWN: Sorting, first/last reference edge cases, loading/error presentation, data validation, authentication outcomes, exports and mutations. No customer values or business totals are recorded here.
+
+## Reconnection coverage snapshot
+
+CONFIRMED: The reconciled inventory contains 9 concrete observed page patterns; login, dashboard and customer list have prior page evidence (3/9), and six linked destinations remain blocked. Four additional menu/product candidates lack retained hrefs and are tracked separately without guessed routes. The inventory covers only the previously observed account/session.
+
+BLOCKED: Current REA connection failure is `provider_unavailable` / `endpoint_unreachable` at `http://127.0.0.1:9222`; the endpoint had no listener. No implementation expansion is justified until the reachable page queue and customer form are inspected. See `page-inventory.md` and `discovery-coverage.md`.
