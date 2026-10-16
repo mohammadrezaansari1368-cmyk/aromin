@@ -1951,11 +1951,12 @@ _SUMMARY_COLS = ("agent_name", "total", "answered", "no_answer", "busy", "failed
 
 
 def _batch_domain(domain):
-    """{table, keys, cols, lock} per domain; cols are the content columns rewritten on restore (keys excluded)."""
-    return {"attendance": dict(table="attendance_days", keys=("card_no", "date_j"), cols=_ATT_DAY_COLS, lock="attendance"),
-            "calllog": dict(table="call_logs", keys=("channel_code",), cols=_CALL_COLS[1:] + ("raw_json", "row_sha256", "core_sha256"), lock="calls"),
-            "calls": dict(table="call_summaries", keys=("period_from", "period_to", "direction", "ext"), cols=_SUMMARY_COLS, lock="calls"),
-            "ticket": dict(table="ticket_logs", keys=("ticket_no",), cols=tickets.CORE + ("raw_json", "row_sha256"), lock="tickets")}[domain]
+    """{table, keys, cols, lock, batches, kind} per domain; cols are the content columns rewritten on restore (keys excluded);
+    batches (+ kind for call_batches) is the batch table a membership must still exist in."""
+    return {"attendance": dict(table="attendance_days", keys=("card_no", "date_j"), cols=_ATT_DAY_COLS, lock="attendance", batches="attendance_batches", kind=None),
+            "calllog": dict(table="call_logs", keys=("channel_code",), cols=_CALL_COLS[1:] + ("raw_json", "row_sha256", "core_sha256"), lock="calls", batches="call_batches", kind="calllog"),
+            "calls": dict(table="call_summaries", keys=("period_from", "period_to", "direction", "ext"), cols=_SUMMARY_COLS, lock="calls", batches="call_batches", kind="calls"),
+            "ticket": dict(table="ticket_logs", keys=("ticket_no",), cols=tickets.CORE + ("raw_json", "row_sha256"), lock="tickets", batches="ticket_batches", kind=None)}[domain]
 
 
 def _domain_lock(t, tenant, lock):
@@ -2007,8 +2008,11 @@ def _batch_delete(t, tenant, domain, bid, now):
         part = owned[i:i + 500]
         by_key = {_row_key(spec, r): r for r in part}
         cands = {}
-        for c in t.x("SELECT row_key,batch_id,sort_key,payload FROM import_batch_rows WHERE tenant=%s AND domain=%s AND row_key IN (" + _in(list(by_key)) + ")",
-                     [tenant, domain] + list(by_key)).fetchall():
+        # only batches that still exist: a batch deleted by the pre-009 server after a rollback leaves orphan membership (review R01-REV-02)
+        kind = " AND b.kind=%s" if spec["kind"] else ""
+        for c in t.x("SELECT m.row_key,m.batch_id,m.sort_key,m.payload FROM import_batch_rows m JOIN " + spec["batches"] + " b ON b.tenant=m.tenant AND b.id=m.batch_id" + kind +
+                     " WHERE m.tenant=%s AND m.domain=%s AND m.row_key IN (" + _in(list(by_key)) + ")",
+                     ([spec["kind"]] if spec["kind"] else []) + [tenant, domain] + list(by_key)).fetchall():
             cands.setdefault(c["row_key"], []).append(c)
         for key, r in by_key.items():
             ident = [r[k] for k in keys]

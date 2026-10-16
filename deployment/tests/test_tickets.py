@@ -105,6 +105,23 @@ class Endpoints(unittest.TestCase):
     def up(self, **kw):
         return self.res(self.server.tickets_upload(None, body(**kw)))
 
+    def test_orphan_membership_from_rollback_never_resurrects(self):   # review R01-REV-02
+        a = self.up()[1]['batch']['id']
+        cx = sqlite3.connect(self.db)
+        try:   # the pre-009 server (after rollback.sh) deletes batch A but leaves its membership rows
+            cx.execute('DELETE FROM ticket_logs WHERE batch_id=?', (a,)); cx.execute('DELETE FROM ticket_batches WHERE id=?', (a,)); cx.commit()
+        finally:
+            cx.close()
+        b = self.up(sha='c', rows=[row(101)])[1]['batch']
+        self.assertEqual(b['inserted'], 1)
+        out = self.res(self.server.tickets_delete(None, tenant='t1', batch=str(b['id'])))[1]
+        self.assertEqual((out['removedRows'], out['restored']), (1, 0))
+        cx = sqlite3.connect(self.db)
+        try:
+            self.assertEqual(cx.execute('SELECT COUNT(*) FROM ticket_logs').fetchone()[0], 0)
+        finally:
+            cx.close()
+
     def perf(self, view, **kw):
         args = dict(tenant='t1', person='', unit='', start='1405/06/01', end='1405/06/31', metric='tasks', offset=0, limit=100)
         args.update(kw)
