@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="آرومین">
+<title>آرومین | حضور و غیاب</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#000;--card:#141414;--line:#262626;--text:rgba(255,255,255,.88);--muted:rgba(255,255,255,.55);--brand:#ac44a1;--brand-bg:#250a22;--ok:#49aa19;--err:#e5484d;--warn:#d89614}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--text);font-family:Vazirmatn,Tahoma,sans-serif;font-size:15px;min-height:100vh;padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+button,input,select,textarea{font:inherit;color:inherit}
+.hidden{display:none!important}
+header{display:flex;align-items:center;justify-content:space-between;padding:calc(14px + env(safe-area-inset-top)) 16px 14px}
+.logo{font-size:24px;font-weight:800}.logo span{color:var(--brand)}
+.wrap{padding:0 16px;display:flex;flex-direction:column;gap:12px;max-width:520px;margin:0 auto}
+.card{background:var(--card);border-radius:14px;padding:16px}
+.muted{color:var(--muted);font-size:13px}
+h2{font-size:17px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.btn{border:0;border-radius:10px;padding:12px 16px;background:var(--brand);color:#fff;font-weight:700;width:100%;cursor:pointer}
+.btn.ghost{background:transparent;border:1px solid #424242;color:var(--text)}
+.btn:disabled{opacity:.5}
+input,select,textarea{width:100%;background:#0b0b0b;border:1px solid #333;border-radius:10px;padding:11px 12px;outline:0}
+input:focus,select:focus,textarea:focus{border-color:var(--brand)}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 6px}
+.clock{display:flex;flex-direction:column;align-items:center;gap:14px;padding:26px 16px}
+.clock-btn{width:190px;height:190px;border-radius:50%;border:0;color:#fff;font-size:22px;font-weight:800;cursor:pointer;
+  background:radial-gradient(circle at 30% 30%,#c95bbd,#7d2f75);box-shadow:0 0 0 10px var(--brand-bg),0 0 40px rgba(172,68,161,.45);transition:transform .15s}
+.clock-btn.out{background:radial-gradient(circle at 30% 30%,#e86a6e,#9b2c30);box-shadow:0 0 0 10px #2a0e0f,0 0 40px rgba(229,72,77,.4)}
+.clock-btn:active{transform:scale(.96)}.clock-btn:disabled{opacity:.6}
+.time{font-size:34px;font-weight:800;letter-spacing:1px;direction:ltr}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+.stat{background:#0b0b0b;border-radius:10px;padding:10px 4px}.stat b{display:block;font-size:17px;margin-top:2px;direction:ltr}
+.tag{font-size:12px;border-radius:6px;padding:2px 8px;background:#262626;white-space:nowrap}
+.tag.ok{background:#162312;color:#6abe39}.tag.err{background:#2a1215;color:#e86e6b}.tag.warn{background:#2b2111;color:#e8b339}
+nav{position:fixed;bottom:0;inset-inline:0;background:#0d0d0d;border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:5}
+nav button{flex:1;background:none;border:0;padding:10px 0 12px;color:var(--muted);font-size:12px;display:flex;flex-direction:column;align-items:center;gap:3px;position:relative}
+nav button.on{color:var(--brand)}nav svg{width:22px;height:22px}
+.badge{position:absolute;top:6px;inset-inline-start:calc(50% + 6px);background:var(--err);color:#fff;border-radius:9px;font-size:10px;padding:0 5px}
+#toast{position:fixed;top:16px;inset-inline:16px;max-width:480px;margin:auto;padding:12px 14px;border-radius:10px;background:#1f1f1f;border:1px solid #333;z-index:20;transform:translateY(-140%);transition:transform .25s}
+#toast.show{transform:none}#toast.err{border-color:var(--err)}#toast.ok{border-color:var(--ok)}
+.msg{cursor:pointer}.msg.unread b{color:var(--brand)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.login{min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:24px;max-width:420px;margin:auto;gap:8px}
+</style>
+</head>
+<body>
+<div id="toast"></div>
+
+<!-- ورود -->
+<section id="login" class="login hidden">
+  <div class="logo" style="font-size:34px;text-align:center">آرو<span>مین</span></div>
+  <p class="muted" style="text-align:center;margin-bottom:16px">سامانه حضور و غیاب پرسنل</p>
+  <form id="loginForm">
+    <label>نام کاربری</label><input name="username" autocomplete="username" required dir="ltr">
+    <label>رمز عبور</label><input name="password" type="password" autocomplete="current-password" required dir="ltr">
+    <button class="btn" style="margin-top:18px">ورود</button>
+  </form>
+</section>
+
+<!-- برنامه -->
+<section id="main" class="hidden">
+  <header><div class="logo">آرو<span>مین</span></div><div class="muted" id="hello"></div></header>
+
+  <div class="wrap" data-tab="home">
+    <div class="card clock">
+      <div class="muted" id="today"></div>
+      <div class="time" id="now">--:--</div>
+      <button class="clock-btn" id="clockBtn">ثبت ورود</button>
+      <select id="project" class="hidden" style="max-width:260px"></select>
+      <div class="muted" id="clockHint" style="text-align:center"></div>
+    </div>
+    <div class="card"><h2>امروز</h2><div id="todayList"></div></div>
+    <div class="card"><h2>این ماه</h2><div class="stats" id="monthStats"></div></div>
+  </div>
+
+  <div class="wrap hidden" data-tab="requests">
+    <div class="card">
+      <h2>درخواست جدید</h2>
+      <form id="reqForm">
+        <label>نوع درخواست</label><select name="kind" id="reqKind" required></select>
+        <div class="two"><div><label>از تاریخ</label><input name="from" required placeholder="1405/07/17" dir="ltr"></div>
+          <div><label>تا تاریخ</label><input name="to" placeholder="(اختیاری)" dir="ltr"></div></div>
+        <div class="two"><div><label>از ساعت (ساعتی)</label><input name="fromTime" type="time" dir="ltr"></div>
+          <div><label>تا ساعت</label><input name="toTime" type="time" dir="ltr"></div></div>
+        <label>توضیحات</label><textarea name="note" rows="2"></textarea>
+        <button class="btn" style="margin-top:14px">ثبت درخواست</button>
+      </form>
+    </div>
+    <div class="card"><h2>مانده مرخصی</h2><div class="stats" id="leaveStats"></div></div>
+    <div class="card"><h2>درخواست‌های من</h2><div id="reqList"></div></div>
+  </div>
+
+  <div class="wrap hidden" data-tab="messages"><div class="card"><h2>پیام‌ها</h2><div id="msgList"></div></div></div>
+
+  <div class="wrap hidden" data-tab="profile">
+    <div class="card" id="profileCard"></div>
+    <div class="card"><h2>ترددهای اخیر</h2><div id="history"></div></div>
+    <div class="card">
+      <h2>تغییر رمز عبور</h2>
+      <form id="pwForm"><label>رمز فعلی</label><input name="current" type="password" required dir="ltr">
+        <label>رمز جدید</label><input name="next" type="password" minlength="6" required dir="ltr">
+        <button class="btn ghost" style="margin-top:12px">ذخیره</button></form>
+    </div>
+    <button class="btn ghost" id="logout">خروج از حساب</button>
+  </div>
+
+  <nav>
+    <button data-go="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>تردد</button>
+    <button data-go="requests"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>درخواست‌ها</button>
+    <button data-go="messages"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v11H8l-4 4z"/></svg>پیام‌ها<span class="badge hidden" id="unread"></span></button>
+    <button data-go="profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>پروفایل</button>
+  </nav>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>
