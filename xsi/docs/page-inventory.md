@@ -2,6 +2,8 @@
 
 Scope is limited to pages and destination templates directly observed in the existing REA evidence ledger. It does not claim full product coverage. `Progress` tracks whether a destination is inspected, queued, or blocked; `Discovery status` uses the evidence status vocabulary.
 
+CONFIRMED: Historical Evidence IDs in this inventory were collected on 2026-10-16. Their per-capture clock times were not retained (exact time UNKNOWN). Tool names and individual limitations are recorded beside the IDs in `evidence.md`: login used REA `capture_browser_scenario`; authenticated page inventory used `inspect_web_page`; read-only list interactions used `capture_browser_scenario`. Link-template destinations are evidence of a link only, not page inspection.
+
 | Module | Page | Observed URL pattern | Discovery status | Evidence | Unchecked states | Blocker | Progress |
 |---|---|---|---|---|---|---|---|
 | Authentication | Login | `https://desk.smartx.ir/` (dashboard request resolved here while unauthenticated) | CONFIRMED | `ev_3a2f67f3c01cbdf9c021ced7d7c80c6345ae845923e219582692b3f90afeefd5`; `ev_bc74584638bea89133196c68ee3195d1baea58ffc0ca86319fdb879d8c79ad9d` | Login outcomes, OTP delivery, errors | Live behavior beyond visible controls not exercised | inspected |
@@ -23,3 +25,5 @@ CONFIRMED: Existing menu/accessibility evidence contains labels for settings, ne
 CONFIRMED: The current deduplicated inventory has 9 concrete page patterns: 3 inspected and 6 blocked pending CDP reconnection. This is an account/session snapshot, not a claim that every SmartX product page is included. The menu must be reconciled again after the authenticated tab is reachable.
 
 BLOCKED: On 2026-10-16, REA returned `provider_unavailable`, reason `endpoint_unreachable`, for `http://127.0.0.1:9222`. A local shell probe also found no listener on 9222 and failed to connect to `/json/version`; Chrome processes existed. No page inspection followed that failed discovery call.
+
+BLOCKED: The failed REA tool call was `list_browser_targets` at 2026-10-16 17:15 UTC. It emitted no Evidence ID because the operation failed before target discovery.

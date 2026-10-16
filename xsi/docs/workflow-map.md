@@ -2,6 +2,8 @@
 
 Only sequences supported by recorded evidence are described as confirmed. Discovering a control does not confirm its resulting operation.
 
+CONFIRMED: Historical workflow Evidence IDs and tool names are linked in the table and detailed in `evidence.md`; they were collected on 2026-10-16. Their exact capture times were not retained (UNKNOWN). The failed reconnect call was REA `list_browser_targets` at 2026-10-16 17:15 UTC and returned no Evidence ID.
+
 | Workflow | Observed sequence | Discovery status | Evidence | Unchecked behavior / next observation |
 |---|---|---|---|---|
 | Sign-in surface | Request dashboard unauthenticated → desk root → choose phone or username tab | CONFIRMED | `ev_3a2f67f3c01cbdf9c021ced7d7c80c6345ae845923e219582692b3f90afeefd5`, `ev_bc74584638bea89133196c68ee3195d1baea58ffc0ca86319fdb879d8c79ad9d` | OTP delivery, accepted credentials, role assignment and error states; do not trigger OTP |
