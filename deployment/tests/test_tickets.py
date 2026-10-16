@@ -88,7 +88,7 @@ class Endpoints(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.db = str(Path(tmp.name) / 't.sqlite')
-        for mig in ('006_identity_attendance.sql', '007_calls.sql', '008_tickets.sql'):
+        for mig in ('006_identity_attendance.sql', '007_calls.sql', '008_tickets.sql', '009_batch_rows.sql'):
             load_schema(Path(server.HERE) / 'migrations' / mig, self.db)
         self.full = {'people': [dict(p) for p in PEOPLE]}
         self.users = {'mgr': {'role': 'manager'}, 'one': {'personId': 1, 'role': 'support'}}
@@ -126,7 +126,13 @@ class Endpoints(unittest.TestCase):
         self.assertEqual((out['batch']['updated'], out['batch']['unchanged'], out['batch']['details']['updates']),
                          (1, 1, [{'key': '102', 'fields': ['وضعیت', 'SLA']}]))
         code, out = self.res(self.server.tickets_delete(None, tenant='t1', batch=str(out['batch']['id'])))
-        self.assertEqual((out['removedRows'], out['removedBatches']), (1, 1))   # only the rows that batch last wrote
+        # R01: ticket 102 is still in the first file, so it goes back to that version instead of disappearing
+        self.assertEqual((out['removedRows'], out['removedBatches'], out['restored']), (0, 1, 1))
+        cx = sqlite3.connect(self.db)
+        try:
+            self.assertEqual(cx.execute("SELECT status, sla_ok FROM ticket_logs WHERE ticket_no='102'").fetchone(), ('بسته', 0))
+        finally:
+            cx.close()
         self.assertEqual(self.res(self.server.tickets_delete(None, tenant='t1'))[0], 400)
 
     def test_roles_before_db(self):
@@ -188,6 +194,22 @@ class Migration008(unittest.TestCase):
                 self.assertIn('identity_aliases', names)
             finally:
                 cx.close()
+
+
+class DomainLock(unittest.TestCase):
+    def test_every_import_writer_locks_its_domain_before_any_statement(self):   # R01-01
+        import inspect
+        import server
+        writers = {'attendance': (server.attendance_upload, server.attendance_delete),
+                   'calls': (server.calls_log_upload, server.calls_summary_upload, server.calls_delete),
+                   'tickets': (server.tickets_upload, server.tickets_delete)}
+        for lock, fns in writers.items():
+            for fn in fns:
+                body = inspect.getsource(fn).split('with _SaTx() as t:', 1)
+                self.assertEqual(len(body), 2, fn.__name__)
+                first = body[1].strip().splitlines()[0].strip()
+                self.assertEqual(first, '_domain_lock(t, tenant, "%s")' % lock, fn.__name__)
+                self.assertEqual(inspect.getsource(fn).count('with _SaTx() as t:'), 1, fn.__name__)
 
 
 if __name__ == '__main__':

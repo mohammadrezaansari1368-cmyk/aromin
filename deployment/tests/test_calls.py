@@ -286,7 +286,7 @@ class Endpoints(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.db = str(Path(tmp.name) / 't.sqlite')
-        for mig in ('006_identity_attendance.sql', '007_calls.sql'):
+        for mig in ('006_identity_attendance.sql', '007_calls.sql', '009_batch_rows.sql'):
             load_schema(Path(server.HERE) / 'migrations' / mig, self.db)
         self.full = {'people': FIXTURE['people']}
         self.users = {'mgr': {'role': 'manager'}, 'sara': {'personId': 2, 'role': 'sales'}}
@@ -430,12 +430,38 @@ class Endpoints(unittest.TestCase):
         aliases = len(self.sql('SELECT * FROM identity_aliases'))
         self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1'))[0], 400)
         self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1', batch='999'))[0], 404)
-        self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1', batch=str(first)))[1], {'ok': True, 'removedRows': 7, 'removedBatches': 1})
+        self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1', batch=str(first)))[1], {'ok': True, 'removedRows': 7, 'removedBatches': 1, 'restored': 0})
         self.assertEqual([r['channel_code'] for r in self.sql('SELECT channel_code FROM call_logs')], ['2001'])
         self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1', all='1', kind='calls'))[1]['removedRows'], 4)
         self.assertEqual((len(self.sql('SELECT * FROM call_batches')), len(self.sql('SELECT * FROM identity_aliases'))), (1, aliases))
         self.assertEqual(self.log()[0], 201)   # a deleted file can be uploaded again
         self.assertEqual(self.res(self.server.calls_batches(None, tenant='t1', kind='calllog'))[1]['batches'][0]['rows'], 7)
+
+    def test_delete_keeps_rows_another_batch_contains(self):   # R01
+        a = self.log()[1]['batch']['id']
+        newer = row(**{'مدت مکالمه (ثانیه)': 500, 'تاریخ همگام‌سازی': '18:40 1405/06/19'})
+        rows_b = [newer if r['کد کانال'] == newer['کد کانال'] else r for r in FIXTURE['log']]
+        b = self.log('c', rows=rows_b)[1]['batch']
+        self.assertEqual((b['updated'], b['unchanged']), (1, 6))
+        self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1', batch=str(a)))[1], {'ok': True, 'removedRows': 0, 'removedBatches': 1, 'restored': 6})
+        self.assertEqual({r['batch_id'] for r in self.sql('SELECT batch_id FROM call_logs')}, {b['id']})
+        self.assertEqual(self.res(self.server.calls_delete(None, tenant='t1', batch=str(b['id'])))[1]['removedRows'], 7)
+        s1 = self.summary()[1]['batch']['id']
+        s2 = self.summary('d')[1]['batch']
+        self.assertEqual((s2['inserted'], s2['unchanged']), (0, 4))
+        out = self.res(self.server.calls_delete(None, tenant='t1', batch=str(s1)))[1]
+        self.assertEqual((out['removedRows'], out['restored']), (0, 4))
+        self.assertEqual(len(self.sql('SELECT * FROM call_summaries')), 4)
+        self.assertEqual(len(self.sql("SELECT * FROM import_batch_rows WHERE domain='calls'")), 4)
+        self.res(self.server.calls_delete(None, tenant='t1', all='1', kind='calls'))
+        self.assertEqual(len(self.sql("SELECT * FROM import_batch_rows WHERE domain='calls'")), 0)
+
+    def test_calllog_winner_prefers_newest_sync(self):
+        pick = lambda *c: self.server._batch_winner('calllog', [{'batch_id': i, 'sort_key': k} for i, k in c])['batch_id']
+        self.assertEqual(pick((5, '1405/06/19 18:30'), (3, '1405/06/19 18:40'), (9, None)), 3)
+        self.assertEqual(pick((5, None), (4, None)), 5)
+        self.assertEqual(pick((2, '1405/06/19 18:40'), (7, '1405/06/19 18:40')), 7)
+        self.assertEqual(self.server._batch_winner('ticket', [{'batch_id': 2, 'sort_key': None}, {'batch_id': 8, 'sort_key': None}])['batch_id'], 8)
 
     def test_tenant_isolation(self):
         self.log()
@@ -532,6 +558,35 @@ class Migration007(unittest.TestCase):
                 cx.close()
 
 
+class Migration009(unittest.TestCase):
+    def test_loads_twice_and_down_drops_only_its_tables(self):
+        import re
+        import sqlite3
+        from db_fake import load_schema
+        mig = Path(__file__).resolve().parents[1] / 'migrations'
+        sql = (mig / '009_batch_rows.sql').read_text(encoding='utf-8')
+        self.assertEqual(len(re.findall(r'CREATE TABLE IF NOT EXISTS', sql)), len(re.findall(r'CREATE TABLE', sql)))
+        for banned in ('ON DUPLICATE KEY', 'ENUM(', ' JSON', 'COLLATE', 'ALTER TABLE', 'DROP '):
+            self.assertNotIn(banned, re.sub(r'--[^\n]*', '', sql).upper())
+        with tempfile.TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / 'm.sqlite')
+            for name in ('006_identity_attendance.sql', '007_calls.sql', '008_tickets.sql', '009_batch_rows.sql', '009_batch_rows.sql'):
+                load_schema(mig / name, db)
+            cx = sqlite3.connect(db)
+            try:
+                ins = "INSERT INTO import_batch_rows (tenant,domain,batch_id,row_key,row_sha256,sort_key,payload) VALUES (?,?,?,?,?,?,?)"
+                cx.execute(ins, ('t', 'calllog', 1, '1001', 'x', None, '{}'))
+                with self.assertRaises(sqlite3.IntegrityError):
+                    cx.execute(ins, ('t', 'calllog', 1, '1001', 'y', None, '{}'))
+                cx.execute(ins, ('t', 'calls', 1, '1001', 'x', None, '{}'))   # same batch id, other domain
+                cx.executescript((mig / '009_batch_rows.down.sql.txt').read_text(encoding='utf-8'))
+                names = {n for (n,) in cx.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                self.assertFalse({'import_batch_rows', 'import_locks'} & names)
+                self.assertTrue({'identity_aliases', 'attendance_days', 'call_logs', 'ticket_logs'} <= names)
+            finally:
+                cx.close()
+
+
 class RouteOrder(unittest.TestCase):
     def test_calls_routes_before_catch_all_and_http_reaches_handler(self):
         import server
@@ -543,7 +598,7 @@ class RouteOrder(unittest.TestCase):
             self.assertLess(idx(p), idx('/api/performance/{view}'))
         with tempfile.TemporaryDirectory() as tmp:
             db = str(Path(tmp) / 't.sqlite')
-            for mig in ('006_identity_attendance.sql', '007_calls.sql'):
+            for mig in ('006_identity_attendance.sql', '007_calls.sql', '009_batch_rows.sql'):
                 load_schema(Path(server.HERE) / 'migrations' / mig, db)
             with patch.object(server, 'kb_identity', return_value={'user': 'mgr', 'role': 'manager'}), \
                     patch.object(server, '_tenant_full', return_value={'people': FIXTURE['people']}), \

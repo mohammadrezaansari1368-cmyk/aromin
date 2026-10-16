@@ -1945,6 +1945,82 @@ def _in(values):
     return ",".join(["%s"] * len(values))
 
 
+# R01 (migration 009): batch membership, so deleting a batch never loses rows another batch still contains.
+_ATT_DAY_COLS = ("sheet_name", "person_name", "punches", "present_min", "note", "raw_json", "row_sha256")
+_SUMMARY_COLS = ("agent_name", "total", "answered", "no_answer", "busy", "failed", "talk_sec", "raw_json", "row_sha256")
+
+
+def _batch_domain(domain):
+    """{table, keys, cols, lock} per domain; cols are the content columns rewritten on restore (keys excluded)."""
+    return {"attendance": dict(table="attendance_days", keys=("card_no", "date_j"), cols=_ATT_DAY_COLS, lock="attendance"),
+            "calllog": dict(table="call_logs", keys=("channel_code",), cols=_CALL_COLS[1:] + ("raw_json", "row_sha256", "core_sha256"), lock="calls"),
+            "calls": dict(table="call_summaries", keys=("period_from", "period_to", "direction", "ext"), cols=_SUMMARY_COLS, lock="calls"),
+            "ticket": dict(table="ticket_logs", keys=("ticket_no",), cols=tickets.CORE + ("raw_json", "row_sha256"), lock="tickets")}[domain]
+
+
+def _domain_lock(t, tenant, lock):
+    """First statements of every writer of a domain: serializes uploads and deletes per tenant+domain (review R01-01)."""
+    t.x("INSERT IGNORE INTO import_locks (tenant,domain) VALUES (%s,%s)", (tenant, lock))
+    t.one("SELECT tenant FROM import_locks WHERE tenant=%s AND domain=%s FOR UPDATE", (tenant, lock))
+
+
+def _row_key(spec, row):
+    return "|".join(str(row[k]) for k in spec["keys"])
+
+
+def _batch_winner(domain, candidates):
+    """Remaining batch whose content a row is restored to, mirroring upload precedence: attendance prefers non-migration
+    batches; calllog prefers the newest sync_at (none lowest); otherwise the latest batch."""
+    if domain == "attendance":
+        imported = [c for c in candidates if c["sort_key"] != "migration"]
+        return max(imported or candidates, key=lambda c: c["batch_id"])
+    if domain == "calllog":
+        return max(candidates, key=lambda c: (c["sort_key"] is not None, c["sort_key"] or "", c["batch_id"]))
+    return max(candidates, key=lambda c: c["batch_id"])
+
+
+def _member_write(t, tenant, domain, bid, rows, sort_key=lambda r: None):
+    """One membership row per valid file row, holding this file's own content (insert, update, unchanged and conflicts alike)."""
+    spec, seen = _batch_domain(domain), set()
+    for r in rows:
+        key = _row_key(spec, r)
+        if key in seen:
+            continue
+        seen.add(key)
+        t.x("INSERT INTO import_batch_rows (tenant,domain,batch_id,row_key,row_sha256,sort_key,payload) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            (tenant, domain, bid, key, r["row_sha256"], sort_key(r),
+             json.dumps({c: r[c] for c in spec["keys"] + spec["cols"]}, ensure_ascii=False, sort_keys=True)))
+
+
+def _batch_delete(t, tenant, domain, bid, now):
+    """Delete batch bid's membership; rows it currently owns are restored from the winning remaining batch or, if none, deleted.
+    Rows owned by another batch are untouched. Caller holds the domain lock and the batch row. Returns (deleted, restored)."""
+    spec = _batch_domain(domain)
+    keys = spec["keys"]
+    owned = t.x("SELECT " + ",".join(keys) + " FROM " + spec["table"] + " WHERE tenant=%s AND batch_id=%s FOR UPDATE", (tenant, bid)).fetchall()
+    t.x("DELETE FROM import_batch_rows WHERE tenant=%s AND domain=%s AND batch_id=%s", (tenant, domain, bid))
+    deleted = restored = 0
+    where = " AND ".join(k + "=%s" for k in keys)
+    for i in range(0, len(owned), 500):
+        part = owned[i:i + 500]
+        by_key = {_row_key(spec, r): r for r in part}
+        cands = {}
+        for c in t.x("SELECT row_key,batch_id,sort_key,payload FROM import_batch_rows WHERE tenant=%s AND domain=%s AND row_key IN (" + _in(list(by_key)) + ")",
+                     [tenant, domain] + list(by_key)).fetchall():
+            cands.setdefault(c["row_key"], []).append(c)
+        for key, r in by_key.items():
+            ident = [r[k] for k in keys]
+            if key not in cands:
+                deleted += t.x("DELETE FROM " + spec["table"] + " WHERE tenant=%s AND " + where, [tenant] + ident).rowcount
+                continue
+            win = _batch_winner(domain, cands[key])
+            p = json.loads(win["payload"])
+            t.x("UPDATE " + spec["table"] + " SET " + ",".join(c + "=%s" for c in spec["cols"]) + ",batch_id=%s,updated_at=%s WHERE tenant=%s AND " + where,
+                [p[c] for c in spec["cols"]] + [win["batch_id"], now, tenant] + ident)
+            restored += 1
+    return deleted, restored
+
+
 @app.post("/api/performance/attendance")
 def attendance_upload(request: Request, payload: dict = Body(default={})):
     tenant = str((payload or {}).get("tenant") or "team")
@@ -1962,6 +2038,7 @@ def attendance_upload(request: Request, payload: dict = Body(default={})):
     now = _att_now()
     try:
         with _SaTx() as t:
+            _domain_lock(t, tenant, "attendance")
             old = t.one("SELECT * FROM attendance_batches WHERE tenant=%s AND file_sha256=%s FOR UPDATE", (tenant, parsed["sha256"]))
             if old:
                 return {"ok": True, "duplicate": True, "batch": _att_batch(old), "sheetCards": sheet_cards}
@@ -1983,6 +2060,8 @@ def attendance_upload(request: Request, payload: dict = Body(default={})):
             for d in plan["update"]:
                 t.x("UPDATE attendance_days SET sheet_name=%s,person_name=%s,punches=%s,present_min=%s,note=%s,raw_json=%s,row_sha256=%s,batch_id=%s,updated_at=%s WHERE tenant=%s AND card_no=%s AND date_j=%s",
                     (d["sheet_name"], d["person_name"], json.dumps(d["punches"]), d["present_min"], d["note"], d["raw_json"], d["row_sha256"], bid, now, tenant, d["card_no"], d["date_j"]))
+            _member_write(t, tenant, "attendance", bid, [dict(d, punches=json.dumps(d["punches"])) for d in days],
+                          lambda d: "migration" if parsed["source"] == "migration" else None)
             unmapped = []
             for s in parsed["sheets"]:
                 raw = s["person_name"] or s["sheet_name"]
@@ -2062,20 +2141,23 @@ def attendance_delete(request: Request, tenant: str = "team", batch: str = "", a
         return err
     if not batch and all != "1":
         return _att_deny(400, "batch یا all=1 لازم است.")
+    if batch and not str(batch).isdigit():
+        return _att_deny(400, "شناسه نامعتبر است.")
+    restored = 0
     with _SaTx() as t:
+        _domain_lock(t, tenant, "attendance")
         if batch:
-            if not str(batch).isdigit():
-                return _att_deny(400, "شناسه نامعتبر است.")
             if not t.one("SELECT id FROM attendance_batches WHERE tenant=%s AND id=%s FOR UPDATE", (tenant, int(batch))):
                 return _att_deny(404, "پیدا نشد.")
-            days = t.x("DELETE FROM attendance_days WHERE tenant=%s AND batch_id=%s", (tenant, int(batch))).rowcount
+            days, restored = _batch_delete(t, tenant, "attendance", int(batch), _att_now())
             batches = t.x("DELETE FROM attendance_batches WHERE tenant=%s AND id=%s", (tenant, int(batch))).rowcount
             ovs = 0
         else:
             days = t.x("DELETE FROM attendance_days WHERE tenant=%s", (tenant,)).rowcount
             batches = t.x("DELETE FROM attendance_batches WHERE tenant=%s", (tenant,)).rowcount
+            t.x("DELETE FROM import_batch_rows WHERE tenant=%s AND domain=%s", (tenant, "attendance"))
             ovs = t.x("DELETE FROM attendance_overrides WHERE tenant=%s", (tenant,)).rowcount if overrides == "1" else 0
-    return {"ok": True, "removedDays": days, "removedBatches": batches, "removedOverrides": ovs}
+    return {"ok": True, "removedDays": days, "removedBatches": batches, "removedOverrides": ovs, "restored": restored}
 
 
 def _att_override_item(item):
@@ -2351,6 +2433,7 @@ def calls_log_upload(request: Request, payload: dict = Body(default={})):
     found, now = parsed["calls"], _att_now()
     try:
         with _SaTx() as t:
+            _domain_lock(t, tenant, "calls")
             old = t.one("SELECT * FROM call_batches WHERE tenant=%s AND file_sha256=%s FOR UPDATE", (tenant, parsed["sha256"]))
             if old:
                 return {"ok": True, "duplicate": True, "batch": _call_batch(old)}
@@ -2378,6 +2461,7 @@ def calls_log_upload(request: Request, payload: dict = Body(default={})):
                 c = u["call"]
                 t.x("UPDATE call_logs SET " + ",".join(k + "=%s" for k in cols[1:]) + ",batch_id=%s,updated_at=%s WHERE tenant=%s AND channel_code=%s",
                     [c[k] for k in cols[1:]] + [bid, now, tenant, c["channel_code"]])
+            _member_write(t, tenant, "calllog", bid, found, lambda c: c["sync_at"])
             parties = {}
             for c in found:
                 for s in ("o", "d"):
@@ -2412,6 +2496,7 @@ def calls_summary_upload(request: Request, payload: dict = Body(default={})):
     pf, pt, d, now = parsed["period_from"], parsed["period_to"], parsed["direction"], _att_now()
     try:
         with _SaTx() as t:
+            _domain_lock(t, tenant, "calls")
             old = t.one("SELECT * FROM call_batches WHERE tenant=%s AND file_sha256=%s FOR UPDATE", (tenant, parsed["sha256"]))
             if old:
                 return {"ok": True, "duplicate": True, "batch": _call_batch(old)}
@@ -2437,6 +2522,7 @@ def calls_summary_upload(request: Request, payload: dict = Body(default={})):
             for r in plan["update"]:
                 t.x("UPDATE call_summaries SET " + ",".join(k + "=%s" for k in cols) + ",batch_id=%s,updated_at=%s WHERE tenant=%s AND period_from=%s AND period_to=%s AND direction=%s AND ext=%s",
                     [r[k] for k in cols] + [bid, now, tenant, pf, pt, d, r["ext"]])
+            _member_write(t, tenant, "calls", bid, [dict(r, period_from=pf, period_to=pt, direction=d) for r in parsed["rows"]])
             unmapped = _call_aliases(t, tenant, people, {("ext", r["ext"]): r["agent_name"] for r in parsed["rows"]}, "callsummary", now)
             batch = t.one("SELECT * FROM call_batches WHERE id=%s", (bid,))
     except _AttFail as e:
@@ -2584,17 +2670,20 @@ def calls_delete(request: Request, tenant: str = "team", batch: str = "", all: s
             return _att_deny(400, "شناسه نامعتبر است.")
     elif all != "1" or kind not in table:
         return _att_deny(400, "batch یا all=1 همراه با kind=calllog|calls لازم است.")
+    restored = 0
     with _SaTx() as t:
+        _domain_lock(t, tenant, "calls")
         if batch:
             b = t.one("SELECT id,kind FROM call_batches WHERE tenant=%s AND id=%s FOR UPDATE", (tenant, int(batch)))
             if not b:
                 return _att_deny(404, "پیدا نشد.")
-            rows = t.x("DELETE FROM " + table[b["kind"]] + " WHERE tenant=%s AND batch_id=%s", (tenant, b["id"])).rowcount
+            rows, restored = _batch_delete(t, tenant, b["kind"], b["id"], _att_now())
             batches = t.x("DELETE FROM call_batches WHERE tenant=%s AND id=%s", (tenant, b["id"])).rowcount
         else:
             rows = t.x("DELETE FROM " + table[kind] + " WHERE tenant=%s", (tenant,)).rowcount
             batches = t.x("DELETE FROM call_batches WHERE tenant=%s AND kind=%s", (tenant, kind)).rowcount
-    return {"ok": True, "removedRows": rows, "removedBatches": batches}
+            t.x("DELETE FROM import_batch_rows WHERE tenant=%s AND domain=%s", (tenant, kind))
+    return {"ok": True, "removedRows": rows, "removedBatches": batches, "restored": restored}
 
 
 _TICKET_COLS = ("ticket_no",) + tickets.CORE
@@ -2623,6 +2712,7 @@ def tickets_upload(request: Request, payload: dict = Body(default={})):
     found, now = parsed["tickets"], _att_now()
     try:
         with _SaTx() as t:
+            _domain_lock(t, tenant, "tickets")
             old = t.one("SELECT * FROM ticket_batches WHERE tenant=%s AND file_sha256=%s FOR UPDATE", (tenant, parsed["sha256"]))
             if old:
                 return {"ok": True, "duplicate": True, "batch": _ticket_batch(old)}
@@ -2650,6 +2740,7 @@ def tickets_upload(request: Request, payload: dict = Body(default={})):
                 x = u["ticket"]
                 t.x("UPDATE ticket_logs SET " + ",".join(k + "=%s" for k in cols[1:]) + ",batch_id=%s,updated_at=%s WHERE tenant=%s AND ticket_no=%s",
                     [x[k] for k in cols[1:]] + [bid, now, tenant, x["ticket_no"]])
+            _member_write(t, tenant, "ticket", bid, found)
             parties = {}
             for x in found:
                 if x["agent_key"] and not parties.get(("name", x["agent_key"])):
@@ -2683,17 +2774,20 @@ def tickets_delete(request: Request, tenant: str = "team", batch: str = "", all:
         return err
     if (batch and not str(batch).isdigit()) or (not batch and all != "1"):
         return _att_deny(400, "batch یا all=1 لازم است.")
+    restored = 0
     with _SaTx() as t:
+        _domain_lock(t, tenant, "tickets")
         if batch:
             b = t.one("SELECT id FROM ticket_batches WHERE tenant=%s AND id=%s FOR UPDATE", (tenant, int(batch)))
             if not b:
                 return _att_deny(404, "پیدا نشد.")
-            rows = t.x("DELETE FROM ticket_logs WHERE tenant=%s AND batch_id=%s", (tenant, b["id"])).rowcount
+            rows, restored = _batch_delete(t, tenant, "ticket", b["id"], _att_now())
             batches = t.x("DELETE FROM ticket_batches WHERE tenant=%s AND id=%s", (tenant, b["id"])).rowcount
         else:
             rows = t.x("DELETE FROM ticket_logs WHERE tenant=%s", (tenant,)).rowcount
             batches = t.x("DELETE FROM ticket_batches WHERE tenant=%s", (tenant,)).rowcount
-    return {"ok": True, "removedRows": rows, "removedBatches": batches}
+            t.x("DELETE FROM import_batch_rows WHERE tenant=%s AND domain=%s", (tenant, "ticket"))
+    return {"ok": True, "removedRows": rows, "removedBatches": batches, "restored": restored}
 
 
 def _perf_ticket_records(tenant, s, e, pids):
