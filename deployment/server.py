@@ -1959,8 +1959,10 @@ def _batch_domain(domain):
 
 
 def _domain_lock(t, tenant, lock):
-    """First statements of every writer of a domain: serializes uploads and deletes per tenant+domain (review R01-01)."""
-    t.x("INSERT IGNORE INTO import_locks (tenant,domain) VALUES (%s,%s)", (tenant, lock))
+    """First statements of every writer of a domain: serializes uploads and deletes per tenant+domain (review R01-01).
+    ON DUPLICATE KEY UPDATE takes the exclusive record lock at once; INSERT IGNORE would take a shared lock on an existing
+    row, and two waiters upgrading it with FOR UPDATE could deadlock (review R01-REV-01)."""
+    t.x("INSERT INTO import_locks (tenant,domain) VALUES (%s,%s) ON DUPLICATE KEY UPDATE domain=domain", (tenant, lock))
     t.one("SELECT tenant FROM import_locks WHERE tenant=%s AND domain=%s FOR UPDATE", (tenant, lock))
 
 
