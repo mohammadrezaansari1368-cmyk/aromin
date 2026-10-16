@@ -8,7 +8,8 @@
     "preview": "vite preview",
     "build:single": "SINGLE=1 VITE_MODE=local vite build --outDir dist-single",
     "dev:demo": "VITE_MODE=local vite",
-    "server": "npm --prefix server start"
+    "server": "npm --prefix server start",
+    "rea:setup": "npx -y rea-agents@latest setup"
   },
   "keywords": [],
   "author": "",
