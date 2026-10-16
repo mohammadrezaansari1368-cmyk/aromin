@@ -29,5 +29,6 @@ UNKNOWN: Full reference workflow reconstruction remains incomplete. The next pri
 | U14 | BLOCKED | REA list_browser_targets returned `provider_unavailable`, details.reason `endpoint_unreachable`; local port 9222 had no listener |
 | U15 | UNKNOWN | Chrome processes existed, but current authenticated target and login state cannot be determined while CDP is unavailable |
 | U16 | CONFIRMED | Current discovered queue: 3 inspected / 9 concrete route patterns; six linked pages blocked; menu candidates without href are separate |
+| U17 | BLOCKED | User-provided Chrome launch on loopback CDP port 9222 self-terminated: Crashpad and Mojo returned `Access is denied. (0x5)`; port remains unbound |
 
 BLOCKED: One manual step is required: restore the existing Chrome session with debugging bound only to `127.0.0.1:9222`, open the locally authenticated SmartX tab, and reply `ready`. Do not send credentials or cookies. After reconnection, relist once and continue from the first uninspected destination.

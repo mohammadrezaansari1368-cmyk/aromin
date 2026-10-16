@@ -132,3 +132,9 @@ BLOCKED: Actual `list_browser_targets({cdp_endpoint:"http://127.0.0.1:9222"})` r
 CONFIRMED: A single local PowerShell diagnostic found no TCP listener on port 9222 and `/json/version` failed with `WebException: Unable to connect to the remote server`. Thirteen Chrome processes existed. This proves the requested CDP endpoint was unreachable at observation time; it does not identify whether the existing Chrome window had the authenticated SmartX tab or whether its login was still valid.
 
 CONFIRMED: No repeated target-list attempt, browser navigation, setup, security-policy change, external CDP bind, authentication-secret inspection, or live-record interaction occurred after the endpoint failure. See `page-inventory.md`, `workflow-map.md` and `discovery-coverage.md` for the deduplicated queue and blocked destinations.
+
+## Chrome launch diagnostic — 2026-10-16 17:29 UTC
+
+BLOCKED: The user-provided Chrome command was run with `--remote-debugging-address=127.0.0.1 --remote-debugging-port=9222` and profile `D:\\xsi\\.local-browser-chrome`. Chrome emitted Crashpad `CreateFile: Access is denied. (0x5)`, then `FATAL ... platform_channel ... Access is denied. (0x5)`, and `crash server failed to launch, self-terminating`. No browser target was reported.
+
+BLOCKED: A follow-up local diagnostic found no listener on 9222; `http://127.0.0.1:9222/json/version` returned `WebException: Unable to connect to the remote server`. Chrome process count was 20, which does not establish an available or authenticated target. The command was not retried and no security restrictions were changed.

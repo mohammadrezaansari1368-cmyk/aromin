@@ -31,6 +31,8 @@ BLOCKED: To resume, start/restore the existing Chrome session with DevTools boun
 
 UNKNOWN: Historical REA Evidence IDs and operation names are preserved in `evidence.md`; their exact capture clock times were not retained in earlier notes. The current failed call time is 2026-10-16 17:15 UTC and it has no Evidence ID because REA returned an operation error.
 
+BLOCKED: At 17:29 UTC, the user-provided local Chrome launch emitted Crashpad and Mojo `Access is denied. (0x5)` errors and self-terminated. The subsequent port check still found no 9222 listener. No authenticated state or page is available to inspect; do not retry the same launch blindly.
+
 ## XSI gaps by priority
 
 | Priority | Gap | XSI state |
