@@ -72,7 +72,7 @@ fi
 # جایگزینی فقط با درخواستِ صریح: MCP_TOKEN_IMPORT=/root/aromin-mcp-token.txt bash install.sh — فایل باید regular، نه symlink، مالکِ root
 # و بدونِ نوشتنِ گروه/دیگران باشد؛ پس از ورود پاک می‌شود. بدونِ آن، کلیدِ موجود دست نمی‌خورد و فقط بارِ اول کلیدِ تصادفی ساخته می‌شود.
 MCP_ENVF="${MCP_ENV:-/etc/aromin/mcp.env}"
-mkdir -p "$(dirname "$MCP_ENVF")"
+mkdir -p "$(dirname "$MCP_ENVF")" && chmod 755 "$(dirname "$MCP_ENVF")"   # the service must traverse it; the file itself stays 640/600 (review MCP-R06)
 MCP_NEW=""
 MCP_TEN="$( [ -f "$MCP_ENVF" ] && sed -n "s/^MCP_TENANT=//p" "$MCP_ENVF" | head -n1 || true )"
 if [ -n "${MCP_TOKEN_IMPORT:-}" ]; then

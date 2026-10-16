@@ -2810,31 +2810,27 @@ MCP_AGENT_BUDGET = 22          # seconds, end to end (knowledge + provider + mod
 MCP_AGENT_WORKERS = 4
 _MCP_POOL = _cf.ThreadPoolExecutor(max_workers=MCP_AGENT_WORKERS, thread_name_prefix="mcp-agent")
 _MCP_SLOTS = _th.BoundedSemaphore(MCP_AGENT_WORKERS)
-_MCP_CACHE = {"key": None, "cfg": {"token": "", "tenant": "team"}}
 _MCP_DAY_RE = re.compile(r"^[0-9]{4}/[0-9]{2}/[0-9]{2}$")
 _MCP_MONTH_RE = re.compile(r"^[0-9]{4}/[0-9]{2}$")
 MCP_EXPORT_MAX = 2 * 1024 * 1024
 
 
 def _mcp_config():
-    """{token, tenant}. Env MCP_TOKEN/MCP_TENANT override; else MCP_ENV (default /etc/aromin/mcp.env), re-read when it changes."""
+    """{token, tenant}. Env MCP_TOKEN/MCP_TENANT override; else MCP_ENV (default /etc/aromin/mcp.env), read on every request
+    (a few bytes) so rotation applies at once and a file that becomes unreadable fails closed (review MCP-R05)."""
     if os.environ.get("MCP_TOKEN"):
         return {"token": os.environ["MCP_TOKEN"].strip(), "tenant": os.environ.get("MCP_TENANT") or "team"}
     path = os.environ.get("MCP_ENV", "/etc/aromin/mcp.env")
     try:
-        st = os.stat(path)
-        key = (path, st.st_mtime, st.st_size)
-        if _MCP_CACHE["key"] != key:
-            vals = {}
-            with open(path, encoding="utf-8") as fh:
-                for line in fh:
-                    line = line.strip()
-                    if line and not line.startswith("#") and "=" in line:
-                        k, v = line.split("=", 1)
-                        vals[k.strip()] = v.strip().strip('"').strip("'")
-            _MCP_CACHE.update(key=key, cfg={"token": vals.get("MCP_TOKEN", ""), "tenant": vals.get("MCP_TENANT") or "team"})
-        return _MCP_CACHE["cfg"]
-    except OSError:
+        vals = {}
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    vals[k.strip()] = v.strip().strip('"').strip("'")
+        return {"token": vals.get("MCP_TOKEN", ""), "tenant": vals.get("MCP_TENANT") or "team"}
+    except (OSError, UnicodeDecodeError):
         return {"token": "", "tenant": "team"}
 
 

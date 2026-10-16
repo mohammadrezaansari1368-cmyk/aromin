@@ -64,6 +64,14 @@ class Mcp(unittest.TestCase):
             self.assertEqual(self.rpc('ping', token='k' * 64).json()['result'], {})
             f.write_text('MCP_TOKEN=%s\n' % ('z' * 64), encoding='utf-8')   # rotation is picked up without restart
             self.assertEqual(server._mcp_config(), {'token': 'z' * 64, 'tenant': 'team'})
+            self.assertEqual(self.rpc('ping', token='z' * 64).status_code, 200)
+            real_open = open
+            def deny(path, *a, **kw):   # review MCP-R05: a file that becomes unreadable fails closed, no cached token
+                if str(path) == str(f):
+                    raise PermissionError(13, 'denied')
+                return real_open(path, *a, **kw)
+            with patch('builtins.open', side_effect=deny):
+                self.assertEqual(self.rpc('ping', token='z' * 64).status_code, 503)
 
     def test_protocol(self):
         init = self.rpc('initialize', {"protocolVersion": "2025-03-26", "capabilities": {}, "clientInfo": {"name": "t", "version": "0"}}).json()['result']
