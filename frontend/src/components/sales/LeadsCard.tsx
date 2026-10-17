@@ -11,7 +11,7 @@ type Lead = { id: number; name: string; phone: string; city?: string; source: st
 type Note = { lead_id: number; kind: string; status: string; attempts: number; last_error?: string }
 type Report = { id: number; created_at: string; lead_count: number }
 const ST: Record<string, string> = { new: 'جدید', assigned: 'ارجاع‌شده', contacted: 'تماس گرفته شد', qualified: 'واجد شرایط', won: 'موفق', lost: 'ناموفق' }
-const KIND: Record<string, string> = { rep: 'کارشناس', manager: 'مدیر', customer: 'مشتری' }
+const KIND: Record<string, string> = { rep: 'کارشناس', manager: 'مدیر', customer: 'مشتری', rep_bale: 'کارشناس (بله)', rep_tg: 'کارشناس (تلگرام)', manager_bale: 'مدیر (بله)', manager_tg: 'مدیر (تلگرام)' }
 const NOTE: Record<string, string> = { sent: 'text-success', failed: 'text-error', pending: 'text-warning', sending: 'text-warning' }
 const inCls = `${INPUT} min-h-8 px-2 text-[12px]`
 

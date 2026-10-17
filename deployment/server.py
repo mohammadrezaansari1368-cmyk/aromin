@@ -1988,15 +1988,54 @@ def send_otp_sms(mobile, code):
     return r
 
 
+NABZEKAR_OK_REGEX = os.environ.get("NABZEKAR_OK_REGEX", "").strip()   # اختیاری: الگوی پاسخِ موفقِ اختصاصیِ پنل (اگر قالبِ پاسخ عوض شد)
+
+
+def _nabzekar_ok_json(v):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, int):
+        return v > 0
+    if isinstance(v, str):
+        t = v.strip()
+        return bool(re.fullmatch(r"\d+", t)) and int(t) > 0
+    if isinstance(v, list):
+        return bool(v) and all(_nabzekar_ok_json(x) for x in v)
+    if isinstance(v, dict):
+        for k in ("success", "successful", "ok"):
+            if k in v:
+                return v[k] is True or str(v[k]).strip().lower() in ("1", "true", "ok", "success")
+        for k in ("status", "result", "code", "return", "data", "id", "ids", "messageId", "message_id", "recId", "recIds"):
+            if k in v:
+                x = v[k]
+                if isinstance(x, str) and x.strip().lower() in ("ok", "success", "sent", "done"):
+                    return True
+                return _nabzekar_ok_json(x)
+    return False
+
+
 def _nabzekar_failed(raw):
-    """پاسخِ HTTP-200 نبض‌کار را برای نشانهٔ خطا بررسی می‌کند (عددِ ≤۰ یا واژهٔ خطا)."""
+    """پاسخِ HTTP-200 نبض‌کار: فقط پاسخِ «آشکارا موفق» موفق است (شناسهٔ مثبت، فهرستِ شناسه‌های مثبت، یا JSON با نشانهٔ موفقیت).
+    پاسخِ خالی، صفر/منفی، متنِ ناشناخته یا HTML = ناموفق (قبلاً پاسخِ ناشناخته موفق حساب می‌شد و خطا پنهان می‌ماند)."""
     t = str(raw or "").strip()
     if not t:
-        return False
+        return True
+    if NABZEKAR_OK_REGEX:
+        try:
+            if re.fullmatch(NABZEKAR_OK_REGEX, t):
+                return False
+        except re.error:
+            pass
     if re.fullmatch(r"-?\d+", t):
         return int(t) <= 0
-    low = t.lower()
-    return ("error" in low) or ("failed" in low) or ("خطا" in t) or ("invalid" in low)
+    if re.fullmatch(r"\d+(\s*,\s*\d+)+", t):
+        return any(int(x) <= 0 for x in re.split(r"\s*,\s*", t))
+    if t[:1] in "[{":
+        try:
+            return not _nabzekar_ok_json(json.loads(t))
+        except Exception:
+            return True
+    return True
 
 
 @app.post("/api/otp/request")
@@ -4786,6 +4825,7 @@ def sa_create_lead(tenant, data, by="widget"):
                                                             ("summary", 300), ("preferredTime", 80))}
     urls = {k: (str(data.get(k) or "")[:500] if re.match(r"^https?://", str(data.get(k) or "")) else None) for k in ("sourceUrl", "landingUrl")}
     reps, mgr = sa_reps(tenant), sa_manager(tenant)
+    alerts = lead_alert_tables()                    # خطا → فقط پیامک (رفتارِ قبلی)
     try:
         with _SaTx() as tx:
             tx.x("INSERT INTO sa_leads (tenant, name, phone, city, source, source_url, landing_url, product_interest, business_type, summary, "
@@ -4816,6 +4856,12 @@ def sa_create_lead(tenant, data, by="widget"):
             else:
                 _sa_notif(tx, tenant, lid, "manager", mgr, sa_render(cfg["tplManagerNoRep"] or cfg["tplManager"], info), "lead:%d:manager" % lid)
             _sa_notif(tx, tenant, lid, "customer", {"name": name, "phone": phone}, sa_render(cfg["tplCustomer"], info), "lead:%d:customer" % lid)
+            if alerts:                                   # تلگرام + بله برای کارشناسِ تخصیص‌یافته و مدیر (هر کانال ردیفِ جدا)
+                text = lead_alert_text(info, lid)
+                if rep:
+                    lead_alert_enqueue(tx, tenant, lid, "rep", rep, text)
+                if mgr and (not rep or mgr.get("id") != rep.get("id")):
+                    lead_alert_enqueue(tx, tenant, lid, "manager", mgr, text)
         _sa_kick()
         print("[SA] lead", lid, _sa_mask(phone), "→", rep["name"] if rep else "بدونِ کارشناس")
         return {"ok": True, "id": lid, "duplicate": False, "assignedTo": rep["name"] if rep else None}
@@ -4891,7 +4937,20 @@ def _sa_send_sms(phone, text, kind="staff"):
         return False, "سقفِ پیامکِ این گیرنده پر شده"
     r = sms_call({"action": "send", "from": line, "text": text, "receivers": "98" + phone[1:]})
     ok = bool(r.get("ok")) and not _nabzekar_failed(r.get("result"))
-    return ok, "" if ok else str(r.get("error") or r.get("result") or "ارسال ناموفق")[:300]
+    if ok:
+        return True, ""
+    raw = str(r.get("result") or "").strip()
+    return False, str(r.get("error") or ("پاسخِ ناموفق/نامعلومِ نبض‌کار: " + raw if raw else "پاسخِ خالی از نبض‌کار"))[:300]
+
+
+def _sa_deliver(n):
+    """یک اعلانِ صف را می‌فرستد. خروجی: (ok, error, final) — final یعنی تکرار بی‌فایده است.
+    هر ردیف (پیامک، تلگرام، بله) مستقل است؛ خطای یک کانال هرگز جلوی کانالِ دیگر را نمی‌گیرد."""
+    kind = str(n.get("kind") or "")
+    if lead_alert_channel(kind):
+        return lead_alert_deliver(n)
+    ok, err = _sa_send_sms(n.get("phone"), n.get("body"), "customer" if kind == "customer" else "staff")
+    return ok, err, (not ok and "ثبت نشده" in err)
 
 
 def sa_process_notifications(limit=20):
@@ -4904,17 +4963,308 @@ def sa_process_notifications(limit=20):
         if not claimed:
             continue
         n = q("SELECT * FROM sa_notifications WHERE id=%s", (r["id"],))[0]
-        ok, err = _sa_send_sms(n.get("phone"), n.get("body"), "customer" if n.get("kind") == "customer" else "staff")
+        kind = str(n.get("kind") or "")
+        try:
+            ok, err, final = _sa_deliver(n)
+        except Exception as e:                                        # خطای پیش‌بینی‌نشده: ردیف گیر نکند، کانال‌های دیگر ادامه دهند
+            ok, err, final = False, "خطای داخلی: " + lead_redact(str(e))[:200], False
         att = int(n.get("attempts") or 0) + 1
         if ok:
             q("UPDATE sa_notifications SET status='sent', attempts=%s, sent_at=%s, last_error=NULL WHERE id=%s", (att, _sa_now(), n["id"]))
         else:
-            fail = att >= 3 or "ثبت نشده" in err
+            fail = final or att >= LEAD_ALERT_TRIES
             q("UPDATE sa_notifications SET status=%s, attempts=%s, last_error=%s, next_at=%s WHERE id=%s",
-              ("failed" if fail else "pending", att, err, _sa_now() + datetime.timedelta(seconds=SA_BACKOFF[min(att, 2) - 1]), n["id"]))
-        print("[SA] sms", n.get("kind"), _sa_mask(n.get("phone")), "ok" if ok else "err: " + err[:80])
+              ("failed" if fail else "pending", att, lead_redact(err)[:300], _sa_now() + datetime.timedelta(seconds=SA_BACKOFF[min(att, 2) - 1]), n["id"]))
+        if lead_alert_channel(kind):
+            print("[SA] alert", kind, "lead", n.get("lead_id"), "person", n.get("person_id") or "-", "try", att,
+                  "ok" if ok else ("failed: " if (final or att >= LEAD_ALERT_TRIES) else "retry: ") + lead_redact(err)[:120])
+        else:
+            print("[SA] sms", kind, _sa_mask(n.get("phone")), "ok" if ok else "err: " + err[:80])
         done += 1
     return done
+
+
+# ---- اعلانِ لید در تلگرام (@arominagent_bot) و بله (@arominbot) — کنارِ پیامک، هر کانال مستقل، ۳ تلاش ----
+# گیرنده‌ها: کارشناسِ تخصیص‌یافته و مدیرِ فروش. شناسهٔ گفت‌وگو با «/start <کد>» در هر ربات ثبت می‌شود
+# (تلگرام: وب‌هوکِ موجود؛ بله: getUpdates در همان زمان‌بند). بله همیشه جدا و پیش از تلگرام صف می‌شود؛ فیلترِ تلگرام اثری بر بله ندارد.
+# توکن‌ها فقط از env و هرگز در لاگ/پاسخ/خطا نمی‌آیند.
+LEADS_TG_TOKEN = os.environ.get("TELEGRAM_LEADS_BOT_TOKEN", "").strip()      # خالی → همان مسیرِ ربات اصلی (TELEGRAM_BOT_TOKEN یا Composio)
+LEADS_BALE_TOKEN = (os.environ.get("BALE_LEADS_BOT_TOKEN") or os.environ.get("BALE_BOT_TOKEN") or "").strip()
+LEADS_BALE_API = os.environ.get("BALE_API_BASE", "https://tapi.bale.ai").rstrip("/")
+LEADS_TG_BOT = os.environ.get("TELEGRAM_LEADS_BOT_USERNAME", "arominagent_bot").strip().lstrip("@")
+LEADS_BALE_BOT = os.environ.get("BALE_LEADS_BOT_USERNAME", "arominbot").strip().lstrip("@")
+LEADS_DASH_URL = os.environ.get("PUBLIC_BASE_URL", "https://dashboard.arominco.com").rstrip("/")
+LEAD_ALERT_TRIES = 3
+LEAD_BOT_TIMEOUT = 20
+LEAD_CHANNELS = ("bale", "tg")                     # ترتیبِ صف: بله اول
+LEAD_LINK_COL = {"tg": "telegram_chat_id", "bale": "bale_chat_id"}
+_LEAD_START = re.compile(r"^/start(?:@\w+)?\s+([a-z0-9]{16})\s*$")
+LEAD_DDL = [
+    """CREATE TABLE IF NOT EXISTS sa_chat_links (
+        tenant VARCHAR(64) NOT NULL, person_id VARCHAR(64) NOT NULL, code CHAR(16) NOT NULL,
+        telegram_chat_id BIGINT NULL, telegram_linked_at DATETIME NULL, bale_chat_id BIGINT NULL, bale_linked_at DATETIME NULL,
+        created_at DATETIME NOT NULL, PRIMARY KEY (tenant, person_id), UNIQUE KEY uq_sa_chat_code (code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""",
+    "ALTER TABLE sa_notifications ADD COLUMN IF NOT EXISTS person_id VARCHAR(64) NULL",
+]
+_lead_ready = {"ok": False}
+
+
+class LeadAlertError(Exception):
+    def __init__(self, msg, final=False):
+        super().__init__(lead_redact(msg)[:300])
+        self.final = final
+
+
+def lead_redact(v):
+    v = str(v or "")
+    for secret in (LEADS_TG_TOKEN, LEADS_BALE_TOKEN, os.environ.get("BALE_BOT_TOKEN", ""), os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+                   os.environ.get("COMPOSIO_API_KEY", "")):
+        secret = (secret or "").strip()
+        if secret:
+            v = v.replace(secret, "***")
+    return v
+
+
+def lead_alert_channel(kind):
+    k = str(kind or "")
+    return next((c for c in LEAD_CHANNELS if k.endswith("_" + c)), None)
+
+
+def lead_alert_tables():
+    """جدولِ پیوندِ گفت‌وگوها + ستونِ person_id (فقط وقتی جدول‌های دستیارِ فروش هست). خطا → اعلانِ پیام‌رسان غیرفعال، پیامک بی‌تغییر."""
+    if _lead_ready["ok"]:
+        return True
+    if not _sa_tables():
+        return False
+    try:
+        for ddl in LEAD_DDL:
+            q(ddl)
+        _lead_ready["ok"] = True
+    except Exception as e:
+        print("[SA] alert tables error:", lead_redact(str(e))[:200])
+    return _lead_ready["ok"]
+
+
+def _lead_v(v):
+    v = str(v or "").strip()
+    return v if v else "—"
+
+
+def lead_alert_text(info, lead_id=None):
+    lines = ["🔔 لیدِ تازه" + (" #%s" % lead_id if lead_id else ""),
+             "نام: " + _lead_v(info.get("name")),
+             "موبایل: " + _lead_v(info.get("phone")),
+             "شهر: " + _lead_v(info.get("city")),
+             "نوعِ کسب‌وکار: " + _lead_v(info.get("businessType")),
+             "محصولِ موردِ نظر: " + _lead_v(info.get("productInterest")),
+             "صفحهٔ مبدأ: " + _lead_v(info.get("sourceUrl")),
+             "خلاصه: " + _lead_v(info.get("summary")),
+             "کارشناسِ مسئول: " + (str(info.get("assignedTo") or "").strip() or "تخصیص نیافته"),
+             "داشبورد: " + LEADS_DASH_URL + "/"]
+    return "\n".join(lines)[:3500]
+
+
+def lead_alert_enqueue(tx, tenant, lead_id, role, who, text):
+    """برای هر گیرنده دو ردیفِ جدا (بله، سپس تلگرام) کنارِ پیامک‌ها؛ idem جدا ← هر کانال مستقل تکرار/ثبت می‌شود."""
+    if not who or not who.get("id"):
+        return 0
+    for ch in LEAD_CHANNELS:
+        kind = "%s_%s" % (role, ch)
+        tx.x("INSERT INTO sa_notifications (tenant, lead_id, kind, recipient, phone, person_id, body, status, attempts, next_at, created_at, idem) "
+             "VALUES (%s,%s,%s,%s,NULL,%s,%s,'pending',0,%s,%s,%s)",
+             (tenant, lead_id, kind, who.get("name"), str(who["id"])[:64], text, _sa_now(), _sa_now(), "lead:%d:%s" % (lead_id, kind)))
+    return len(LEAD_CHANNELS)
+
+
+def _lead_bot_call(base, token, method, fields, timeout=LEAD_BOT_TIMEOUT):
+    """Bot API (تلگرام یا بله، قراردادِ یکسان). خطا → LeadAlertError(final=رد شدنِ قطعی)؛ توکن هرگز در پیام نیست."""
+    if not token:
+        raise LeadAlertError("توکنِ ربات تنظیم نشده", True)
+    req = urllib.request.Request(base + "/bot" + token + "/" + method, data=json.dumps(fields, ensure_ascii=False).encode("utf-8"),
+                                 method="POST", headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read(1_000_000)
+    except urllib.error.HTTPError as e:
+        try:
+            det = json.loads(e.read(4000).decode("utf-8", "ignore"))
+        except Exception:
+            det = {}
+        desc = "HTTP %s %s" % (e.code, (det.get("description") if isinstance(det, dict) else "") or e.reason)
+        raise LeadAlertError(desc, final=(400 <= e.code < 500 and e.code not in (408, 409, 429)))
+    except Exception as e:                                            # اتصال/فیلتر/timeout → تکرار
+        raise LeadAlertError("اتصال برقرار نشد (%s)" % type(getattr(e, "reason", None) or e).__name__)
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except Exception:
+        raise LeadAlertError("پاسخِ نامعتبر از ربات")
+    if not isinstance(data, dict) or not data.get("ok"):
+        raise LeadAlertError(str((data or {}).get("description") if isinstance(data, dict) else "ok=false") or "ok=false", True)
+    return data.get("result")
+
+
+def lead_tg_call(method, fields):
+    """تلگرامِ لیدها: TELEGRAM_LEADS_BOT_TOKEN اگر هست مستقیم؛ وگرنه همان مسیرِ ربات اصلی (TELEGRAM_BOT_TOKEN یا Composio)."""
+    if LEADS_TG_TOKEN:
+        return _lead_bot_call(TG_API_BASE, LEADS_TG_TOKEN, method, fields)
+    try:
+        return tg_api(method, fields)
+    except TgError as e:
+        raise LeadAlertError(str(e), final=(e.kind == "permanent"))
+
+
+def lead_bale_call(method, fields):
+    return _lead_bot_call(LEADS_BALE_API, LEADS_BALE_TOKEN, method, fields)
+
+
+def lead_send(channel, chat_id, text):
+    if channel == "bale":
+        return lead_bale_call("sendMessage", {"chat_id": chat_id, "text": text})
+    return lead_tg_call("sendMessage", {"chat_id": chat_id, "text": text, "disable_web_page_preview": True})
+
+
+def lead_chat_id(tenant, person_id, channel):
+    rows = q("SELECT " + LEAD_LINK_COL[channel] + " AS c FROM sa_chat_links WHERE tenant=%s AND person_id=%s", (tenant, str(person_id)))
+    return (rows[0] or {}).get("c") if rows else None
+
+
+def lead_alert_deliver(n):
+    ch = lead_alert_channel(n.get("kind"))
+    pid = n.get("person_id")
+    chat = lead_chat_id(n.get("tenant"), pid, ch) if pid else None
+    if not chat:
+        return False, "%s هنوز ربات %s را با لینکِ اختصاصی /start نکرده" % (n.get("recipient") or "گیرنده", "بله" if ch == "bale" else "تلگرام"), True
+    try:
+        lead_send(ch, chat, n.get("body") or "")
+        return True, "", False
+    except LeadAlertError as e:
+        return False, str(e), e.final
+
+
+def _lead_people(tenant):
+    """کارشناسانِ فروش و مدیرِ فروشِ فعال (همان شناسه‌ای که sa_reps / sa_manager می‌دهند)."""
+    out = []
+    for p in _sa_people(tenant):
+        if p.get("role") in ("sales", "salesmgr") and not p.get("inactive"):
+            out.append({"id": str(p.get("id") or p.get("name")), "name": str(p.get("name") or ""), "role": p.get("role")})
+    return out
+
+
+def lead_link_code(tenant, person_id):
+    pid = str(person_id)[:64]
+    rows = q("SELECT code FROM sa_chat_links WHERE tenant=%s AND person_id=%s", (tenant, pid))
+    if rows:
+        return rows[0]["code"]
+    code = secrets.token_hex(8)
+    try:
+        q("INSERT INTO sa_chat_links (tenant, person_id, code, created_at) VALUES (%s,%s,%s,%s)", (tenant, pid, code, _sa_now()))
+    except Exception as e:
+        if not _sa_is_dup(e):
+            raise
+        rows = q("SELECT code FROM sa_chat_links WHERE tenant=%s AND person_id=%s", (tenant, pid))
+        return rows[0]["code"] if rows else None
+    return code
+
+
+def lead_links(tenant):
+    if not lead_alert_tables():
+        return None
+    rows = {r["person_id"]: r for r in q("SELECT * FROM sa_chat_links WHERE tenant=%s", (tenant,))}
+    out = []
+    for p in _lead_people(tenant):
+        code = (rows.get(p["id"]) or {}).get("code") or lead_link_code(tenant, p["id"])
+        r = rows.get(p["id"]) or {}
+        out.append(dict(p, telegramLink="https://t.me/%s?start=%s" % (LEADS_TG_BOT, code),
+                        baleLink="https://ble.ir/%s?start=%s" % (LEADS_BALE_BOT, code), startCommand="/start " + code,
+                        telegramLinked=bool(r.get("telegram_chat_id")), baleLinked=bool(r.get("bale_chat_id"))))
+    return out
+
+
+def lead_link_claim(channel, chat_id, code):
+    """ثبتِ شناسهٔ گفت‌وگو برای صاحبِ کد. خروجی: نامِ فرد یا None (کدِ ناشناخته)."""
+    if not lead_alert_tables():
+        return None
+    rows = q("SELECT tenant, person_id FROM sa_chat_links WHERE code=%s", (code,))
+    if not rows:
+        return None
+    col = LEAD_LINK_COL[channel]
+    q("UPDATE sa_chat_links SET " + col + "=%s, " + col.replace("_chat_id", "_linked_at") + "=%s WHERE code=%s", (int(chat_id), _sa_now(), code))
+    t, pid = rows[0]["tenant"], rows[0]["person_id"]
+    name = next((p["name"] for p in _lead_people(t) if p["id"] == pid), pid)
+    print("[SA] link", channel, "person", pid, "linked")
+    return name
+
+
+def lead_link_start(channel, chat_id, code):
+    """پاسخ به «/start <کد>» در هر دو ربات (تلگرام از وب‌هوک، بله از getUpdates)."""
+    try:
+        name = lead_link_claim(channel, chat_id, code)
+    except Exception as e:
+        print("[SA] link error:", lead_redact(str(e))[:160])
+        name = None
+    text = ("✅ %s، اعلانِ لیدهای تازه از این پس در همین گفت‌وگو برایتان ارسال می‌شود." % name) if name else \
+        "این لینک معتبر نیست؛ لینکِ اختصاصیِ خود را از داشبورد (تنظیمات ← دستیار فروش) بگیرید."
+    try:
+        lead_send(channel, chat_id, text)
+    except LeadAlertError as e:
+        print("[SA] link reply", channel, "failed:", str(e)[:120])
+    return "linked" if name else "link-unknown"
+
+
+def bale_lead_poll(limit=50):
+    """getUpdates بله (کوتاه، هر تیکِ زمان‌بند). فقط «/start <کد>» در گفت‌وگوی خصوصی را پردازش می‌کند؛ offset در sa_state."""
+    if not LEADS_BALE_TOKEN or not lead_alert_tables():
+        return 0
+    row = q("SELECT v FROM sa_state WHERE tenant=%s AND k=%s", ("_global", "bale_offset"))
+    offset = int((row[0] or {}).get("v") or 0) if row else 0
+    try:
+        ups = lead_bale_call("getUpdates", {"offset": offset, "limit": limit, "timeout": 0}) or []
+    except LeadAlertError as e:
+        print("[SA] bale getUpdates failed:", str(e)[:160])
+        return 0
+    n = 0
+    for u in ups if isinstance(ups, list) else []:
+        uid = u.get("update_id") if isinstance(u, dict) else None
+        if not isinstance(uid, int):
+            continue
+        offset = max(offset, uid + 1)
+        msg = u.get("message") if isinstance(u.get("message"), dict) else {}
+        chat = msg.get("chat") or {}
+        m = _LEAD_START.match(str(msg.get("text") or "").strip())
+        if m and chat.get("type") == "private" and isinstance(chat.get("id"), int):
+            lead_link_start("bale", chat["id"], m.group(1))
+            n += 1
+    if ups:
+        if row:
+            q("UPDATE sa_state SET v=%s WHERE tenant=%s AND k=%s", (str(offset), "_global", "bale_offset"))
+        else:
+            q("INSERT INTO sa_state (tenant, k, v) VALUES (%s,%s,%s)", ("_global", "bale_offset", str(offset)))
+    return n
+
+
+def lead_alert_test(tenant, person_id=None):
+    """ارسالِ مستقیمِ پیامِ آزمایشی به یک نفر (پیش‌فرض: مدیرِ فروش) در هر دو کانال؛ بله همیشه تلاش می‌شود."""
+    if not lead_alert_tables():
+        return {"ok": False, "error": "جدول‌های دستیارِ فروش آماده نیست."}
+    who = next((p for p in _lead_people(tenant) if p["id"] == str(person_id)), None) if person_id else sa_manager(tenant)
+    if not who:
+        return {"ok": False, "error": "مدیرِ فروشِ فعال (یا فردِ انتخاب‌شده) پیدا نشد."}
+    text = "🧪 پیامِ آزمایشیِ اعلانِ لید برای %s\n%s" % (who["name"], lead_alert_text({"name": "مشتریِ آزمایشی", "phone": "09120000000",
+                                                                                       "assignedTo": who["name"]}))
+    res = {}
+    for ch in LEAD_CHANNELS:
+        chat = lead_chat_id(tenant, who["id"], ch)
+        if not chat:
+            res[ch] = {"ok": False, "error": "هنوز /start نشده"}
+            continue
+        try:
+            lead_send(ch, chat, text)
+            res[ch] = {"ok": True}
+        except LeadAlertError as e:
+            res[ch] = {"ok": False, "error": str(e)}
+        print("[SA] alert test", ch, "person", who["id"], "ok" if res[ch]["ok"] else "err: " + res[ch]["error"][:120])
+    return {"ok": all(r["ok"] for r in res.values()), "person": who["name"], "bale": res["bale"], "telegram": res["tg"]}
 
 
 # ---- گزارشِ روزانه (اکسل با ستون‌های فارسی و تاریخِ شمسی) ----
@@ -5352,6 +5702,10 @@ def sa_start_worker():
             _sa_event.clear()
             sa_tick()
             try:
+                bale_lead_poll()
+            except Exception as e:
+                print("[SA] bale poll error:", lead_redact(str(e))[:200])
+            try:
                 tg_tick()
             except Exception as e:
                 print("[TG] tick error:", _tg_redact(public_error(e))[:200])
@@ -5455,6 +5809,30 @@ def sales_agent_test(request: Request, payload: dict = Body(default={}), tenant:
         return JSONResponse({"ok": False, "error": "پیامِ کاربر خالی است."}, status_code=400)
     page = payload.get("page") if isinstance(payload.get("page"), dict) else {}
     return sa_reply(sites[0], hist, page, conv="test", dry_run=True)
+
+
+@app.get("/api/sales-agent/alert-links")
+def sales_agent_alert_links(request: Request, tenant: str = Query(default="")):
+    """لینک‌های اختصاصیِ /start هر کارشناس/مدیر در تلگرام و بله + وضعیتِ پیوند (فقط مدیران)."""
+    ident, err = _sa_guard(request, tenant)
+    if err:
+        return err
+    people = lead_links(tenant)
+    if people is None:
+        return JSONResponse({"ok": False, "error": "دستیارِ فروش هنوز فعال نشده است."}, status_code=409)
+    return {"ok": True, "telegramBot": LEADS_TG_BOT, "baleBot": LEADS_BALE_BOT, "people": people,
+            "configured": {"telegram": bool(LEADS_TG_TOKEN or TG_TOKEN or tg_via_composio()), "bale": bool(LEADS_BALE_TOKEN)}}
+
+
+@app.post("/api/sales-agent/alert-test")
+def sales_agent_alert_test(request: Request, payload: dict = Body(default={}), tenant: str = Query(default="")):
+    """پیامِ آزمایشی به مدیرِ فروش (یا personId) در بله و تلگرام — بدونِ ثبتِ لید و بدونِ پیامک."""
+    ident, err = _sa_guard(request, tenant)
+    if err:
+        return err
+    if not _w_allow(("alert-test", tenant, ident["user"]), 10, 3600):
+        return JSONResponse({"ok": False, "error": "سقفِ پیامِ آزمایشی پر شده است."}, status_code=429)
+    return lead_alert_test(tenant, (payload or {}).get("personId"))
 
 
 def _sa_leads_guard(request, tenant):
@@ -6293,6 +6671,9 @@ def tg_handle_update(upd):
     if not isinstance(msg, dict):
         return "ignored"
     frm, chat = (msg.get("from") or {}).get("id"), msg.get("chat") or {}
+    m = _LEAD_START.match(str(msg.get("text") or "").strip())
+    if m and chat.get("type") == "private" and isinstance(chat.get("id"), int):   # تنها فرمانِ مجاز برای غیرِمدیر: پیوندِ اعلانِ لید
+        return lead_link_start("tg", chat["id"], m.group(1))
     if frm != TG_ADMIN_ID or chat.get("type") != "private" or chat.get("id") != TG_ADMIN_ID:
         return "ignored"
     text = str(msg.get("text") or "").strip()
