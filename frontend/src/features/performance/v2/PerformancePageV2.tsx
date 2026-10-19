@@ -58,8 +58,8 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const inSpan = rows.filter((r) => r.date >= start && r.date <= end && (r.presentMin || 0) > 0)
 	const presenceMap = useMemo(() => new Map(rows.filter((r) => r.presentMin !== null).map((r) => [r.date, r.presentMin as number])), [rows])
 	const presence: Metric = inSpan.length
-		? toMetric({ id: 'presence', label: 'حضور', unit: '٪', definition: 'میانگین دقیقهٔ حضورِ روزهای کارکرد ÷ ' + WORKDAY_MIN + ' (فایل حضورِ همین مرورگر)', status: 'valid', value: Math.round((inSpan.reduce((n, r) => n + (r.presentMin || 0), 0) / (inSpan.length * WORKDAY_MIN)) * 1000) / 10, numerator: inSpan.reduce((n, r) => n + (r.presentMin || 0), 0), denominator: inSpan.length * WORKDAY_MIN, coverage: { records: inSpan.length, issues: 0 } })
-		: off('presence', 'حضور', '٪', 'فایل حضور در این مرورگر برای این شخص و دوره نیست.')
+		? toMetric({ id: 'presence', label: 'حضور', unit: '٪', definition: 'میانگین دقیقهٔ حضورِ روزهای کارکرد ÷ ' + WORKDAY_MIN + ' (حضورِ ثبت‌شده روی سرور)', status: 'valid', value: Math.round((inSpan.reduce((n, r) => n + (r.presentMin || 0), 0) / (inSpan.length * WORKDAY_MIN)) * 1000) / 10, numerator: inSpan.reduce((n, r) => n + (r.presentMin || 0), 0), denominator: inSpan.length * WORKDAY_MIN, coverage: { records: inSpan.length, issues: 0 } })
+		: off('presence', 'حضور', '٪', 'حضور برای این شخص و دوره روی سرور نیست یا کارت تأیید نشده.')
 	// effort inputs = the engine's own perf fields (scoped /source projection); targets: person override → team setting → engine defaults
 	type Src = { full?: { people?: { id: string | number; perf?: PerfFields; perfSet?: { taskTarget?: number; callTarget?: number } }[]; perfCfg?: { taskCapMin?: number; taskTarget?: number; callTarget?: number }; callHours?: Record<string, number> } }
 	const source = usePerf<Src>(session, 'source', {}, !!directory.data)

@@ -1,4 +1,4 @@
-/** Unit-driven cluster: which metric drives the big gauge and which go to the minis. «presence» is local attendance. */
+/** Unit-driven cluster: which metric drives the big gauge and which go to the minis. «presence» is server attendance (confirmed card mapping only). */
 export const CLUSTER: Record<string, { main: string; minis: [string, string] }> = {
 	sales: { main: 'activity', minis: ['efficiency', 'conversion'] },
 	support: { main: 'activity', minis: ['efficiency', 'resolution'] },

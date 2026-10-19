@@ -7,8 +7,8 @@ import { isActivePerson } from './people'
  *
  * منابعِ داده (به ترتیبِ اولویت):
  *  - وظایف: فروشگاهِ موجودِ اپ — people[].perf.dailyTasks / dayStatus / dayType (همان ایمپورتِ جولیو). فقط خواندنی.
- *  - حضور و غیاب: در سیستم ذخیره نشده است؛ تنها منبعِ واقعی اکسلِ دستگاهِ حضور است که در همین مرورگر
- *    بارگذاری می‌شود (localStorage، مثلِ ابزارِ اصلی) — هیچ تغییری در پایگاه‌داده یا بلابِ /api/state داده نمی‌شود.
+ *  - حضور و غیاب: روی سرور (/api/performance/attendance، lib/attendanceApi.ts) — اکسلِ دستگاه در مرورگر پارس و ردیف‌های خام
+ *    به سرور فرستاده می‌شود؛ ویرایش‌های دستی و قواعد هم روی سرور‌اند. شخصِ هر کارت فقط با نگاشتِ تأییدشده (نه تطبیقِ نام).
  *  - وظایفِ خامِ جولیو (اختیاری، fallback): فقط برای «اضافه‌کارِ جلسه» و «بخشودگیِ دیرکرد» که به ساعتِ وظیفه نیاز دارند.
  *
  * دسترسی: scope قبل از هر محاسبه اعمال می‌شود (کارمند فقط شیتِ خودش؛ مدیران/مالی همه) و همهٔ خروجی‌ها
@@ -18,6 +18,11 @@ import * as XLSX from 'xlsx'
 import { isAdmin, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
 import { memGet, memSet, perfReady } from '@/lib/perfStore'
+import {
+	ApiError, canSeeAll, canonicalJson, deleteAttendance, loadServerAttendance, notifyPerf, postAttendance, putOverride, putSettings, serverAttendance, sha256Hex,
+	type AttendanceBatch, type ServerCard, type Unmapped,
+} from '@/lib/attendanceApi'
+export { canSeeAll, PERF_EVENT } from '@/lib/attendanceApi'
 
 /* ---------------- کمکی‌ها (همان ابزار) ---------------- */
 export function norm(s: unknown): string {
@@ -114,9 +119,9 @@ const LATE_CODES: Code[] = ['present', 'meeting', 'mission']
 const REGULAR_CODES: Code[] = ['present', 'meeting', 'mission']
 
 /* ---------------- تنظیمات (همان پیش‌فرض‌های ابزار) ---------------- */
-export interface Settings { workStart: string; workEnd: string; dailyWork: string; restDuration: number | string; lateThreshold: number | string; lateDeduct: string; meetingDefault: number | string; taskKeywords: string }
-export const DEFAULT_SETTINGS: Settings = { workStart: '10:00', workEnd: '18:00', dailyWork: '07:30', restDuration: 30, lateThreshold: 15, lateDeduct: '08:00', meetingDefault: 60, taskKeywords: 'حضوری' }
-export interface Rules { workStart: number; workEnd: number; dailyWork: number; rest: number; lateThreshold: number; fullDay: number; lateDeduct: number; meetingDefault: number; keywords: string[] }
+export interface Settings { workStart: string; workEnd: string; dailyWork: string; restDuration: number | string; lateThreshold: number | string; lateDeduct: string; meetingDefault: number | string; taskKeywords: string; overtimeByLateExit: boolean }
+export const DEFAULT_SETTINGS: Settings = { workStart: '10:00', workEnd: '18:00', dailyWork: '07:30', restDuration: 30, lateThreshold: 15, lateDeduct: '08:00', meetingDefault: 60, taskKeywords: 'حضوری', overtimeByLateExit: false }
+export interface Rules { workStart: number; workEnd: number; dailyWork: number; rest: number; lateThreshold: number; fullDay: number; lateDeduct: number; meetingDefault: number; keywords: string[]; otLateExit: boolean }
 export function rules(s: Settings): Rules {
 	const rest = String(s.restDuration).includes(':') ? (parseTimeToMinutes(s.restDuration) || 0) : Math.max(0, parseInt(String(s.restDuration)) || 0)
 	const dailyWork = parseTimeToMinutes(s.dailyWork) ?? 450
@@ -124,6 +129,7 @@ export function rules(s: Settings): Rules {
 		workStart: parseTimeToMinutes(s.workStart) ?? 600, workEnd: parseTimeToMinutes(s.workEnd) ?? 1080, dailyWork, rest,
 		lateThreshold: Math.max(0, parseInt(String(s.lateThreshold)) || 0), fullDay: dailyWork + rest, lateDeduct: parseTimeToMinutes(s.lateDeduct) || 480,
 		meetingDefault: Math.max(0, parseInt(String(s.meetingDefault)) || 0), keywords: String(s.taskKeywords || '').split(/[,،]/).map(norm).filter(Boolean),
+		otLateExit: s.overtimeByLateExit === true,
 	}
 }
 
@@ -342,7 +348,9 @@ export function processSheet(rawRows: Row[], sheetName: string, R: Rules, link: 
 		const lateExcused = !!forgivenBy
 		const deficitMin = REGULAR_CODES.includes(code) && presentMin && presentMin > 0 ? Math.max(0, R.fullDay - presentMin) : 0
 		const autoOvertime = haveRaw ? meetings.filter((m) => m.held).reduce((a, m) => a + m.overtime, 0) : null
-		const overtime = ed && has(ed.overtime) ? parseTimeToMinutes(ed.overtime) || 0 : autoOvertime
+		// خروج بعد از پایانِ موظفی (اختیاری)؛ اضافه‌کارِ جلسه فقط بیرون از ورود/خروج است، پس دوبار شمرده نمی‌شود
+		const lateExitOT = R.otLateExit && WORKDAY_CODES.includes(code) && exitMin !== null && exitMin > R.workEnd ? exitMin - R.workEnd : 0
+		const overtime = ed && has(ed.overtime) ? parseTimeToMinutes(ed.overtime) || 0 : autoOvertime === null && !lateExitOT ? null : (autoOvertime || 0) + lateExitOT
 		// تطبیقِ وظیفه ↔ حضور (کلید: شخص + تاریخ؛ وظایف از فروشگاهِ موجود؛ بیرون از بازهٔ دادهٔ وظایف = N/A)
 		let tasks: number | null = null, taskDone: number | null = null, recon: Recon = null, reconWhy = 'دادهٔ وظایف برای این شخص در سیستم نیست'
 		const faD = (s: string) => s.replace(/\d/g, (c) => '۰۱۲۳۴۵۶۷۸۹'[+c])
@@ -372,31 +380,54 @@ export function processSheet(rawRows: Row[], sheetName: string, R: Rules, link: 
 	}
 }
 
-/* ---------------- ذخیره در همین مرورگر (IndexedDB؛ بدونِ تغییرِ پایگاه‌داده) ---------------- */
-/** فایلِ حضورِ ادغام‌شده: هر شیت = یک نفر؛ ردیف‌ها با کلیدِ پایدارِ «شیت|تاریخ» ادغام می‌شوند */
+/* ---------------- حضور روی سرور (کشِ attendanceApi)؛ وظایف و نگاشتِ جولیو هنوز در همین مرورگر ---------------- */
+/** دیدِ حضور: هر کارت = یک «شیت» با کلیدِ یکتای «نامِ شیت · کارت N»؛ ردیف‌ها خامِ دستگاه‌اند */
 export interface AttendanceFile {
 	fileName: string; loadedAt: number; sheets: Record<string, Row[]>
 	/** آخرین فایلِ واردشده (برای «فعلی: …») */
-	last?: { fileName: string; loadedAt: number; people: number; skipped: string[]; source: 'card' | 'import-center' }
+	last?: { fileName: string; loadedAt: number; people: number; skipped: string[]; source: 'card' | 'import-center' | 'migration' }
+	/** دستهٔ ایمپورت‌های سرور (فقط مدیران/مالی) */
+	batches?: AttendanceBatch[]
 	/** نسخهٔ قدیمی: ویرایش‌ها درونِ همین شیء بودند — فقط برای مهاجرت خوانده می‌شود */
 	edits?: Record<string, RowEdit>
 }
 const k = (s: string) => 'aromin.perf.' + s + '.' + currentTenant()
 const read = <T,>(key: string, fb: T): T => { try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : fb } catch { return fb } }
 const write = (key: string, v: unknown) => { try { localStorage.setItem(key, JSON.stringify(v)); return true } catch { return false } }
-export const loadAttendance = () => memGet<AttendanceFile | null>('attendance', null)
-/** ویرایش‌های دستی (Override) جدا از دادهٔ خام؛ کلید = «شیت|تاریخ» */
-export const loadOverrides = (): Record<string, RowEdit> => ({ ...(loadAttendance()?.edits || {}), ...memGet<Record<string, RowEdit>>('overrides', {}) })
+export const sheetKeyOf = (c: Pick<ServerCard, 'sheetName' | 'cardNo'>) => `${c.sheetName} · کارت ${c.cardNo}`
+const serverCards = () => serverAttendance()?.cards || []
+/** کارتِ سرورِ یک کلیدِ شیت (برای ویرایش و نگاشت) */
+export const cardOfSheet = (key: string): ServerCard | undefined => serverCards().find((c) => sheetKeyOf(c) === key)
+const tsOf = (iso: string | null | undefined) => { const t = iso ? Date.parse(iso) : NaN; return isNaN(t) ? 0 : t }
+export function loadAttendance(): AttendanceFile | null {
+	const d = serverAttendance()
+	if (!d || (!d.cards.length && !d.batches?.length)) return null
+	const sheets: Record<string, Row[]> = {}
+	for (const c of d.cards) sheets[sheetKeyOf(c)] = c.rows
+	const b = d.batches?.[0]
+	const loadedAt = tsOf(b?.createdAt || d.updatedAt)
+	return {
+		fileName: b?.fileName || '', loadedAt, sheets, batches: d.batches,
+		last: b ? { fileName: b.fileName, loadedAt, people: b.sheets, skipped: (b.skipped || []).map((x) => x.sheet), source: b.source } : undefined,
+	}
+}
+/** ویرایش‌های دستی (Override) جدا از دادهٔ خام؛ کلید = «کلیدِ شیت|تاریخ» */
+export const loadOverrides = (): Record<string, RowEdit> => {
+	const out: Record<string, RowEdit> = {}
+	for (const c of serverCards()) for (const [date, e] of Object.entries(c.overrides || {})) out[sheetKeyOf(c) + '|' + date] = e as RowEdit
+	return out
+}
 export const loadTaskFiles = (): TaskFile[] => memGet<TaskFile[]>('taskfiles', [])
-export const loadSettings = (): Settings => ({ ...DEFAULT_SETTINGS, ...read<Partial<Settings>>(k('settings'), {}) })
+/** قواعد: سرور (همهٔ مرورگرها یکسان) ← نسخهٔ محلیِ قدیمی ← پیش‌فرض */
+export const loadSettings = (): Settings => {
+	const st = serverAttendance()?.settings as Partial<Settings> | undefined
+	return { ...DEFAULT_SETTINGS, ...(st || read<Partial<Settings>>(k('settings'), {})) }
+}
 export const loadLinks = () => read<Record<string, PersonLink>>(k('links'), {})
-export const PERF_EVENT = 'aromin-perf'
-const notify = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event(PERF_EVENT)) }
+const notify = notifyPerf
 /** هر نوشتن اول منتظرِ بارگذاریِ کش از IndexedDB می‌ماند تا روی دادهٔ موجود ننویسد */
 const ready = () => perfReady(currentTenant())
 
-/** مجوزِ دیدنِ همه (همان نقش‌های مدیریتی + مالی که دسترسیِ کاملِ فعلی را دارند) */
-export const canSeeAll = (s: Session) => isAdmin(s.role) || s.role === 'finance'
 const guard = (s: Session, what: string) => { if (!canSeeAll(s)) throw new Error('فقط مدیران و مالی ' + what + '.') }
 
 /** پارسِ خروجیِ دستگاهِ حضور: شیت‌های بدونِ ستونِ «تاریخ» نادیده گرفته و گزارش می‌شوند */
@@ -433,40 +464,54 @@ export function mergeAttendance(prev: AttendanceFile | null, next: AttendanceFil
 	void _drop
 	return { ...rest, fileName: next.fileName, loadedAt: next.loadedAt, sheets, last: next.last }
 }
-/** آداپتورِ مشترکِ ورودِ فایلِ حضور — هم کارتِ «فایل حضور و غیاب» و هم کادرِ «ورودِ فایل» مرکز ایمپورت از همین استفاده می‌کنند */
+/** آداپتورِ مشترکِ ورودِ فایلِ حضور: پارس در مرورگر ← sha256 فایل ← سرور (تکراری = بدونِ نوشتن) ← بارگذاریِ دوباره */
 export async function ingestAttendanceFile(s: Session, buffer: ArrayBuffer, fileName: string, source: 'card' | 'import-center' = 'card') {
 	guard(s, 'فایلِ حضور را بارگذاری می‌کنند')
-	await ready()
-	const parsed = parseAttendanceWorkbook(buffer, fileName, source)   // خطا ← هیچ ذخیرهٔ ناقصی انجام نمی‌شود
-	const prev = loadAttendance()
-	const merged = mergeAttendance(prev, parsed)
-	await memSet('attendance', merged)
-	notify()
-	return { people: parsed.last!.people, skipped: parsed.last!.skipped, total: Object.keys(merged.sheets).length, merged: !!prev }
+	const parsed = parseAttendanceWorkbook(buffer, fileName, source)   // خطا ← هیچ چیزی فرستاده نمی‌شود
+	return postParsed(s, parsed, await sha256Hex(buffer), source)
 }
-/** حذف از این مرورگر: دادهٔ خام و مشتق؛ Overrideها فقط با تأییدِ صریح (withOverrides) */
+async function postParsed(s: Session, parsed: AttendanceFile, sha256: string, source: AttendanceBatch['source']) {
+	const prev = loadAttendance()
+	let r
+	try { r = await postAttendance(s, { fileName: parsed.fileName, sha256, source, sheets: parsed.sheets }) } catch (e) {
+		const sk = e instanceof ApiError && Array.isArray(e.body.skipped) ? (e.body.skipped as { sheet: string; reason: string }[]) : []
+		throw sk.length ? new Error((e as Error).message + ' (' + sk.map((x) => x.sheet + ': ' + x.reason).join('، ') + ')') : e
+	}
+	const data = await loadServerAttendance(s)
+	const serverSkipped = (r.skipped || []).map((x) => x.sheet)
+	return {
+		people: Object.keys(r.sheetCards || {}).length || parsed.last?.people || 0, skipped: [...(parsed.last?.skipped || []), ...serverSkipped],
+		total: data.cards.length, merged: !!prev, duplicate: r.duplicate, unmapped: (r.unmapped || []) as Unmapped[],
+	}
+}
+/** حذف از سرور: همهٔ روزها و دسته‌ها؛ Overrideها فقط با تأییدِ صریح (withOverrides). نگاشتِ هویت دست نمی‌خورد */
 export async function clearAttendance(s: Session, withOverrides = false) {
 	guard(s, 'فایلِ حضور را حذف می‌کنند')
-	await ready()
-	await memSet('attendance', undefined)
-	if (withOverrides) await memSet('overrides', undefined)
-	notify()
+	await deleteAttendance(s, { all: true, overrides: withOverrides })
+	await loadServerAttendance(s)
 }
-/** سازگاری با کدِ قبلی */
+/** حذفِ یک دستهٔ ایمپورت (روزهایی که دستهٔ بعدی بازنویسی کرده می‌مانند) */
+export async function removeAttendanceBatch(s: Session, batch: number) {
+	guard(s, 'فایلِ حضور را حذف می‌کنند')
+	const r = await deleteAttendance(s, { batch })
+	await loadServerAttendance(s)
+	return r
+}
+/** سازگاری با کدِ قبلی: همان مسیرِ سرور (sha از محتوای قطعیِ شیت‌ها) */
 export async function saveAttendance(s: Session, f: AttendanceFile | null) {
 	if (!f) return clearAttendance(s)
 	guard(s, 'فایلِ حضور را بارگذاری می‌کنند')
-	await ready()
-	await memSet('attendance', mergeAttendance(loadAttendance(), f))
-	notify()
+	const source = f.last?.source || 'card'
+	await postParsed(s, f, await sha256Hex(canonicalJson(f.sheets)), source)
 }
-/** ویرایشِ دستی ← استورِ Override (جدا از دادهٔ خام)؛ null = حذفِ ویرایش */
+/** ویرایشِ دستی ← Override روی سرور (جدا از دادهٔ خام)؛ null = حذفِ ویرایش */
 export async function saveEdit(s: Session, sheet: string, date: string, e: RowEdit | null) {
 	guard(s, 'ردیفِ حضور را ویرایش می‌کنند')
-	await ready()
-	const ov = loadOverrides()
-	if (e) ov[sheet + '|' + date] = e; else delete ov[sheet + '|' + date]
-	await memSet('overrides', ov)
+	const card = cardOfSheet(sheet)
+	if (!card) throw new Error('کارتِ این شیت روی سرور پیدا نشد؛ صفحه را دوباره بارگذاری کنید.')
+	const r = await putOverride(s, card.cardNo, date, (e as Record<string, unknown> | null) || null)
+	if (r.override) card.overrides = { ...card.overrides, [date]: r.override }
+	else { const { [date]: _gone, ...rest } = card.overrides || {}; void _gone; card.overrides = rest }
 	notify()
 }
 export async function addTaskFile(s: Session | null, f: TaskFile) {
@@ -483,9 +528,11 @@ export async function removeTaskFile(s: Session, name: string, loadedAt: number)
 	await memSet('taskfiles', loadTaskFiles().filter((x) => !(x.name === name && x.loadedAt === loadedAt)))
 	notify()
 }
-export function saveSettings(s: Session, st: Settings) {
+export async function saveSettings(s: Session, st: Settings) {
 	guard(s, 'قواعد را تغییر می‌دهند')
-	write(k('settings'), st)
+	const r = await putSettings(s, st as unknown as Record<string, unknown>)
+	const d = serverAttendance()
+	if (d) { d.settings = r.settings; d.settingsStored = true }
 	notify()
 }
 export function saveLink(s: Session, sheet: string, link: PersonLink | null) {
@@ -568,7 +615,7 @@ export interface Dataset {
 	people: PersonPerf[]; unmatched: number; file: AttendanceFile | null; R: Rules; settings: Settings; scopeAll: boolean; self: string
 	taskFiles: TaskFile[]; stats: ReturnType<typeof taskStats>; peopleNames: string[]; teams: string[]
 }
-type StorePerson = { name: string; role?: string; perf?: Record<string, unknown>; inactive?: boolean }
+type StorePerson = { id?: string | number; name: string; role?: string; perf?: Record<string, unknown>; inactive?: boolean }
 /**
  * همهٔ نماها از همین تابع می‌خوانند. محدودیتِ دسترسی **قبل از تحلیل** اعمال می‌شود:
  * برای کارمند فقط شیت(های)ی که به شخصِ خودش نگاشت شده پردازش می‌شود و بقیه اصلاً وارد محاسبه نمی‌شوند.
@@ -593,10 +640,16 @@ export function buildDataset(session: Session, full: { people?: StorePerson[]; p
 		for (const [name, raw] of Object.entries(file.sheets)) {
 			const cm = colMap(Array.from(new Set(raw.flatMap((r) => Object.keys(r)))))
 			const f0 = raw[0] || {}
-			const link = resolveLink(String(cell(f0, cm, 'نام') || ''), String(cell(f0, cm, 'نام خانوادگی') || ''), name, peopleNames, stats.owners, links[name])
+			const card = cardOfSheet(name)
+			const sheet = card?.sheetName || name
+			// کاربرِ جولیو هنوز از نام/نگاشتِ محلی؛ شخصِ حضور فقط از نگاشتِ تأییدشدهٔ کارت روی سرور
+			const link = resolveLink(String(cell(f0, cm, 'نام') || ''), String(cell(f0, cm, 'نام خانوادگی') || ''), sheet, peopleNames, stats.owners, links[name] || links[sheet])
+			const confirmed = card?.mapping === 'confirmed' && !!card.personName
+			link.person = confirmed ? card!.personName : null
+			link.personHow = confirmed ? 'manual' : 'none'
 			// scope قبل از پردازش
 			if (!scopeAll && link.person !== self) continue
-			const sp = link.person ? byName.get(link.person) : undefined
+			const sp = confirmed ? allPeople.find((p) => p.id != null && String(p.id) === card!.personId) || byName.get(card!.personName!) : undefined
             if (full?.performanceScoped && (!sp || !['manual', 'strong'].includes(link.personHow))) continue
 			const store = sp && (scopeAll || sp.name === self) ? storeTasksOf(sp) : null
 			const ownerTasks = link.owner && (!full?.performanceScoped || ['manual', 'strong'].includes(link.ownerHow)) ? allTasks.filter((t) => ownerKey({ name: t.person, pid: t.pid }) === link.owner || (!t.pid && !!link.ownerName && stripTitle(t.person) === stripTitle(link.ownerName))) : null
@@ -869,7 +922,8 @@ export function lawyerBasis(R: Rules, haveRaw: boolean): string[] {
 		`تأخیر: ورود بعد از ${hhmm(R.workStart + R.lateThreshold)}؛ مقدار از ${hhmm(R.workStart)} شمرده می‌شود.`,
 		`تأخیرِ قابلِ کسر = مجموع تأخیر − تأخیرِ بخشوده (جلسهٔ حضوریِ برگزارشده، مأموریت، یا ویرایشِ مجاز). هر ${hhmm(R.lateDeduct)} تأخیرِ قابلِ کسر = ۱ روز کسر؛ مانده حفظ می‌شود.`,
 		`کسرکار = کمبودِ ساعتِ حضور نسبت به ${hhmm(R.fullDay)} در روزهای عادیِ دارای حضور.`,
-		haveRaw ? `اضافه‌کار = بخشی از جلسه‌های حضوریِ برگزارشده (وظایف جولیو) که خارج از ورود/خروجِ ثبت‌شده بوده؛ اگر زمانِ سررسید معتبر نبود، مدت ${R.meetingDefault} دقیقه فرض شده است.` : 'اضافه‌کار: فایلِ وظایفِ جولیو بارگذاری نشده، پس اضافه‌کار محاسبه‌شدنی نیست (N/A).',
+		haveRaw ? `اضافه‌کار = بخشی از جلسه‌های حضوریِ برگزارشده (وظایف جولیو) که خارج از ورود/خروجِ ثبت‌شده بوده؛ اگر زمانِ سررسید معتبر نبود، مدت ${R.meetingDefault} دقیقه فرض شده است.` : R.otLateExit ? 'اضافه‌کارِ جلسه: فایلِ وظایفِ جولیو بارگذاری نشده (N/A).' : 'اضافه‌کار: فایلِ وظایفِ جولیو بارگذاری نشده، پس اضافه‌کار محاسبه‌شدنی نیست (N/A).',
+		...(R.otLateExit ? [`اضافه‌کار از خروجِ دیرتر = خروج بعد از ${hhmm(R.workEnd)} (پایانِ موظفی) در روزهای کارکرد؛ با اضافه‌کارِ جلسه جمع می‌شود و دوبار شمرده نمی‌شود.`] : []),
 		'همهٔ اعداد از خروجیِ دستگاهِ حضور و داده‌های ثبت‌شدهٔ سیستم است؛ هر موردِ فاقدِ داده N/A درج شده است.',
 	]
 }

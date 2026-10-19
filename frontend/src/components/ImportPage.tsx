@@ -18,6 +18,7 @@ import Sortable from '@/components/ui/sortable'
 import { CARD } from '@/components/ui/tokens'
 import DealImport, { importSummary } from '@/components/ledger/DealImport'
 const AttendanceStatus = lazy(() => import('@/components/performance/PerformancePage').then((m) => ({ default: m.AttendanceStatus })))
+const IdentityReview = lazy(() => import('@/components/identity/IdentityReview'))
 
 interface QItem {
 	id: string
@@ -40,6 +41,7 @@ interface Result {
 	dup: boolean
 	routed: boolean
 	err: string
+	note?: string
 }
 type Bridge = 'connecting' | 'ready' | 'failed'
 
@@ -162,14 +164,15 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		if (ok) reload()
 	}
 
-	/** فایلِ حضور و غیاب مستقیم به «عملکرد» می‌رود (موتورِ قبلی آن را نمی‌شناسد)؛ فقط مدیران و مالی */
+	/** فایلِ حضور و غیاب مستقیم به سرورِ «عملکرد» می‌رود (موتورِ قبلی آن را نمی‌شناسد)؛ فقط مدیران و مالی */
 	const importAttendance = async (items: QItem[]): Promise<Result[]> => {
 		const out: Result[] = []
 		for (const q of items) {
 			try {
 				if (!session || !canSeeAll(session)) throw new Error('فقط مدیران و مالی فایلِ حضور را وارد می‌کنند')
-				await ingestAttendanceFile(session, q.buf, q.name, 'import-center')   // آداپتورِ واحدِ حضور در lib/performance.ts
-				out.push({ name: q.name, type: 'attendance', rows: q.rows, dup: false, routed: true, err: '' })
+				const r = await ingestAttendanceFile(session, q.buf, q.name, 'import-center')   // آداپتورِ واحدِ حضور در lib/performance.ts
+				const note = r.duplicate ? 'این فایل قبلاً ثبت شده است (تکراری)' : r.unmapped.length ? `${faNum(r.unmapped.length)} کارت نیازمند تأیید نگاشت` : ''
+				out.push({ name: q.name, type: 'attendance', rows: q.rows, dup: r.duplicate, routed: true, err: '', note })
 			} catch (e) {
 				out.push({ name: q.name, type: 'attendance', rows: q.rows, dup: false, routed: false, err: (e as Error).message })
 			}
@@ -186,7 +189,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		if (!eng.length) {
 			const r = await importAttendance(att)
 			setResults(r)
-			setStatus(r.every((x) => x.routed) ? { tone: 'ok', text: `${faNum(r.length)} فایلِ حضور و غیاب برای «عملکرد» ثبت شد .` } : { tone: 'err', text: 'انجام نشد: ' + r.filter((x) => !x.routed).map((x) => x.err).join('، ') })
+			setStatus(r.every((x) => x.routed) ? { tone: 'ok', text: `${faNum(r.length)} فایلِ حضور و غیاب روی سرور ثبت شد.` } : { tone: 'err', text: 'انجام نشد: ' + r.filter((x) => !x.routed).map((x) => x.err).join('، ') })
 			setQueue((q) => q.filter((x) => !att.includes(x) || !r.find((y) => y.name === x.name && y.routed)))
 			return
 		}
@@ -211,7 +214,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		setBusy(false)
 		setResults([...(res.results || []), ...attRes])
 		if (res.ok) {
-			setStatus({ tone: 'ok', text: `${faNum((res.results || []).length)} فایل وارد و ذخیره شد.` + (attRes.length ? ` ${faNum(attRes.filter((x) => x.routed).length)} فایلِ حضور برای «عملکرد» ثبت شد.` : '') })
+			setStatus({ tone: 'ok', text: `${faNum((res.results || []).length)} فایل وارد و ذخیره شد.` + (attRes.length ? ` ${faNum(attRes.filter((x) => x.routed).length)} فایلِ حضور روی سرور ثبت شد.` : '') })
 			setQueue((q) => q.filter((x) => !valid.includes(x)))
 			reload()
 		} else setStatus({ tone: 'err', text: 'انجام نشد: ' + (res.error || 'نامشخص') })
@@ -279,6 +282,8 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 						</div>
 					</Shell>
 				</Card>
+				{/* نگاشتِ هویت (کارت‌های حضور، کاربرانِ جولیو) — فقط مدیران/مالی */}
+				{session && canSeeAll(session) && <Card key="identity" className="lg:col-span-3"><Suspense fallback={null}><IdentityReview session={session} /></Suspense></Card>}
 			</Sortable>
 
 			{/* صف */}
@@ -336,6 +341,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 									<span dir="ltr">{r.name}</span>
 									<span>{faNum(r.rows)} ردیف</span>
 									{r.dup && <span className="text-error">🔁 تکراری</span>}
+									{r.note && <span className={r.dup ? 'text-error' : 'text-warning'}>{r.note}</span>}
 									{!r.routed && <span className="text-error">⚠ {r.err || 'فرستاده نشد'}</span>}
 								</li>
 							))}
