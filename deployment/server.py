@@ -11,6 +11,7 @@ import json
 import time
 import random
 import secrets
+from aromin_security import PublicError, PublicValidationError, public_error, secret_matches
 import shutil
 import base64
 import zipfile
@@ -231,7 +232,7 @@ def backup_and_write_app(target, html):
             f.write(html)
         return True
     except Exception as e:
-        return {"err": str(e)}
+        return {"err": public_error(e)}
 
 
 def purge_arvan():
@@ -248,9 +249,9 @@ def purge_arvan():
             detail = r.read(300).decode("utf-8", "ignore")
             return {"ok": 200 <= r.status < 300, "status": r.status, "detail": detail}
     except urllib.error.HTTPError as e:
-        return {"ok": False, "status": e.code, "detail": str(e.reason)[:300]}
+        return {"ok": False, "status": e.code, "detail": public_error(e)}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": public_error(e)}
 
 
 # ---------------- اپ ----------------
@@ -259,8 +260,7 @@ app = FastAPI(title="آرومین — سرور API (Python)")
 
 @app.exception_handler(Exception)
 async def any_error(request: Request, exc: Exception):
-    print("[API]", repr(exc))
-    return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    return JSONResponse({"ok": False, "error": public_error(exc, request)}, status_code=500)
 
 
 def _spa_index():
@@ -638,7 +638,7 @@ def tenants_create(payload: dict = Body(default={})):
     industry = (payload or {}).get("industry")
     if not name:
         return JSONResponse({"ok": False, "error": "no_name"}, status_code=400)
-    tid = "b" + format(int(time.time() * 1000), "x") + format(random.randint(0, 999), "x")
+    tid = secrets.token_urlsafe(24)
     q("INSERT INTO tenant_state (tenant, industry, name, payload) VALUES (%s,%s,%s,%s)",
       (tid, industry or None, name, json.dumps({})))
     return {"ok": True, "tenant": {"id": tid, "industry": industry or "", "name": name}}
@@ -782,13 +782,9 @@ def ai_chat(system, user, max_tokens=800, temperature=0.4, history=None, tenant=
             text = data.get("output") or data.get("text") or ""
         return {"ok": True, "text": (text or "").strip()}
     except urllib.error.HTTPError as e:
-        try:
-            det = e.read(400).decode("utf-8", "ignore")
-        except Exception:
-            det = str(e.reason)
-        return {"ok": False, "error": "AI HTTP " + str(e.code) + ": " + det}
+        return {"ok": False, "error": public_error(e)}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": public_error(e)}
 
 # ---- دستیارِ عامل (Agent): ابزارها سمتِ کلاینت اجرا می‌شوند؛ مدل فقط «درخواستِ ابزار» می‌دهد ----
 # قرارداد: مدل برای اجرای ابزار یک بلاکِ ```tool {"name": "...", "args": {...}}``` می‌نویسد.
@@ -1256,7 +1252,7 @@ def kb_text_for(tenant, public=False):
 
 def _kb_fail(e):
     st = getattr(e, "status", 500)
-    return JSONResponse({"ok": False, "error": str(e) if isinstance(e, S3Error) else "خطای سرور"}, status_code=st if st in (400, 404, 502, 503) else 500)
+    return JSONResponse({"ok": False, "error": public_error(e)}, status_code=st if st in (400, 404, 502, 503) else 500)
 
 
 @app.get("/api/knowledge")
@@ -1443,7 +1439,7 @@ def knowledge_test(request: Request, tenant: str = Query(default="")):
             return {"ok": False, "step": "delete", "status": st2, "error": "نوشتن موفق، حذف ناموفق" + _s3_why(st2, rb2), "config": view}
         return {"ok": True, "config": view}
     except S3Error as e:
-        return {"ok": False, "step": "network", "error": str(e), "config": view}
+        return {"ok": False, "step": "network", "error": public_error(e), "config": view}
 
 
 @app.delete("/api/knowledge/{oid}")
@@ -1491,13 +1487,9 @@ def sms_call(fields):
             out = r.read().decode("utf-8", "ignore")
         return {"ok": True, "result": out}
     except urllib.error.HTTPError as e:
-        try:
-            det = e.read(400).decode("utf-8", "ignore")
-        except Exception:
-            det = str(e.reason)
-        return {"ok": False, "error": "SMS HTTP " + str(e.code) + ": " + det}
+        return {"ok": False, "error": public_error(e)}
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": public_error(e)}
 
 @app.get("/api/sms/credit")
 def sms_credit(request: Request, tenant: str = Query(default="team")):
@@ -1618,13 +1610,7 @@ def send_otp_sms(mobile, code):
         "receivers": receivers,
     }
     r = sms_call(fields)
-    # لاگِ پاسخِ خامِ نبض‌کار برای عیب‌یابی (کد را لاگ نمی‌کنیم)
-    try:
-        print("[OTP] send→", receivers, "from=", OTP_FROM, "pattern=", OTP_PATTERN,
-              "| nabzekar:", (r or {}).get("result") if isinstance(r, dict) else r,
-              "| err:", (r or {}).get("error") if isinstance(r, dict) else None)
-    except Exception:
-        pass
+    print("[OTP] response_present=", bool(r), "error_present=", bool((r or {}).get("error")))
     return r
 
 
@@ -1918,7 +1904,7 @@ def _att_ctx(request, tenant, write=False):
     try:
         people = idmap.people_of(full)
     except ValueError as e:
-        return None, None, None, _att_deny(400, str(e))
+        return None, None, None, _att_deny(400, public_error(e))
     return ident, full, people, None
 
 
@@ -2041,9 +2027,9 @@ def attendance_upload(request: Request, payload: dict = Body(default={})):
     try:
         parsed = att.parse_payload(payload)
     except att.TooLarge as e:
-        return _att_deny(413, str(e))
+        return _att_deny(413, public_error(e))
     except ValueError as e:
-        return _att_deny(400, str(e))
+        return _att_deny(400, public_error(e))
     sheet_cards = {s["sheet_name"]: s["card_no"] for s in parsed["sheets"]}
     days = [dict(d, card_no=s["card_no"], sheet_name=s["sheet_name"], person_name=s["person_name"]) for s in parsed["sheets"] for d in s["days"]]
     now = _att_now()
@@ -2085,7 +2071,7 @@ def attendance_upload(request: Request, payload: dict = Body(default={})):
                     unmapped.append({"cardNo": s["card_no"], "sheetName": s["sheet_name"], "rawName": raw, "status": status})
             batch = t.one("SELECT * FROM attendance_batches WHERE id=%s", (bid,))
     except _AttFail as e:
-        return _att_deny(e.code, e.msg, **e.extra)
+        return _att_deny(e.code, public_error(e), **e.extra)
     except pymysql.err.IntegrityError:
         old = q("SELECT * FROM attendance_batches WHERE tenant=%s AND file_sha256=%s", (tenant, parsed["sha256"]))
         if not old:
@@ -2112,9 +2098,9 @@ def attendance_read(request: Request, tenant: str = "team", start: str = "", end
         try:
             allowed = {str(p["id"]) for p in perf.directory(full, ident, users)}
         except PermissionError as ex:
-            return _att_deny(403, str(ex))
+            return _att_deny(403, public_error(ex))
         except ValueError as ex:
-            return _att_deny(400, str(ex))
+            return _att_deny(400, public_error(ex))
     if person and str(person) not in allowed:
         return _att_deny(403 if not admin else 404, "شخص خارج از دامنه مجاز است.")
     with _SaTx() as t:
@@ -2175,7 +2161,7 @@ def _att_override_item(item):
     card = idmap.normalize_key("card", (item or {}).get("cardNo"))
     date = att.norm_date((item or {}).get("date"))
     if not card or not date:
-        raise ValueError("شماره کارت یا تاریخ نامعتبر است.")
+        raise PublicValidationError("شماره کارت یا تاریخ نامعتبر است.")
     return card, date, att.validate_override(item.get("fields"))
 
 
@@ -2204,7 +2190,7 @@ def attendance_override(request: Request, payload: dict = Body(default={})):
     try:
         card, date, fields = _att_override_item(payload)
     except ValueError as e:
-        return _att_deny(400, str(e))
+        return _att_deny(400, public_error(e))
     with _SaTx() as t:
         r = _att_override_put(t, tenant, card, date, fields, payload.get("ifAbsent") is True, ident["user"], _att_now())
     return {"ok": True, "skipped": True} if r == "skipped" else {"ok": True, "override": fields}
@@ -2224,7 +2210,7 @@ def attendance_override_batch(request: Request, payload: dict = Body(default={})
     try:
         clean = [_att_override_item(i) for i in items]
     except (ValueError, AttributeError) as e:
-        return _att_deny(400, str(e) or "مورد نامعتبر است.")
+        return _att_deny(400, public_error(e) or "مورد نامعتبر است.")
     now, n = _att_now(), {"written": 0, "skipped": 0}
     with _SaTx() as t:
         for card, date, fields in clean:
@@ -2241,7 +2227,7 @@ def attendance_settings(request: Request, payload: dict = Body(default={})):
     try:
         settings = att.validate_settings(payload.get("settings"))
     except ValueError as e:
-        return _att_deny(400, str(e))
+        return _att_deny(400, public_error(e))
     now = _att_now()
     with _SaTx() as t:
         if t.one("SELECT tenant FROM attendance_settings WHERE tenant=%s FOR UPDATE", (tenant,)):
@@ -2383,9 +2369,9 @@ def _call_scope(ident, full, people, tenant, person):
         try:
             allowed = {str(p["id"]) for p in perf.directory(full, ident, users)}
         except PermissionError as ex:
-            return admin, None, _att_deny(403, str(ex))
+            return admin, None, _att_deny(403, public_error(ex))
         except ValueError as ex:
-            return admin, None, _att_deny(400, str(ex))
+            return admin, None, _att_deny(400, public_error(ex))
     if person and str(person) not in allowed:
         return admin, None, _att_deny(403 if not admin else 404, "شخص خارج از دامنه مجاز است.")
     return admin, allowed, None
@@ -2424,7 +2410,7 @@ def _perf_call_records(tenant, s, e, pids):
     try:
         stats = _call_stats(tenant, s, e)[0]
     except Exception as ex:
-        print("[perf] call stats unavailable:", ex)
+        print("[perf] call stats unavailable:", public_error(ex))
         return None
     return [r for r in calls.daily_records(stats) if r["personId"] in pids]
 
@@ -2438,9 +2424,9 @@ def calls_log_upload(request: Request, payload: dict = Body(default={})):
     try:
         parsed = calls.parse_log_payload(payload)
     except att.TooLarge as e:
-        return _att_deny(413, str(e))
+        return _att_deny(413, public_error(e))
     except ValueError as e:
-        return _att_deny(400, str(e))
+        return _att_deny(400, public_error(e))
     found, now = parsed["calls"], _att_now()
     try:
         with _SaTx() as t:
@@ -2483,7 +2469,7 @@ def calls_log_upload(request: Request, payload: dict = Body(default={})):
             unmapped = _call_aliases(t, tenant, people, parties, "calllog", now)
             batch = t.one("SELECT * FROM call_batches WHERE id=%s", (bid,))
     except _AttFail as e:
-        return _att_deny(e.code, e.msg, **e.extra)
+        return _att_deny(e.code, public_error(e), **e.extra)
     except pymysql.err.IntegrityError:
         dup = _call_dup(tenant, parsed["sha256"])
         if not dup:
@@ -2501,9 +2487,9 @@ def calls_summary_upload(request: Request, payload: dict = Body(default={})):
     try:
         parsed = calls.parse_summary_payload(payload)
     except att.TooLarge as e:
-        return _att_deny(413, str(e))
+        return _att_deny(413, public_error(e))
     except ValueError as e:
-        return _att_deny(400, str(e))
+        return _att_deny(400, public_error(e))
     pf, pt, d, now = parsed["period_from"], parsed["period_to"], parsed["direction"], _att_now()
     try:
         with _SaTx() as t:
@@ -2537,7 +2523,7 @@ def calls_summary_upload(request: Request, payload: dict = Body(default={})):
             unmapped = _call_aliases(t, tenant, people, {("ext", r["ext"]): r["agent_name"] for r in parsed["rows"]}, "callsummary", now)
             batch = t.one("SELECT * FROM call_batches WHERE id=%s", (bid,))
     except _AttFail as e:
-        return _att_deny(e.code, e.msg, **e.extra)
+        return _att_deny(e.code, public_error(e), **e.extra)
     except pymysql.err.IntegrityError:
         dup = _call_dup(tenant, parsed["sha256"])
         if not dup:
@@ -2717,9 +2703,9 @@ def tickets_upload(request: Request, payload: dict = Body(default={})):
     try:
         parsed = tickets.parse_payload(payload)
     except att.TooLarge as e:
-        return _att_deny(413, str(e))
+        return _att_deny(413, public_error(e))
     except ValueError as e:
-        return _att_deny(400, str(e))
+        return _att_deny(400, public_error(e))
     found, now = parsed["tickets"], _att_now()
     try:
         with _SaTx() as t:
@@ -2759,7 +2745,7 @@ def tickets_upload(request: Request, payload: dict = Body(default={})):
             unmapped = _call_aliases(t, tenant, people, parties, "tickets", now)
             batch = t.one("SELECT * FROM ticket_batches WHERE id=%s", (bid,))
     except _AttFail as e:
-        return _att_deny(e.code, e.msg, **e.extra)
+        return _att_deny(e.code, public_error(e), **e.extra)
     except pymysql.err.IntegrityError:
         old = q("SELECT * FROM ticket_batches WHERE tenant=%s AND file_sha256=%s", (tenant, parsed["sha256"]))
         if not old:
@@ -2834,7 +2820,7 @@ def _mcp_config():
         return {"token": "", "tenant": "team"}
 
 
-class _McpToolError(Exception):
+class _McpToolError(PublicError):
     pass
 
 
@@ -3016,10 +3002,9 @@ def _mcp_dispatch(tenant, method, params):
         try:
             res = tool["handler"](tenant, args)
         except _McpToolError as e:
-            return {"content": [{"type": "text", "text": str(e)}], "isError": True}, None
+            return {"content": [{"type": "text", "text": public_error(e)}], "isError": True}, None
         except Exception as e:   # unexpected: report as a tool error, never as a server crash
-            print("[mcp]", params.get("name"), repr(e)[:300])
-            return {"content": [{"type": "text", "text": "خطای داخلیِ سرور؛ دوباره امتحان کنید."}], "isError": True}, None
+            return {"content": [{"type": "text", "text": public_error(e)}], "isError": True}, None
         out = {"content": [{"type": "text", "text": res if isinstance(res, str) else json.dumps(res, ensure_ascii=False)}], "isError": False}
         if isinstance(res, dict):
             out["structuredContent"] = res
@@ -3062,7 +3047,7 @@ def _perf_ticket_records(tenant, s, e, pids):
             aliases = t.x("SELECT kind,alias_key,person_id,status FROM identity_aliases WHERE tenant=%s AND kind='name'", (tenant,)).fetchall()
             rows = t.x("SELECT ticket_no,date_j,agent_name,agent_key,sla_ok,ola_ok FROM ticket_logs WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant, s, e)).fetchall()
     except Exception as ex:
-        print("[perf] ticket records unavailable:", ex)
+        print("[perf] ticket records unavailable:", public_error(ex))
         return None
     return [r for r in tickets.records(rows, aliases)[0] if r["personId"] in pids]
 
@@ -3089,7 +3074,7 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
             return {'ok':True,'full':{'performanceScoped':True,'organizationScope':ident['role']=='manager','people':[{**{k:p[k] for k in ('id','name','role','inactive') if k in p}, 'perf':{k:(p.get('perf') or {})[k] for k in PERF_SOURCE_KEYS if k in (p.get('perf') or {})},**({'perfSet':{k:p['perfSet'][k] for k in ('taskTarget','callTarget') if k in p['perfSet']}} if isinstance(p.get('perfSet'),dict) else {})} for p in allowed],'perfCfg':{k:(full.get('perf') or {})[k] for k in ('taskCapMin','taskTarget','callTarget') if k in (full.get('perf') or {})},'callHours':((full.get('callstats') or {}).get('hours') or {})}}
         if view not in ('summary','daily','details'): return JSONResponse({'ok':False,'error':'مسیر نامعتبر'},status_code=404)
         start, end = perf.date_key(start), perf.date_key(end)
-        if not start or not end or start>end: raise ValueError('بازه شمسی معتبر را انتخاب کنید.')
+        if not start or not end or start>end: raise PublicValidationError('بازه شمسی معتبر را انتخاب کنید.')
         def stamp_to_j(ts):
             dt=datetime.fromtimestamp(float(ts)/1000,ZoneInfo('Asia/Tehran'))
             return '%04d/%02d/%02d' % tuple(_jalali(dt.year,dt.month,dt.day))
@@ -3104,8 +3089,8 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
             selected_rows.sort(key=lambda r:(r['date'],r['id']))
             return {'ok':True,'rows':selected_rows[offset:offset+limit],'total':len(selected_rows),'offset':offset,'limit':limit}
         if view == 'daily':
-            if not person: raise ValueError('برای نمای سالانه یک شخص را انتخاب کنید.')
-            if metric not in ('tasks','contracts','finance_documents','tickets')+perf.CALL_METRICS: raise ValueError('شاخص نامعتبر')
+            if not person: raise PublicValidationError('برای نمای سالانه یک شخص را انتخاب کنید.')
+            if metric not in ('tasks','contracts','finance_documents','tickets')+perf.CALL_METRICS: raise PublicValidationError('شاخص نامعتبر')
             days={}
             for r in rows:
                 if r['metric']==metric: days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
@@ -3120,9 +3105,9 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
             if members: groups.append({'unit':u,'people':len(members),'metrics':perf.metrics(u,[r for r in rows if r['personId'] in pids],[i for i in issues if i['personId'] in pids],start,end,full.get('ts')),'calls':perf.call_totals([r for r in rows if r['personId'] in pids]) if call_rows is not None else None})
         return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['حضور از جدول سروری attendance_days و فقط برای نگاشت تأییدشده کارت↔شخص.','تماس از جدول سروری call_logs و فقط برای نگاشت تأییدشده julio/داخلی↔شخص؛ تماس صف و بی‌نگاشت به شخص نسبت داده نمی‌شود.' if call_rows is not None else 'دادهٔ سروریِ تماس در دسترس نبود؛ آمار تماس نمایش داده نمی‌شود.','تیکت از جدول سروری ticket_logs به تاریخ ثبت و فقط برای نگاشت تأییدشدهٔ نام کارشناس↔شخص.' if ticket_rows is not None else 'دادهٔ سروریِ تیکت در دسترس نبود؛ محورهای پشتیبانی بی‌داده‌اند.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف دارای تاریخ اعتبار در منابع عملکرد یافت نشد.']}
     except PermissionError as e:
-        return JSONResponse({'ok':False,'error':str(e)},status_code=403)
+        return JSONResponse({'ok':False,'error':public_error(e)},status_code=403)
     except ValueError as e:
-        return JSONResponse({'ok':False,'error':str(e)},status_code=400)
+        return JSONResponse({'ok':False,'error':public_error(e)},status_code=400)
 
 def _c1_audit(d, action, ident, full, **extra):
     e = {"action": action, "by": _c1_person_name(full, ident["user"]), "user": ident["user"], "role": ident["role"], "ts": int(time.time() * 1000)}
@@ -3357,7 +3342,7 @@ def c1_reopen_code(request: Request, payload: dict = Body(default={})):
     try:
         tg_api("sendMessage", {"chat_id": TG_ADMIN_ID, "text": text})
     except TgError as e:
-        return {"ok": False, "error": "ارسالِ کد به تلگرام ناموفق بود.", "detail": _tg_redact(e)[:200]}
+        return {"ok": False, "error": "ارسالِ کد به تلگرام ناموفق بود.", "detail": public_error(e)}
     _c1_codes[ident["user"]] = {"code": code, "exp": now + REOPEN_CODE_TTL, "tries": 0, "last": now, "deal": ",".join(ids)}
     return {"ok": True, "to": "تلگرام", "count": len(locked)}
 
@@ -3576,7 +3561,7 @@ def ota_update(payload: dict = Body(default={}), x_update_token: str = Header(de
     if not UPDATE_TOKEN:
         return JSONResponse({"ok": False, "error": "disabled",
                              "detail": "روی سرور UPDATE_TOKEN تنظیم نشده است."}, status_code=503)
-    if (x_update_token or "") != UPDATE_TOKEN:
+    if not secret_matches(x_update_token or "", UPDATE_TOKEN):
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     html = (payload or {}).get("html")
     if not isinstance(html, str):
@@ -3596,7 +3581,7 @@ def ota_update(payload: dict = Body(default={}), x_update_token: str = Header(de
 
 @app.post("/api/purge-cache")
 def purge_cache(x_update_token: str = Header(default="")):
-    if not UPDATE_TOKEN or (x_update_token or "") != UPDATE_TOKEN:
+    if not UPDATE_TOKEN or not secret_matches(x_update_token or "", UPDATE_TOKEN):
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     return {"ok": True, "purge": purge_arvan()}
 
@@ -3624,7 +3609,7 @@ def spa_deploy(payload: dict = Body(default={}), x_update_token: str = Header(de
     if not UPDATE_TOKEN:
         return JSONResponse({"ok": False, "error": "disabled",
                              "detail": "روی سرور UPDATE_TOKEN تنظیم نشده است."}, status_code=503)
-    if (x_update_token or "") != UPDATE_TOKEN:
+    if not secret_matches(x_update_token or "", UPDATE_TOKEN):
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     b64 = (payload or {}).get("zip_b64")
     if not isinstance(b64, str) or not b64:
@@ -3664,7 +3649,7 @@ def spa_deploy(payload: dict = Body(default={}), x_update_token: str = Header(de
                 except Exception:
                     pass
     except Exception as e:
-        return JSONResponse({"ok": False, "error": "backup_failed", "detail": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "backup_failed", "detail": public_error(e)}, status_code=500)
     # نوشتن در پوشهٔ موقت سپس جابه‌جایی اتمیک
     try:
         tmp = os.path.join(parent, "web-new-" + str(int(time.time())))
@@ -3687,7 +3672,7 @@ def spa_deploy(payload: dict = Body(default={}), x_update_token: str = Header(de
             shutil.rmtree(old, ignore_errors=True)
         os.rename(tmp, SPA_DIR)
     except Exception as e:
-        return JSONResponse({"ok": False, "error": "write_failed", "detail": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "write_failed", "detail": public_error(e)}, status_code=500)
     purge = purge_arvan()
     try:
         files = sum(len(fs) for _, _, fs in os.walk(SPA_DIR))
@@ -3707,7 +3692,7 @@ _REL_ID = re.compile(r"^[a-z0-9]{6,24}$")
 def _release_auth(tok):
     if not UPDATE_TOKEN:
         return JSONResponse({"ok": False, "error": "disabled", "detail": "UPDATE_TOKEN تنظیم نشده."}, status_code=503)
-    if (tok or "") != UPDATE_TOKEN:
+    if not secret_matches(tok or "", UPDATE_TOKEN):
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     return None
 
@@ -3723,7 +3708,7 @@ def _tgz_ok(path):
             return False, "install.sh در پکیج نیست"
         return True, ""
     except Exception as e:
-        return False, "tgz نامعتبر: " + str(e)
+        return False, "tgz نامعتبر: " + public_error(e)
 
 
 @app.post("/api/release/chunk")
@@ -3770,7 +3755,7 @@ def release_chunk(payload: dict = Body(default={}), x_update_token: str = Header
         os.rename(whole, os.path.join(inc, "aromin-" + rid + ".tgz"))   # اتمیک؛ واچرِ systemd بیدار می‌شود
         return {"ok": True, "complete": True, "file": "aromin-" + rid + ".tgz"}
     except Exception as e:
-        return JSONResponse({"ok": False, "error": "write_failed", "detail": str(e)}, status_code=500)
+        return JSONResponse({"ok": False, "error": "write_failed", "detail": public_error(e)}, status_code=500)
 
 
 @app.get("/api/release/status")
@@ -4597,9 +4582,9 @@ def sa_fetch(url, redirects=3, host_ok=None, binary=False, max_bytes=SA_FETCH_MA
     for _ in range(redirects + 1):
         p = urllib.parse.urlsplit(url)
         if p.scheme not in ("https", "http") or p.username or p.password or not (host_ok or sa_host_ok)(p.hostname):
-            raise ValueError("دامنهٔ غیرمجاز")
+            raise PublicValidationError("دامنهٔ غیرمجاز")
         if p.port not in (None, 443, 80):
-            raise ValueError("درگاهِ غیرمجاز")
+            raise PublicValidationError("درگاهِ غیرمجاز")
         host = p.hostname.lower().rstrip(".")
         path = (p.path or "/") + ("?" + p.query if p.query else "")
         tries = [("https", 443)] + ([("http", 80)] if p.scheme == "http" else [])
@@ -4607,7 +4592,7 @@ def sa_fetch(url, redirects=3, host_ok=None, binary=False, max_bytes=SA_FETCH_MA
         for scheme, port in tries:
             ips = _sa_resolve(host, port)
             if not ips or not all(_sa_ip_ok(ip) for ip in ips):
-                raise ValueError("نشانیِ داخلی/غیرعمومی")
+                raise PublicValidationError("نشانیِ داخلی/غیرعمومی")
             try:
                 last = (scheme,) + _sa_http_get(scheme, host, ips[0], port, path, max_bytes, "image/jpeg,image/png,image/webp" if binary else "text/html,application/xml;q=0.9")
                 break
@@ -4621,16 +4606,16 @@ def sa_fetch(url, redirects=3, host_ok=None, binary=False, max_bytes=SA_FETCH_MA
             url = urllib.parse.urljoin(scheme + "://" + host + path, headers["location"])
             continue
         if body is None:
-            raise ValueError("پاسخ بیش از سقفِ حجم")
+            raise PublicValidationError("پاسخ بیش از سقفِ حجم")
         ct = headers.get("content-type", "")
         if binary:
             if status != 200 or not re.match(r"image/(jpeg|png|webp)\b", ct):
-                raise ValueError("پاسخِ نامعتبر %s" % status)
+                raise PublicValidationError("پاسخِ نامعتبر %s" % status)
             return scheme + "://" + host + path, body, ct.split(";")[0].strip()
         if status != 200 or not re.search(r"text/html|xml|text/plain", ct):
-            raise ValueError("پاسخِ نامعتبر %s" % status)
+            raise PublicValidationError("پاسخِ نامعتبر %s" % status)
         return scheme + "://" + host + path, body.decode("utf-8", "replace")
-    raise ValueError("redirectِ زیاد")
+    raise PublicValidationError("redirectِ زیاد")
 
 
 _sa_cache = {}
@@ -4916,7 +4901,7 @@ def sa_tick():
                     q("UPDATE sa_state SET v=%s WHERE tenant=%s AND k='products_at'", (_sa_now().isoformat(), tenant))
                 sa_sync_products(tenant)
         except Exception as e:
-            print("[SA] tick error:", str(e)[:200])
+            print("[SA] tick error:", public_error(e)[:200])
 
 
 def sa_start_worker():
@@ -4931,11 +4916,11 @@ def sa_start_worker():
             try:
                 tg_tick()
             except Exception as e:
-                print("[TG] tick error:", _tg_redact(str(e))[:200])
+                print("[TG] tick error:", _tg_redact(public_error(e))[:200])
             try:
                 pub_tick()
             except Exception as e:
-                print("[PUB] tick error:", pub_redact(str(e))[:200])
+                print("[PUB] tick error:", pub_redact(public_error(e))[:200])
     _sa_thread["t"] = _th.Thread(target=loop, name="sales-agent", daemon=True)
     _sa_thread["t"].start()
 
@@ -4970,7 +4955,7 @@ def sales_agent_activate(request: Request, payload: dict = Body(default={}), ten
         for ddl in SA_DDL:
             q(ddl)
     except Exception as e:
-        return JSONResponse({"ok": False, "error": "ساختِ جدول‌ها ناموفق بود: " + str(e)[:200]}, status_code=500)
+        return JSONResponse({"ok": False, "error": "ساختِ جدول‌ها ناموفق بود: " + public_error(e)[:200]}, status_code=500)
     c = sa_cfg(tenant)
     d = payload.get("defaults") if isinstance(payload.get("defaults"), dict) else {}
     for k in SA_TEXT_KEYS:
@@ -5226,7 +5211,7 @@ def product_detail(url):
     try:
         return _sa_cached(("pd", u), PRODUCT_TTL, lambda: parse_product_page(u, sa_fetch(u)[1]))
     except Exception as e:
-        print("[product] detail failed:", u, str(e)[:120])
+        print("[product] detail failed:", public_error(e)[:120])
         return None
 
 
@@ -5240,7 +5225,7 @@ def product_search(query, limit=3):
         try:
             _, h = _sa_cached(("ps", v), PRODUCT_TTL, lambda v=v: sa_fetch("https://%s/search?q=%s" % (PRODUCT_SITE, urllib.parse.quote(" ".join(v)))))
         except Exception as e:
-            print("[product] search failed:", str(e)[:120])
+            print("[product] search failed:", public_error(e)[:120])
             continue
         for u in re.findall(r'https?://(?:www\.)?arominco\.com/product/[^"\'#?\s<>]+', h):
             nu = _product_url(u)
@@ -5442,7 +5427,7 @@ def _tg_audit(post_id, actor, action, detail=""):
         _tg_exec("INSERT INTO tg_audit (post_id, actor, action, detail, at) VALUES (%s,%s,%s,%s,%s)",
                  (post_id, actor if isinstance(actor, int) else None, action, _tg_redact(detail)[:300], _sa_now()))
     except Exception as e:
-        print("[TG] audit failed:", _tg_redact(str(e))[:120])
+        print("[TG] audit failed:", _tg_redact(public_error(e))[:120])
 
 
 def _tg_multipart(fields, files):
@@ -5549,7 +5534,7 @@ def _tg_try(method, **fields):
     try:
         return tg_api(method, fields)
     except TgError as e:
-        print("[TG] %s failed: %s" % (method, e))
+        print("[TG] failed:", public_error(e))
         return None
 
 
@@ -5659,7 +5644,7 @@ def tg_create_post(tenant=None, product_url=None, by=None):
         try:
             img, mime = _tg_fetch_image(d["image"])
         except Exception as e:
-            return {"ok": False, "error": "تصویرِ رسمیِ محصول دریافت نشد: " + str(e)[:120]}
+            return {"ok": False, "error": "تصویرِ رسمیِ محصول دریافت نشد: " + public_error(e)[:120]}
         cap, why = tg_compose(tenant, d)
         if not cap:
             return {"ok": False, "error": why}
@@ -5709,10 +5694,10 @@ def tg_send_preview(pid):
             res = tg_api("sendPhoto", fields, files={"photo": ("aromin-post-%d" % pid, bytes(row["image"]), row["image_mime"])})
     except TgError as e:
         _tg_exec("UPDATE tg_posts SET lease_until=NULL, next_at=%s, last_error=%s WHERE id=%s",
-                 (now + datetime.timedelta(seconds=60 * int(row["preview_attempts"] or 1)), str(e), pid))
-        _tg_audit(pid, None, "preview_failed", str(e))
+                 (now + datetime.timedelta(seconds=60 * int(row["preview_attempts"] or 1)), public_error(e), pid))
+        _tg_audit(pid, None, "preview_failed", public_error(e))
         if e.kind == "permanent" or int(row["preview_attempts"] or 0) >= TG_PREVIEW_MAX_TRIES:
-            _tg_try("sendMessage", chat_id=TG_ADMIN_ID, text="⚠️ پیش‌نمایشِ پستِ #%s ارسال نشد: %s" % (fa_digits(pid), str(e)[:200]))
+            _tg_try("sendMessage", chat_id=TG_ADMIN_ID, text="⚠️ پیش‌نمایشِ پستِ #%s ارسال نشد: %s" % (fa_digits(pid), public_error(e)[:200]))
         return "failed"
     photos = res.get("photo") or []
     fid = max(photos, key=lambda p: p.get("file_size") or p.get("width") or 0).get("file_id") if photos else None
@@ -5819,10 +5804,10 @@ def tg_publish(pid):
         if e.kind == "retry" and int(row["publish_attempts"]) < TG_PUBLISH_MAX_TRIES:
             wait = max(30 * int(row["publish_attempts"]), int(e.retry_after or 0))
             _tg_exec("UPDATE tg_posts SET inflight=0, lease_until=NULL, next_at=%s, last_error=%s, updated_at=%s WHERE id=%s AND status='PUBLISHING'",
-                     (now + datetime.timedelta(seconds=wait), str(e), now, pid))
-            _tg_audit(pid, None, "retry", str(e))
+                     (now + datetime.timedelta(seconds=wait), public_error(e), now, pid))
+            _tg_audit(pid, None, "retry", public_error(e))
             return "retry"
-        _tg_fail(pid, ("نتیجهٔ نامعلوم: " if e.kind == "uncertain" else "") + str(e))
+        _tg_fail(pid, ("نتیجهٔ نامعلوم: " if e.kind == "uncertain" else "") + public_error(e))
         return e.kind
     mid = int(res["message_id"])
     username = TG_CHANNEL[1:] if TG_CHANNEL.startswith("@") else TG_CHANNEL_USERNAME
@@ -5904,7 +5889,7 @@ async def telegram_webhook(request: Request):
     try:
         await _in_pool(tg_handle_update, upd)
     except Exception as e:
-        print("[TG] update error:", _tg_redact(str(e))[:200])
+        print("[TG] update error:", _tg_redact(public_error(e))[:200])
         return JSONResponse({"ok": False}, status_code=500)     # تلگرام دوباره می‌فرستد
     return {"ok": True}
 
@@ -6153,7 +6138,7 @@ def pub_notify(method, **fields):
     try:
         return _tg_composio(method, pub_safe(fields), scheduled=True)
     except Exception as error:
-        print("[PUB] admin notification failed:", pub_redact(error)[:200])
+        print("[PUB] admin notification failed:", public_error(error)[:200])
         return None
 
 
@@ -6300,7 +6285,7 @@ def pub_preview(job, config):
                                         "\nارسال به مقصدها مستقل است و همزمان یا اتمی نیست."), scheduled=True)
         pub_update(job, "preview_state='DONE'")
     except Exception as error:
-        pub_update(job, "preview_state='UNCERTAIN',last_error=%s", (pub_redact(error),))
+        pub_update(job, "preview_state='UNCERTAIN',last_error=%s", (public_error(error),))
 
 
 def pub_approve(job_id, snapshot, actor, tenant=None, prefix=False, automatic=False):
@@ -6508,8 +6493,8 @@ def pub_deliver(job, config):
             next_at = pub_now() + datetime.timedelta(seconds=max((60, 300, 900)[attempt - 1], getattr(error, "retry_after", 0) or 0)) if kind == "retry" and attempt < 4 else None
             status = "UNCERTAIN" if kind == "uncertain" else "FAILED"
             _tg_exec("UPDATE pub_deliveries SET status=%s,inflight=0,lease_until=NULL,next_at=%s,last_error=%s WHERE id=%s AND generation=%s AND status='SENDING'",
-                     (status, next_at, pub_redact(error), delivery["id"], job["generation"]))
-            pub_audit(job["id"], status.lower(), pub_redact(error), delivery=delivery["id"])
+                     (status, next_at, public_error(error), delivery["id"], job["generation"]))
+            pub_audit(job["id"], status.lower(), public_error(error), delivery=delivery["id"])
     all_rows = q("SELECT * FROM pub_deliveries WHERE job_id=%s AND generation=%s", (job["id"], job["generation"]))
     pending = any(r["status"] in ("PENDING", "SENDING") or r["status"] == "FAILED" and r["next_at"] for r in all_rows)
     if not pending:
@@ -6585,10 +6570,10 @@ def pub_tick():
                 # Delivery failures must not cause automatic re-preparation or re-rendering.
                 try:
                     if job["status"] == "PREPARING":
-                        pub_update(job, "status='BLOCKED',last_error=%s", (pub_redact(error),))
+                        pub_update(job, "status='BLOCKED',last_error=%s", (public_error(error),))
                     else:
-                        pub_update(job, "last_error=%s", (pub_redact(error),))
-                    pub_audit(job["id"], "error", pub_redact(error))
+                        pub_update(job, "last_error=%s", (public_error(error),))
+                    pub_audit(job["id"], "error", public_error(error))
                 except RuntimeError:
                     pass
             finally:
@@ -6621,7 +6606,7 @@ def publishing_settings_put(request: Request, payload: dict = Body(default={}), 
     try:
         config = pub.settings(payload, pub_env())
     except ValueError as error:
-        return JSONResponse({"error": pub_redact(error)}, status_code=422)
+        return JSONResponse({"error": public_error(error)}, status_code=422)
     _tg_exec("INSERT INTO pub_settings(tenant,settings,updated_by,updated_at) VALUES(%s,%s,%s,%s) ON DUPLICATE KEY UPDATE settings=VALUES(settings),updated_by=VALUES(updated_by),updated_at=VALUES(updated_at)",
              (tenant, pub.canonical(config), ident["user"], pub_now()))
     if config["enabled"]:
@@ -6646,7 +6631,7 @@ def publishing_approve(job_id: int, request: Request, payload: dict = Body(defau
     try:
         return pub_approve(job_id, str(payload.get("snapshot") or ""), ident["user"], tenant)
     except ValueError as error:
-        return JSONResponse({"error": pub_redact(error)}, status_code=409)
+        return JSONResponse({"error": public_error(error)}, status_code=409)
 
 
 @app.post("/api/publishing/jobs/{job_id}/regenerate")
@@ -6708,7 +6693,7 @@ def publishing_resolve(delivery_id: int, request: Request, payload: dict = Body(
         cx.commit()
     except ValueError as error:
         cx.rollback()
-        return JSONResponse({"error": str(error)}, status_code=409)
+        return JSONResponse({"error": public_error(error)}, status_code=409)
     except Exception:
         cx.rollback()
         raise
@@ -6759,7 +6744,7 @@ def _startup():
         if tg_configured() or any(c.get("activated") and c.get("enabled") for c in _sa_all().values()) or q("SELECT tenant FROM pub_settings WHERE settings LIKE %s", ('%"enabled":true%',)):
             sa_start_worker()
     except Exception as e:
-        print("اجرای مهاجرت‌ها ناموفق بود:", str(e))
+        print("اجرای مهاجرت‌ها ناموفق بود:", public_error(e))
         raise SystemExit(1)
 
 
