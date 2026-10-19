@@ -1,4 +1,5 @@
 """Deterministic publishing policy and composition. No server or network imports."""
+from aromin_security import PublicError
 import copy
 import datetime as dt
 from decimal import Decimal
@@ -184,6 +185,11 @@ def snapshot(generation, product, copy_fields, channel, story, config):
                 channel_asset=channel, story_asset=story, destinations=config["destinations"])
 
 
+class MissingImageDependencies(PublicError, RuntimeError):
+    def __init__(self):
+        super().__init__("image dependencies missing")
+
+
 class DeliveryError(Exception):
     def __init__(self, kind, message="provider failure", retry_after=0):
         super().__init__(message)
@@ -209,7 +215,7 @@ def render(product, copy_fields, photo, asset_dir, font_dir=None, show_price=Fal
         import arabic_reshaper
         from bidi.algorithm import get_display
     except ImportError as error:
-        raise RuntimeError("image dependencies missing") from error
+        raise MissingImageDependencies() from error
     assets = Path(asset_dir)
     fonts = Path(font_dir) if font_dir else assets / "fonts"
     regular = next(iter(sorted(fonts.glob("*Regular*.ttf"))), None)

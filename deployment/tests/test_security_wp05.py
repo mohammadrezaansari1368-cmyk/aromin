@@ -18,7 +18,7 @@ class SecurityHardening(unittest.TestCase):
         request = Request({'type': 'http', 'headers': [
             (name.encode(), secret.encode()) for name in
             ('authorization', 'cookie', 'x-update-token', 'x-telegram-init-data')],
-            'path': '/' + secret, 'query_string': secret.encode()})
+            'method': 'POST', 'path': '/safe-path', 'query_string': secret.encode()})
         try:
             raise RuntimeError('password token initData cookie Authorization ' + secret)
         except RuntimeError as exc:
@@ -29,12 +29,27 @@ class SecurityHardening(unittest.TestCase):
         self.assertNotIn(secret, response.body.decode())
         self.assertNotIn(secret, '\n'.join(logs.output))
         self.assertIn('test_error_response_and_logs_exclude_sensitive_values', logs.output[0])
-        self.assertIn("'authorization': True", logs.output[0])
+        self.assertIn("method=POST path=/safe-path", logs.output[0])
+        self.assertNotIn("sensitive_headers", logs.output[0])
         self.assertNotIn('RuntimeError', body['error'])
         with self.assertLogs('aromin.security'):
             other = security.public_error(ValueError(secret))
         self.assertNotEqual(body['error'], other)
         self.assertRegex(body['error'], r'[A-Za-z0-9_-]{22}$')
+
+    def test_intentional_errors_pass_through_without_logging(self):
+        message = 'ایجنت الان مشغول است؛ دوباره تلاش کنید.'
+        errors = [server._McpToolError(message),
+                  security.PublicValidationError('شاخص نامعتبر'),
+                  security.PublicPermissionError('شخص خارج از دامنه مجاز است.'),
+                  server._StarletteHTTPException(400, detail=message),
+                  server.pub.MissingImageDependencies()]
+        with patch.object(security.logger, 'error') as log:
+            for error in errors:
+                with self.subTest(kind=type(error).__name__):
+                    expected = error.detail if isinstance(error, server._StarletteHTTPException) else str(error)
+                    self.assertEqual(security.public_error(error), expected)
+            log.assert_not_called()
 
     def test_caught_backend_errors_are_generic(self):
         with patch.object(server, '_s3', side_effect=RuntimeError('synthetic-secret')):

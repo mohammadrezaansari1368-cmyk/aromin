@@ -1,5 +1,6 @@
 """Server attendance (WP-B): validation and parsing of client-parsed device sheets. Pure: no DB, no FastAPI.
 Raw rows are stored unchanged (processSheet input); overrides are separate and joined only at read time."""
+from aromin_security import PublicValidationError
 import hashlib
 import json
 import math
@@ -20,7 +21,7 @@ _HEADER = str.maketrans({'ي': 'ی', 'ى': 'ی', 'ك': 'ک', 'أ': 'ا', 'آ': '
 _HHMM = re.compile(r'^([0-9]{1,2}):([0-5][0-9])$')
 
 
-class TooLarge(ValueError):
+class TooLarge(PublicValidationError):
     """Payload over LIMITS → 413."""
 
 
@@ -62,14 +63,14 @@ def canonical(v):
 
 
 def sanitize_row(row):
-    if not isinstance(row, dict): raise ValueError('ردیف حضور باید شیء باشد.')
+    if not isinstance(row, dict): raise PublicValidationError('ردیف حضور باید شیء باشد.')
     if len(row) > LIMITS['keys_per_row']: raise TooLarge('ستون‌های ردیف بیش از حد مجاز است.')
     out = {}
     for k, v in row.items():
-        if not isinstance(k, str) or not k or len(k) > LIMITS['key_len']: raise ValueError('نام ستون نامعتبر است.')
-        if isinstance(v, float) and not math.isfinite(v): raise ValueError('مقدار عددی نامعتبر در ستون ' + k)
-        if isinstance(v, str) and len(v) > LIMITS['value_len']: raise ValueError('مقدار طولانی در ستون ' + k)
-        if v is not None and not isinstance(v, (str, int, float, bool)): raise ValueError('مقدار غیرساده در ستون ' + k)
+        if not isinstance(k, str) or not k or len(k) > LIMITS['key_len']: raise PublicValidationError('نام ستون نامعتبر است.')
+        if isinstance(v, float) and not math.isfinite(v): raise PublicValidationError('مقدار عددی نامعتبر در ستون ' + k)
+        if isinstance(v, str) and len(v) > LIMITS['value_len']: raise PublicValidationError('مقدار طولانی در ستون ' + k)
+        if v is not None and not isinstance(v, (str, int, float, bool)): raise PublicValidationError('مقدار غیرساده در ستون ' + k)
         out[k] = v
     return out
 
@@ -126,20 +127,20 @@ def parse_sheet(name, rows):
 
 def parse_payload(payload):
     """Body of POST /api/performance/attendance → {file_name, sha256, source, sheets:[parsed], skipped:[{sheet, reason}]}."""
-    if not isinstance(payload, dict): raise ValueError('بدنهٔ درخواست نامعتبر است.')
+    if not isinstance(payload, dict): raise PublicValidationError('بدنهٔ درخواست نامعتبر است.')
     file_name = str(payload.get('fileName') or '').strip()
-    if not file_name or len(file_name) > 255: raise ValueError('نام فایل نامعتبر است.')
+    if not file_name or len(file_name) > 255: raise PublicValidationError('نام فایل نامعتبر است.')
     sha = str(payload.get('sha256') or '')
-    if not SHA_RE.match(sha): raise ValueError('چکیدهٔ sha256 فایل نامعتبر است.')
+    if not SHA_RE.match(sha): raise PublicValidationError('چکیدهٔ sha256 فایل نامعتبر است.')
     source = payload.get('source') or 'import-center'
-    if source not in SOURCES: raise ValueError('منبع فایل نامعتبر است.')
+    if source not in SOURCES: raise PublicValidationError('منبع فایل نامعتبر است.')
     sheets = payload.get('sheets')
-    if not isinstance(sheets, dict) or not sheets: raise ValueError('شیتی ارسال نشده است.')
+    if not isinstance(sheets, dict) or not sheets: raise PublicValidationError('شیتی ارسال نشده است.')
     if len(sheets) > LIMITS['sheets']: raise TooLarge('تعداد شیت‌ها بیش از حد مجاز است.')
     parsed, skipped, seen = [], [], set()
     for name, rows in sheets.items():
-        if not isinstance(name, str) or not name.strip() or len(name) > 100: raise ValueError('نام شیت نامعتبر است.')
-        if not isinstance(rows, list): raise ValueError('ردیف‌های شیت باید فهرست باشد.')
+        if not isinstance(name, str) or not name.strip() or len(name) > 100: raise PublicValidationError('نام شیت نامعتبر است.')
+        if not isinstance(rows, list): raise PublicValidationError('ردیف‌های شیت باید فهرست باشد.')
         if len(rows) > LIMITS['rows_per_sheet']: raise TooLarge('ردیف‌های شیت «' + name + '» بیش از حد مجاز است.')
         sheet, reason = parse_sheet(name, [sanitize_row(r) for r in rows])
         if sheet and sheet['card_no'] in seen: sheet, reason = None, 'شماره کارت تکراری در چند شیت'
@@ -162,28 +163,28 @@ def plan_upsert(existing, days):
 
 
 def _hhmm(v, key):
-    if not isinstance(v, str) or not _HHMM.match(v.strip()) or int(v.strip().split(':')[0]) > 23: raise ValueError('ساعت نامعتبر در ' + key + ' (HH:MM)')
+    if not isinstance(v, str) or not _HHMM.match(v.strip()) or int(v.strip().split(':')[0]) > 23: raise PublicValidationError('ساعت نامعتبر در ' + key + ' (HH:MM)')
     return v.strip()
 
 
 def validate_override(fields):
     """RowEdit whitelist (performance.ts); None or empty = delete the override."""
     if fields is None: return None
-    if not isinstance(fields, dict): raise ValueError('ویرایش ردیف نامعتبر است.')
+    if not isinstance(fields, dict): raise PublicValidationError('ویرایش ردیف نامعتبر است.')
     unknown = set(fields) - EDIT_KEYS
-    if unknown: raise ValueError('فیلد ناشناخته: ' + ', '.join(sorted(map(str, unknown))))
+    if unknown: raise PublicValidationError('فیلد ناشناخته: ' + ', '.join(sorted(map(str, unknown))))
     out = {}
     for k, v in fields.items():
         if v is None or v == '': continue
         if k == 'code':
-            if v not in CODES: raise ValueError('کد روز نامعتبر است.')
+            if v not in CODES: raise PublicValidationError('کد روز نامعتبر است.')
             out[k] = v
         elif k in ('entry', 'exit', 'present', 'overtime'): out[k] = _hhmm(v, k)
         elif k == 'excuse':
-            if not isinstance(v, bool): raise ValueError('بخشودگی باید بله/خیر باشد.')
+            if not isinstance(v, bool): raise PublicValidationError('بخشودگی باید بله/خیر باشد.')
             out[k] = v
         else:
-            if not isinstance(v, str) or len(v) > 300: raise ValueError('یادداشت حداکثر ۳۰۰ نویسه است.')
+            if not isinstance(v, str) or len(v) > 300: raise PublicValidationError('یادداشت حداکثر ۳۰۰ نویسه است.')
             out[k] = v
     return out or None
 
@@ -194,13 +195,13 @@ def _int(v, key, hi=600):
         n = int(str(v).translate(_DIGITS).strip()) if not isinstance(v, (int, float)) else int(v)
         if isinstance(v, float) and v != n: raise ValueError
     except (TypeError, ValueError):
-        raise ValueError('عدد نامعتبر در ' + key) from None
-    if not 0 <= n <= hi: raise ValueError('مقدار خارج از بازه در ' + key)
+        raise PublicValidationError('عدد نامعتبر در ' + key) from None
+    if not 0 <= n <= hi: raise PublicValidationError('مقدار خارج از بازه در ' + key)
     return n
 
 
 def validate_settings(s):
-    if not isinstance(s, dict): raise ValueError('تنظیمات نامعتبر است.')
+    if not isinstance(s, dict): raise PublicValidationError('تنظیمات نامعتبر است.')
     out = dict(DEFAULT_SETTINGS)
     for k in DEFAULT_SETTINGS:
         if k in s and s[k] is not None: out[k] = s[k]
@@ -208,10 +209,10 @@ def validate_settings(s):
     rest = out['restDuration']
     out['restDuration'] = _hhmm(rest, 'restDuration') if isinstance(rest, str) and ':' in rest else _int(rest, 'restDuration')
     for k in ('lateThreshold', 'meetingDefault'): out[k] = _int(out[k], k)
-    if not isinstance(out['taskKeywords'], str) or len(out['taskKeywords']) > 300: raise ValueError('کلیدواژه‌ها نامعتبر است.')
-    if not isinstance(out['overtimeByLateExit'], bool): raise ValueError('اضافه‌کار از خروج دیرتر باید بله/خیر باشد.')
+    if not isinstance(out['taskKeywords'], str) or len(out['taskKeywords']) > 300: raise PublicValidationError('کلیدواژه‌ها نامعتبر است.')
+    if not isinstance(out['overtimeByLateExit'], bool): raise PublicValidationError('اضافه‌کار از خروج دیرتر باید بله/خیر باشد.')
     if to_minutes(out['workStart']) is None or to_minutes(out['workEnd']) is None or to_minutes(out['workStart']) >= to_minutes(out['workEnd']):
-        raise ValueError('ساعت شروع باید پیش از پایان موظفی باشد.')
+        raise PublicValidationError('ساعت شروع باید پیش از پایان موظفی باشد.')
     return out
 
 

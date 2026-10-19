@@ -445,7 +445,7 @@ class LifecycleTests(unittest.TestCase):
         job = self.draft(copy_json=pub.canonical(COPY))
         self.save_config()
         server._tg_exec("UPDATE pub_jobs SET lease_until=NULL,lease_token=NULL WHERE id=%s", (job["id"],))
-        with patch.object(server, "_tg_fetch_image", return_value=(b"photo", "image/jpeg")), patch.object(pub, "render", side_effect=RuntimeError("image dependencies missing")):
+        with patch.object(server, "_tg_fetch_image", return_value=(b"photo", "image/jpeg")), patch.object(pub, "render", side_effect=pub.MissingImageDependencies()):
             server.pub_tick()
         stored = server.pub_job(job["id"])
         self.assertEqual(stored["status"], "BLOCKED")

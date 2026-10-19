@@ -1,4 +1,5 @@
 """Read-only performance projections. No payroll/commission/attendance engine changes."""
+from aromin_security import PublicValidationError, PublicPermissionError
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from aromin_stage import parse_stage_change
@@ -26,21 +27,21 @@ def date_key(raw):
 
 def directory(full, ident, users):
     people = [p for p in full.get('people',[]) if isinstance(p,dict)]
-    if any(p.get('id') is None or not p.get('name') for p in people): raise ValueError('شناسه یا نام شخص ناقص است؛ مدیر نگاشت را اصلاح کند.')
+    if any(p.get('id') is None or not p.get('name') for p in people): raise PublicValidationError('شناسه یا نام شخص ناقص است؛ مدیر نگاشت را اصلاح کند.')
     ids = [str(p['id']) for p in people]
-    if len(ids)!=len(set(ids)): raise ValueError('شناسه تکراری اشخاص؛ نگاشت باید اصلاح شود.')
+    if len(ids)!=len(set(ids)): raise PublicValidationError('شناسه تکراری اشخاص؛ نگاشت باید اصلاح شود.')
     rec=users.get(ident['user'],{})
     linked=[p for p in people if (str(p['id'])==str(rec['personId']) if rec.get('personId') is not None else p['name']==rec.get('person'))]
     role=ident['role']
     if role=='manager': allowed=people
     elif role in ('salesmgr','accmgr'): allowed=[p for p in people if UNITS.get(p.get('role'))==UNITS[role]]
     elif len(linked)==1 and not linked[0].get('inactive'): allowed=linked
-    else: raise PermissionError('حساب به شناسه یکتای کارمند متصل نیست؛ مدیر نگاشت حساب را اصلاح کند.')
+    else: raise PublicPermissionError('حساب به شناسه یکتای کارمند متصل نیست؛ مدیر نگاشت حساب را اصلاح کند.')
     return allowed
 
 def select(people, pid='', unit=''):
-    if pid and not any(str(p['id'])==str(pid) for p in people): raise PermissionError('شخص خارج از دامنه مجاز است.')
-    if unit and unit not in {UNITS.get(p.get('role'),'other') for p in people}: raise PermissionError('واحد خارج از دامنه مجاز است.')
+    if pid and not any(str(p['id'])==str(pid) for p in people): raise PublicPermissionError('شخص خارج از دامنه مجاز است.')
+    if unit and unit not in {UNITS.get(p.get('role'),'other') for p in people}: raise PublicPermissionError('واحد خارج از دامنه مجاز است.')
     return [p for p in people if (not pid or str(p['id'])==str(pid)) and (not unit or UNITS.get(p.get('role'),'other')==unit)]
 
 def public_person(p):

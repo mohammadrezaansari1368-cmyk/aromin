@@ -11,7 +11,7 @@ import json
 import time
 import random
 import secrets
-from aromin_security import public_error, secret_matches
+from aromin_security import PublicError, PublicValidationError, public_error, secret_matches
 import shutil
 import base64
 import zipfile
@@ -2161,7 +2161,7 @@ def _att_override_item(item):
     card = idmap.normalize_key("card", (item or {}).get("cardNo"))
     date = att.norm_date((item or {}).get("date"))
     if not card or not date:
-        raise ValueError("شماره کارت یا تاریخ نامعتبر است.")
+        raise PublicValidationError("شماره کارت یا تاریخ نامعتبر است.")
     return card, date, att.validate_override(item.get("fields"))
 
 
@@ -2820,7 +2820,7 @@ def _mcp_config():
         return {"token": "", "tenant": "team"}
 
 
-class _McpToolError(Exception):
+class _McpToolError(PublicError):
     pass
 
 
@@ -3074,7 +3074,7 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
             return {'ok':True,'full':{'performanceScoped':True,'organizationScope':ident['role']=='manager','people':[{**{k:p[k] for k in ('id','name','role','inactive') if k in p}, 'perf':{k:(p.get('perf') or {})[k] for k in PERF_SOURCE_KEYS if k in (p.get('perf') or {})},**({'perfSet':{k:p['perfSet'][k] for k in ('taskTarget','callTarget') if k in p['perfSet']}} if isinstance(p.get('perfSet'),dict) else {})} for p in allowed],'perfCfg':{k:(full.get('perf') or {})[k] for k in ('taskCapMin','taskTarget','callTarget') if k in (full.get('perf') or {})},'callHours':((full.get('callstats') or {}).get('hours') or {})}}
         if view not in ('summary','daily','details'): return JSONResponse({'ok':False,'error':'مسیر نامعتبر'},status_code=404)
         start, end = perf.date_key(start), perf.date_key(end)
-        if not start or not end or start>end: raise ValueError('بازه شمسی معتبر را انتخاب کنید.')
+        if not start or not end or start>end: raise PublicValidationError('بازه شمسی معتبر را انتخاب کنید.')
         def stamp_to_j(ts):
             dt=datetime.fromtimestamp(float(ts)/1000,ZoneInfo('Asia/Tehran'))
             return '%04d/%02d/%02d' % tuple(_jalali(dt.year,dt.month,dt.day))
@@ -3089,8 +3089,8 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
             selected_rows.sort(key=lambda r:(r['date'],r['id']))
             return {'ok':True,'rows':selected_rows[offset:offset+limit],'total':len(selected_rows),'offset':offset,'limit':limit}
         if view == 'daily':
-            if not person: raise ValueError('برای نمای سالانه یک شخص را انتخاب کنید.')
-            if metric not in ('tasks','contracts','finance_documents','tickets')+perf.CALL_METRICS: raise ValueError('شاخص نامعتبر')
+            if not person: raise PublicValidationError('برای نمای سالانه یک شخص را انتخاب کنید.')
+            if metric not in ('tasks','contracts','finance_documents','tickets')+perf.CALL_METRICS: raise PublicValidationError('شاخص نامعتبر')
             days={}
             for r in rows:
                 if r['metric']==metric: days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
@@ -4582,9 +4582,9 @@ def sa_fetch(url, redirects=3, host_ok=None, binary=False, max_bytes=SA_FETCH_MA
     for _ in range(redirects + 1):
         p = urllib.parse.urlsplit(url)
         if p.scheme not in ("https", "http") or p.username or p.password or not (host_ok or sa_host_ok)(p.hostname):
-            raise ValueError("دامنهٔ غیرمجاز")
+            raise PublicValidationError("دامنهٔ غیرمجاز")
         if p.port not in (None, 443, 80):
-            raise ValueError("درگاهِ غیرمجاز")
+            raise PublicValidationError("درگاهِ غیرمجاز")
         host = p.hostname.lower().rstrip(".")
         path = (p.path or "/") + ("?" + p.query if p.query else "")
         tries = [("https", 443)] + ([("http", 80)] if p.scheme == "http" else [])
@@ -4592,7 +4592,7 @@ def sa_fetch(url, redirects=3, host_ok=None, binary=False, max_bytes=SA_FETCH_MA
         for scheme, port in tries:
             ips = _sa_resolve(host, port)
             if not ips or not all(_sa_ip_ok(ip) for ip in ips):
-                raise ValueError("نشانیِ داخلی/غیرعمومی")
+                raise PublicValidationError("نشانیِ داخلی/غیرعمومی")
             try:
                 last = (scheme,) + _sa_http_get(scheme, host, ips[0], port, path, max_bytes, "image/jpeg,image/png,image/webp" if binary else "text/html,application/xml;q=0.9")
                 break
@@ -4606,16 +4606,16 @@ def sa_fetch(url, redirects=3, host_ok=None, binary=False, max_bytes=SA_FETCH_MA
             url = urllib.parse.urljoin(scheme + "://" + host + path, headers["location"])
             continue
         if body is None:
-            raise ValueError("پاسخ بیش از سقفِ حجم")
+            raise PublicValidationError("پاسخ بیش از سقفِ حجم")
         ct = headers.get("content-type", "")
         if binary:
             if status != 200 or not re.match(r"image/(jpeg|png|webp)\b", ct):
-                raise ValueError("پاسخِ نامعتبر %s" % status)
+                raise PublicValidationError("پاسخِ نامعتبر %s" % status)
             return scheme + "://" + host + path, body, ct.split(";")[0].strip()
         if status != 200 or not re.search(r"text/html|xml|text/plain", ct):
-            raise ValueError("پاسخِ نامعتبر %s" % status)
+            raise PublicValidationError("پاسخِ نامعتبر %s" % status)
         return scheme + "://" + host + path, body.decode("utf-8", "replace")
-    raise ValueError("redirectِ زیاد")
+    raise PublicValidationError("redirectِ زیاد")
 
 
 _sa_cache = {}
