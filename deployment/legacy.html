@@ -13247,7 +13247,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     if(!_hasRealData()) return;                             // بلابِ خالی را بک‌آپ نگیر تا نسخهٔ خالی روی سرور ننشیند
     var snap; try{ snap=snapshot(); }catch(e){ return; }
     try{
-      fetch(API.base+"/api/backup",{method:"POST",headers:{"Content-Type":"application/json"},
+      fetch(API.base+"/api/backup",{method:"POST",headers:aiHeaders(),
         body:JSON.stringify({tenant:TENANT||"team", tag:String(tag||""), payload:snap})}).catch(function(){});
     }catch(e){}
   }
@@ -13304,7 +13304,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var msg=el("srvBakMsg"), sel=el("srvBakList"); if(!sel) return;
     if(!(API && API.on)){ if(msg) msg.textContent="بک‌آپِ سروری فقط وقتی کار می‌کند که برنامه از طریقِ سرور باز شده باشد."; return; }
     if(msg) msg.textContent="در حال خواندنِ فهرستِ بک‌آپ‌ها…";
-    fetch(API.base+"/api/backups?tenant="+encodeURIComponent(TENANT||"team"),{cache:"no-store"})
+    fetch(API.base+"/api/backups?tenant="+encodeURIComponent(TENANT||"team"),{cache:"no-store",headers:aiHeaders()})
       .then(function(r){return r.json();}).then(function(d){
         var list=(d&&d.ok&&d.backups)||[];
         if(!list.length){ sel.innerHTML='<option value="">— هنوز بک‌آپی ثبت نشده —</option>'; if(msg) msg.textContent="هنوز هیچ بک‌آپی روی سرور نیست. یک‌بار خارج و دوباره وارد شو تا اولین نسخه ساخته شود."; return; }
@@ -13322,7 +13322,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     if(!confirm("این نسخه بازیابی شود؟ دادهٔ فعلیِ این کسب‌وکار جایگزین می‌شود. (قبلش خودش یک بک‌آپِ ایمنی از حالتِ فعلی می‌گیرد.)")) return;
     if(msg) msg.textContent="در حال بازیابی…";
     try{ autoBackup("پیش‌از‌بازیابی"); }catch(e){}
-    fetch(API.base+"/api/backup/"+encodeURIComponent(id),{cache:"no-store"})
+    fetch(API.base+"/api/backup/"+encodeURIComponent(id)+"?tenant="+encodeURIComponent(TENANT||"team"),{cache:"no-store",headers:aiHeaders()})
       .then(function(r){return r.json();}).then(function(d){
         if(!(d&&d.ok&&d.payload)){ if(msg) msg.textContent="این نسخه خوانده نشد."; return; }
         var o=(typeof d.payload==="string")?JSON.parse(d.payload):d.payload;
@@ -13439,7 +13439,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
       return new Promise(function(res){
         try{
           if(!(API.on && API.ready) || !_hasRealData()) return res(false);
-          fetch(API.base+"/api/backup",{method:"POST",headers:{"Content-Type":"application/json"},
+          fetch(API.base+"/api/backup",{method:"POST",headers:aiHeaders(),
             body:JSON.stringify({tenant:TENANT||"team",tag:String(tag||""),payload:snapshot()})})
             .then(function(r){ return r.json(); }).then(function(j){ res(!!(j&&j.ok)); }).catch(function(){ res(false); });
         }catch(e){ res(false); }

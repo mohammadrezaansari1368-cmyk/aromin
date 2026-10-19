@@ -7,9 +7,10 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { currentTenant } from '@/lib/data'
+import { activeAuthHeaders } from '@/lib/auth'
 
 export async function fetchFull(): Promise<any | null> {
-	const r = await fetch(`/api/state?tenant=${encodeURIComponent(currentTenant())}`, { cache: 'no-store' })
+	const r = await fetch(`/api/state?tenant=${encodeURIComponent(currentTenant())}`, { cache: 'no-store', headers: activeAuthHeaders() })
 	if (!r.ok) throw new Error('http ' + r.status)
 	const d = await r.json()
 	return d && d.ok ? d.full : null
@@ -23,7 +24,7 @@ let chain: Promise<unknown> = Promise.resolve()
 async function backup(full: any, tag: string) {
 	const r = await fetch('/api/backup', {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
+		headers: { 'Content-Type': 'application/json', ...activeAuthHeaders() },
 		body: JSON.stringify({ tenant: currentTenant(), tag, payload: JSON.stringify(full) }),
 	})
 	const d = await r.json().catch(() => null)
@@ -43,7 +44,7 @@ export function saveState(mutator: (full: any) => void, opts: { forceBackup?: bo
 		full.ts = Date.now()
 		const r = await fetch(`/api/state?tenant=${encodeURIComponent(currentTenant())}`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json', ...activeAuthHeaders() },
 			body: JSON.stringify(full),
 		})
 		const d = await r.json().catch(() => null)

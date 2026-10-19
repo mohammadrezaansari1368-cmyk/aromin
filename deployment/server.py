@@ -26,6 +26,7 @@ import urllib.error
 import pymysql
 from pymysql.cursors import DictCursor
 import bcrypt
+import aromin_sessions as sessions
 
 from fastapi import FastAPI, Body, Query, Header, Path as PathParam
 from fastapi.responses import JSONResponse, Response, HTMLResponse
@@ -296,6 +297,72 @@ def serve_root():
 @app.get("/app.html", response_class=HTMLResponse)
 def serve_legacy():
     return _serve_legacy()
+
+
+# ---------------- نشستِ امضاشده ----------------
+def _password_matches(password, stored):
+    stored = str(stored or "")
+    if not stored or not password:
+        return False
+    if stored.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            return bcrypt.checkpw(password.encode("utf-8"), stored.encode("utf-8"))
+        except (ValueError, TypeError):
+            return False
+    return _hmac.compare_digest(password.encode("utf-8"), stored.encode("utf-8"))
+
+
+def _bearer(request, tenant):
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return None
+    return sessions.verify(auth[7:].strip(), tenant)
+
+
+def _db_identity(request):
+    ident = _bearer(request, "")
+    if not ident:
+        return None
+    rows = q("SELECT * FROM users WHERE username=%s", (ident["user"],))
+    if not rows:
+        return None
+    return dict(ident, role=str(rows[0].get("role") or "sales"))
+
+
+def _management_guard(request, tenant=""):
+    ident = kb_identity(request, tenant) if tenant else _db_identity(request)
+    if not ident:
+        return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
+    if ident["role"] not in KB_ADMIN_ROLES + ("admin",):
+        return JSONResponse({"ok": False, "error": "این عملیات فقط برای مدیر مجاز است."}, status_code=403)
+    return None
+
+
+@app.post("/api/auth/session")
+def session_login(payload: dict = Body(default={})):
+    tenant = str((payload or {}).get("tenant") or "").strip()
+    user = str((payload or {}).get("username") or "").strip()
+    password = str((payload or {}).get("password") or "")
+    if len(user) > 200 or len(password.encode("utf-8")) > 4096 or (tenant and not _TENANT_RE.fullmatch(tenant)):
+        return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
+    if tenant:
+        # A missing tenant must never authenticate through synthetic defaults.
+        if not _tenant_full(tenant):
+            return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
+        users, people = _kb_directory(tenant)
+        rec = users.get(user)
+        good = rec and _password_matches(password, rec.get("pass_hash") or rec.get("pass"))
+        if rec and rec.get("person") and any(p.get("name") == rec["person"] and p.get("inactive") for p in people):
+            good = False
+    else:
+        rows = q("SELECT * FROM users WHERE username=%s", (user,))
+        rec = rows[0] if rows else None
+        good = rec and _password_matches(password, rec.get("pass_hash"))
+    if not good:
+        return JSONResponse({"ok": False, "error": "نام کاربری یا رمز عبور درست نیست."}, status_code=401)
+    role = str(rec.get("role") or "sales")
+    return {"ok": True, "token": sessions.issue(user, role, tenant), "expiresIn": sessions.TTL,
+            "session": {"user": user, "name": rec.get("person") or user, "role": role, "tenant": tenant}}
 
 
 # ---------------- ورود ----------------
@@ -605,7 +672,10 @@ def post_state(payload: dict = Body(default={}), tenant: str = Query(default="")
 
 # ---------------- مدیریت کاربران ----------------
 @app.post("/api/users/upsert")
-def users_upsert(payload: dict = Body(default={})):
+def users_upsert(request: Request, payload: dict = Body(default={})):
+    denied = _management_guard(request)
+    if denied is not None:
+        return denied
     username = (payload or {}).get("username")
     password = str((payload or {}).get("password") or "123")
     role = (payload or {}).get("role") or "sales"
@@ -632,7 +702,10 @@ def tenants_list():
 
 
 @app.post("/api/tenants")
-def tenants_create(payload: dict = Body(default={})):
+def tenants_create(request: Request, payload: dict = Body(default={})):
+    denied = _management_guard(request)
+    if denied is not None:
+        return denied
     ensure_tenant_table()
     name = str((payload or {}).get("name") or "").strip()
     industry = (payload or {}).get("industry")
@@ -645,7 +718,10 @@ def tenants_create(payload: dict = Body(default={})):
 
 
 @app.delete("/api/tenants/{tid}")
-def tenants_delete(tid: str = PathParam(...)):
+def tenants_delete(request: Request, tid: str = PathParam(...)):
+    denied = _management_guard(request)
+    if denied is not None:
+        return denied
     ensure_tenant_table()
     tid = (tid or "").strip()
     if not tid:
@@ -663,9 +739,12 @@ def tenants_delete(tid: str = PathParam(...)):
 
 # ---------------- بک‌آپِ خودکار روی MariaDB ----------------
 @app.post("/api/backup")
-def backup_create(payload: dict = Body(default={})):
-    ensure_backup_table()
+def backup_create(request: Request, payload: dict = Body(default={})):
     tenant = str((payload or {}).get("tenant") or "team").strip()
+    denied = _management_guard(request, tenant)
+    if denied is not None:
+        return denied
+    ensure_backup_table()
     tag = str((payload or {}).get("tag") or "")[:64]
     data = (payload or {}).get("payload")
     if not data:
@@ -679,9 +758,12 @@ def backup_create(payload: dict = Body(default={})):
 
 
 @app.get("/api/backups")
-def backups_list(tenant: str = Query(default="team")):
-    ensure_backup_table()
+def backups_list(request: Request, tenant: str = Query(default="team")):
     tenant = (tenant or "team").strip()
+    denied = _management_guard(request, tenant)
+    if denied is not None:
+        return denied
+    ensure_backup_table()
     rows = q("""SELECT id, tag, created, CHAR_LENGTH(payload) AS size
                 FROM tenant_backups WHERE tenant=%s ORDER BY id DESC LIMIT 60""", (tenant,))
     for r in rows:
@@ -691,9 +773,13 @@ def backups_list(tenant: str = Query(default="team")):
 
 
 @app.get("/api/backup/{bid}")
-def backup_get(bid: int = PathParam(...)):
+def backup_get(request: Request, bid: int = PathParam(...), tenant: str = Query(default="team")):
+    tenant = (tenant or "team").strip()
+    denied = _management_guard(request, tenant)
+    if denied is not None:
+        return denied
     ensure_backup_table()
-    rows = q("SELECT payload FROM tenant_backups WHERE id=%s", (bid,))
+    rows = q("SELECT payload FROM tenant_backups WHERE id=%s AND tenant=%s", (bid, tenant))
     if not rows:
         return JSONResponse({"ok": False, "error": "not_found"}, status_code=404)
     p = parse(rows[0]["payload"])
@@ -1046,19 +1132,23 @@ def _kb_directory(tenant):
 
 
 def kb_identity(request, tenant):
-    """هویت از هدرهای X-Aromin-User / X-Aromin-Pass (URI-encoded) در دفترِ همان کسب‌وکار؛ None = نامعتبر."""
-    if not _TENANT_RE.match(tenant or ""):
+    """Bearer sessions and legacy URI-encoded credentials; always use the live role."""
+    if not _TENANT_RE.fullmatch(tenant or ""):
         return None
+    bearer = request.headers.get("authorization", "")
+    ident = _bearer(request, tenant) if bearer else None
+    if bearer and (not ident or not _tenant_full(tenant)):
+        return None  # never downgrade an invalid session to legacy credentials
     try:
-        user = urllib.parse.unquote(request.headers.get("x-aromin-user") or "").strip()
-        pw = urllib.parse.unquote(request.headers.get("x-aromin-pass") or "")
+        user = ident["user"] if ident else urllib.parse.unquote(request.headers.get("x-aromin-user") or "").strip()
+        pw = urllib.parse.unquote(request.headers.get("x-aromin-pass") or "") if not ident else ""
     except Exception:
         return None
-    if not user or not pw:
+    if not user or (not ident and not pw):
         return None
     users, people = _kb_directory(tenant)
     rec = users.get(user)
-    if not rec or not _hmac.compare_digest(str(rec.get("pass") or ""), pw):
+    if not rec or (not ident and not _password_matches(pw, rec.get("pass_hash") or rec.get("pass"))):
         return None
     person = rec.get("person")
     if person and any((p or {}).get("name") == person and (p or {}).get("inactive") for p in people):

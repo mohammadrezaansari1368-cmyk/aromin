@@ -60,8 +60,8 @@ class SecurityHardening(unittest.TestCase):
 
     def test_tenant_creation_uses_crypto_random_id_and_keeps_old_lookup(self):
         with patch.object(server, 'ensure_tenant_table'), patch.object(server, 'q') as query:
-            with patch.object(server.secrets, 'token_urlsafe', return_value='random_tenant_id') as random_id:
-                result = server.tenants_create({'name': 'Synthetic'})
+            with patch.object(server.secrets, 'token_urlsafe', return_value='random_tenant_id') as random_id, patch.object(server, '_management_guard', return_value=None):
+                result = server.tenants_create(Request({'type': 'http', 'headers': []}), {'name': 'Synthetic'})
             random_id.assert_called_once_with(24)
             self.assertEqual(result['tenant']['id'], 'random_tenant_id')
             self.assertEqual(query.call_args.args[1][0], 'random_tenant_id')

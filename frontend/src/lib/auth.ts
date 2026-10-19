@@ -25,10 +25,20 @@ export interface Session {
 	/** نام‌کاربری و رمز فقط در حافظهٔ صفحه — برای ورودِ خودکارِ تب‌های جاسازی‌شده. */
 	user: string
 	pass: string
+	token?: string
+	tenant?: string
 }
 
 /** هویت برای APIهای سمتِ سرور (دستیار، پایگاه دانش): سرور همان دفترِ کاربرانِ کسب‌وکار را راستی‌آزمایی می‌کند */
-export function authHeaders(s: Pick<Session, 'user' | 'pass'> | null | undefined): Record<string, string> {
+let activeSession: Session | null = null
+export function clearSession() { activeSession = null }
+export function activeAuthHeaders(): Record<string, string> {
+	return activeSession?.tenant && activeSession.tenant !== currentTenant() ? {} : authHeaders(activeSession)
+}
+
+export function authHeaders(s: Pick<Session, 'user' | 'pass' | 'token' | 'tenant'> | null | undefined): Record<string, string> {
+	if (s?.tenant && s.tenant !== currentTenant()) return {}
+	if (s?.token) return { Authorization: `Bearer ${s.token}` }
 	return s?.user && s?.pass ? { 'X-Aromin-User': encodeURIComponent(s.user), 'X-Aromin-Pass': encodeURIComponent(s.pass) } : {}
 }
 
@@ -80,12 +90,33 @@ function sessionOf(u: string, rec: UserRec, PEOPLE: PersonRec[]): Result {
 		const p = PEOPLE.find((x) => x.name === rec.person)
 		if (p?.inactive) return { ok: false, error: `همکاری شما${p.leftDate ? ` در تاریخِ ${p.leftDate}` : ''} پایان یافته و دسترسی غیرفعال است.` }
 	}
-	return { ok: true, session: { name: rec.person || u, role: (rec.role as Role) || 'sales', user: u, pass: String(rec.pass) } }
+	const session: Session = { name: rec.person || u, role: (rec.role as Role) || 'sales', user: u, pass: String(rec.pass), tenant: currentTenant() }
+	activeSession = session
+	return { ok: true, session }
 }
 
 export async function login(user: string, pass: string): Promise<Result> {
 	const u = String(user || '').trim()
 	if (!u) return { ok: false, error: 'نام کاربری را وارد کنید.' }
+	clearSession()
+	try {
+		const r = await fetch('/api/auth/session', {
+			method: 'POST', headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ tenant: currentTenant(), username: u, password: String(pass || '') }),
+		})
+		if (r.status !== 404 && r.status !== 405) {
+			const d = await r.json()
+			if (!r.ok || !d.ok || !d.token || d.session?.tenant !== currentTenant())
+				return { ok: false, error: d.error || 'ورود معتبر نیست.' }
+			// Password remains in page memory for the embedded legacy app only.
+			const session: Session = { ...d.session, token: d.token, pass: String(pass || '') }
+			activeSession = session
+			return { ok: true, session }
+		}
+	} catch {
+		return { ok: false, error: 'اتصال به سرور برقرار نشد.' }
+	}
+	// Only an explicitly unavailable endpoint identifies an older server.
 	const dir = await loadDirectory()
 	if (!dir) return { ok: false, error: 'اتصال به سرور برقرار نشد.' }
 	const rec = dir.USERS[u]
