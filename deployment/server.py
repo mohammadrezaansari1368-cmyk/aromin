@@ -7,6 +7,7 @@
 # =====================================================================
 import os
 import re
+import math
 import json
 import time
 import random
@@ -990,15 +991,15 @@ AI_PERSONA = AROMIN_IDENTITY + ASSISTANT_CHANNELS["dashboard"]     # سازگا�
 ASSISTANT_INTERNAL_SCOPES = {"dashboard", "harikan"}   # channels of the owner's own systems: internal knowledge allowed
 
 
-def assistant_system(tenant, scope="dashboard", persona=None):
+def assistant_system(tenant, scope="dashboard", persona=None, query=""):
     """هستهٔ مشترکِ دستیار (داشبورد + ابزارکِ سایت + تلگرام): هویت و قواعدِ ثابت + زمینهٔ کانال + دانشِ همان کسب‌وکار.
     فقط scope="dashboard" دانشِ «فقط داخلی» را می‌بیند. persona (پرامپتِ دستیارِ فروش در تنظیمات) افزوده می‌شود و جای هویت را نمی‌گیرد."""
-    kb = kb_text_for(tenant, public=(scope not in ASSISTANT_INTERNAL_SCOPES))
+    kb = kb_context(tenant, public=(scope not in ASSISTANT_INTERNAL_SCOPES), query=query)
     system = AROMIN_IDENTITY + ASSISTANT_CHANNELS.get(scope, "")
     if persona:
         system += "\n\n### دستورالعملِ نقشِ فروش (از تنظیماتِ مدیر؛ قواعدِ هویت و صحتِ بالا بر آن مقدم است):\n" + persona
     if kb:
-        system += "\n\n### دانشِ اختصاصیِ این کسب‌وکار (به آن وفادار باش):\n" + kb[:6000]
+        system += "\n\n### دانشِ اختصاصیِ این کسب‌وکار (به آن وفادار باش):\n" + kb[:max(KB_PROMPT_MAX, KB_RETRIEVE_MAX)]
     return system
 
 
@@ -1439,6 +1440,8 @@ def _kb_invalidate(tenant):
     with _kb_lock:
         _kb_cache.pop(tenant, None)
         _kb_cache.pop(tenant + "|public", None)
+        _kb_docs_cache.pop(tenant, None)
+        _kb_docs_cache.pop(tenant + "|public", None)
 
 
 def kb_migrate(tenant):
@@ -1470,6 +1473,120 @@ def kb_list(tenant):
     with _Pool(max_workers=8) as ex:
         items = [x for x in ex.map(lambda i: _kb_head(tenant, i), ids) if x]
     return sorted(items, key=lambda x: x.get("createdAt") or "", reverse=True)
+
+
+KB_RETRIEVE_MAX = int(os.environ.get("KB_RETRIEVE_MAX", "9000"))   # سقفِ متنِ بازیابی‌شده (top-k) در هر پاسخ
+KB_TOP_K = int(os.environ.get("KB_TOP_K", "8"))
+KB_CHUNK = 900                                                      # اندازهٔ تقریبیِ هر تکه (نویسه)
+_kb_docs_cache = {}
+
+
+def _kb_docs(tenant, public=False):
+    """[(filename, text)] همهٔ فایل‌های آمادهٔ همان کسب‌وکار (کش ۶۰ ثانیه)؛ public: «فقط داخلی» حذف."""
+    if not _TENANT_RE.match(tenant or "") or not _s3_ready():
+        return []
+    ck = tenant + "|public" if public else tenant
+    with _kb_lock:
+        hit = _kb_docs_cache.get(ck)
+        if hit and time.time() - hit[0] < 60:
+            return hit[1]
+    docs = []
+    try:
+        kb_migrate(tenant)
+        for it in sorted(kb_list(tenant), key=lambda x: x.get("createdAt") or ""):
+            if it.get("status") != "ready" or it.get("source") == "store-sync":
+                continue
+            st, _, body = _s3("GET", _kb_prefix(tenant) + it["id"] + ".json")
+            if st != 200:
+                continue
+            obj = json.loads(body.decode("utf-8"))
+            if obj.get("businessId") != tenant:      # دفاعِ دوم در برابرِ نشتِ بینِ کسب‌وکارها
+                continue
+            if public and (obj.get("internal") or it.get("internal")):
+                continue
+            t = str(obj.get("text") or "").strip()
+            if t:
+                docs.append((str(obj.get("filename") or ""), t))
+    except Exception:
+        docs = []
+    with _kb_lock:
+        _kb_docs_cache[ck] = (time.time(), docs)
+    return docs
+
+
+_KB_NORM = str.maketrans({"ي": "ی", "ى": "ی", "ك": "ک", "ة": "ه", "ۀ": "ه", "أ": "ا", "إ": "ا", "آ": "ا", "\u200c": " ",
+                          **{chr(0x06F0 + i): str(i) for i in range(10)}, **{chr(0x0660 + i): str(i) for i in range(10)}})
+_KB_STOP = set("و در به از که این را با برای است یا تا هم آن می چه چطور چگونه چی کجا آیا من ما شما او ها های هست هستند بود شود کند کرد دارد دارم دارید یک اگر اما ولی the a an of to and or is are in on for with".split())
+
+
+def _kb_terms(t):
+    t = re.sub(r"[\u064B-\u065F\u0670]", "", str(t or "").lower().translate(_KB_NORM))
+    return [w for w in re.split(r"[^\w]+", t) if len(w) >= 2 and w not in _KB_STOP]
+
+
+def kb_chunks(docs, size=KB_CHUNK):
+    """تکه‌تکه‌کردنِ هر فایل روی سرتیتر/پاراگراف؛ هر تکه عنوانِ نزدیک‌ترین سرتیتر را دارد."""
+    out = []
+
+    def push(fn, b, h):
+        b = b.strip()
+        if len(b) >= 40:
+            out.append({"file": fn, "title": h, "text": b})
+    for fn, text in docs:
+        head, buf = "", ""
+        for para in re.split(r"\n\s*\n|\n(?=#)", text):
+            m = re.match(r"^\s*#{1,6}\s*(.+)", para)
+            if m:
+                push(fn, buf, head)
+                buf = ""
+                head = m.group(1).strip()[:150]
+                para = para[m.end():]
+            while len(para) > size:                       # پاراگرافِ خیلی بلند
+                cut = para.rfind(" ", 0, size)
+                cut = cut if cut > size // 2 else size
+                push(fn, buf + "\n" + para[:cut], head)
+                buf = ""
+                para = para[cut:]
+            if len(buf) + len(para) > size:
+                push(fn, buf, head)
+                buf = ""
+            buf += ("\n" if buf else "") + para
+        push(fn, buf, head)
+    return out
+
+
+def kb_retrieve(chunks, query, k=None, budget=None):
+    """top-k تکه با امتیازِ کلیدواژه‌ایِ وزن‌دار با IDF (+ امتیازِ عنوان/نامِ فایل)؛ تا سقفِ budget نویسه."""
+    k, budget = k or KB_TOP_K, budget or KB_RETRIEVE_MAX
+    q = list(dict.fromkeys(_kb_terms(query)))
+    if not q or not chunks:
+        return []
+    toks = [(set(_kb_terms(c["text"])), set(_kb_terms(c["title"] + " " + c["file"]))) for c in chunks]
+    n = len(chunks)
+    idf = {w: math.log(1 + n / (1 + sum(1 for b, h in toks if w in b or w in h))) for w in q}
+    scored = []
+    for i, (b, h) in enumerate(toks):
+        sc = sum(idf[w] * ((1.0 if w in b else 0) + (1.5 if w in h else 0)) for w in q)
+        if sc > 0:
+            scored.append((sc, -i, chunks[i]))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    out, used = [], 0
+    for sc, _, c in scored[:k]:
+        piece = "# از فایل: " + c["file"] + (" › " + c["title"] if c["title"] else "") + "\n" + c["text"]
+        if used + len(piece) > budget:
+            continue
+        out.append(piece)
+        used += len(piece)
+    return out
+
+
+def kb_context(tenant, public=False, query=""):
+    """دانشِ مرتبط با پرسش (top-k تکه) به‌جای ۶۰۰۰ نویسهٔ اولِ همهٔ فایل‌ها؛ بدونِ پرسش/بدونِ تطبیق → رفتارِ قبلی."""
+    if query:
+        hits = kb_retrieve(kb_chunks(_kb_docs(tenant, public)), query)
+        if hits:
+            return "\n\n".join(hits)
+    return kb_text_for(tenant, public)
 
 
 def kb_text_for(tenant, public=False):
@@ -4249,6 +4366,70 @@ async def widget_public_chat(request: Request, site_id: str = PathParam(...)):
     return _w_json(out, origin, 200 if out.get("ok") else 502)
 
 
+# =====================================================================
+#  POST /api/bot/answer — سرور-به-سرور برای ربات‌های آرومین (@arominagent_bot روی tgcloud).
+#  همان هستهٔ دستیارِ ابزارک/دستیارِ فروش (دانشِ ArvanCloud + بازیابیِ top-k + sa_create_lead)، بدونِ Origin.
+#  احراز: هدرِ X-Bot-Key = BOT_ANSWER_KEY (env، مقایسهٔ ثابت‌زمان). سقفِ جدا برای هر گفت‌وگو و کل.
+#  هیچ کلید/توکنی در پاسخ یا لاگ نمی‌آید؛ تاریخچه فقط در حافظه (۱۲ پیامِ آخر، ۲۴ ساعت).
+# =====================================================================
+BOT_ANSWER_KEY = os.environ.get("BOT_ANSWER_KEY", "").strip()
+BOT_ANSWER_SITE = os.environ.get("BOT_ANSWER_SITE_ID", "8a436154fc045cf1bd45").strip()
+BOT_RATE_CONV = int(os.environ.get("BOT_ANSWER_PER_CONV_10MIN", "15"))
+BOT_RATE_ALL = int(os.environ.get("BOT_ANSWER_ALL_10MIN", "600"))
+_bot_hist = {}
+
+
+def _bot_history(conv, add=None):
+    now = time.time()
+    with _w_lock:
+        h = [m for m in _bot_hist.get(conv, []) if now - m["t"] < 86400]
+        if add:
+            h = (h + [dict(add, t=now)])[-12:]
+            _bot_hist[conv] = h
+        if len(_bot_hist) > 20000:
+            for k in [k for k, v in _bot_hist.items() if not v or now - v[-1]["t"] > 86400]:
+                _bot_hist.pop(k, None)
+        return [{"role": m["role"], "content": m["content"]} for m in h]
+
+
+@app.post("/api/bot/answer")
+async def bot_answer(request: Request):
+    if not BOT_ANSWER_KEY or len(BOT_ANSWER_KEY) < 32:
+        return JSONResponse({"ok": False, "error": "not configured"}, status_code=503)
+    got = request.headers.get("x-bot-key") or ""
+    if not _hmac.compare_digest(got.encode("utf-8"), BOT_ANSWER_KEY.encode("utf-8")):
+        return JSONResponse({"ok": False}, status_code=401)
+    try:
+        raw = await request.body()
+        p = json.loads(raw[:20000].decode("utf-8")) if raw else {}
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    conv = str(p.get("conversationId") or "")
+    text = str(p.get("text") or "").strip()[:1000]
+    channel = str(p.get("channel") or "telegram")[:20]
+    if not re.match(r"^[A-Za-z0-9_-]{3,64}$", conv) or not text:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    if not _w_allow(("bot", "all"), BOT_RATE_ALL, 600) or not _w_allow(("bot", conv), BOT_RATE_CONV, 600):
+        return JSONResponse({"ok": False, "code": "rate"}, status_code=429)
+    site = _w_load()["sites"].get(BOT_ANSWER_SITE) if _W_ID_RE.match(BOT_ANSWER_SITE or "") else None
+    if not site:
+        return JSONResponse({"ok": False, "error": "site not found"}, status_code=503)
+    key = channel + ":" + conv
+    history = _bot_history(key, {"role": "user", "content": text})
+    vis = re.sub(r"[^a-z0-9]", "", ("bot" + conv).lower())[:40]
+    if sa_enabled(site["tenant"]):
+        out = await _in_pool(sa_reply, site, history, {}, vis, vis)     # همان مسیرِ ثبتِ لید (sa_create_lead)
+    else:
+        out = await _in_pool(_w_reply, site, history, {})
+    if out.get("ok") and out.get("text"):
+        _bot_history(key, {"role": "assistant", "content": str(out["text"])[:1000]})
+    lead = out.get("lead") if isinstance(out.get("lead"), dict) else None
+    res = {"ok": bool(out.get("ok")), "text": out.get("text"), "lead": bool(lead and lead.get("ok"))}
+    if not out.get("ok"):
+        res["error"] = out.get("error")
+    return JSONResponse(res, status_code=200 if out.get("ok") else 502)
+
+
 def _w_guard(request, tenant, write=False):
     ident = kb_identity(request, tenant)
     if not ident:
@@ -5071,7 +5252,7 @@ def sa_reply(site, history, page=None, conv="", visitor="", dry_run=False):
     catalog, page_product = sa_products_ctx(tenant, texts[-3:], page.get("url") or "")
     if not page_product and "/product/" in urllib.parse.urlsplit(page.get("url") or "").path and page.get("title"):
         page_product = _sa_clean(re.split(r"\s[|–-]\s", page["title"])[0], 200)     # صفحهٔ محصول بیرون از کاتالوگ → نام از عنوانِ صفحه
-    system = assistant_system(tenant, scope="public", persona=sa_prompt(tenant)) + WIDGET_CONTEXT.format(name=site.get("name") or "") + SA_PROTOCOL
+    system = assistant_system(tenant, scope="public", persona=sa_prompt(tenant), query=" ".join(texts[-2:])) + WIDGET_CONTEXT.format(name=site.get("name") or "") + SA_PROTOCOL
     if catalog:
         system += ("\n\n[داده] محصولاتِ مرتبطِ فروشگاه از فهرستِ روزانه (نام | قیمت | موجودی | نشانی؛ برای قیمت و موجودیِ دقیق فقط "
                    "«اطلاعاتِ تأییدشدهٔ محصول» معتبر است):\n" + catalog)
@@ -5558,7 +5739,7 @@ def assistant_guard(text):
 def assistant_turn(tenant, channel, history, extra="", page_url="", max_tokens=500):
     """سرویسِ گفت‌وگوی مشترک: سیستمِ کانونی + زمینهٔ کانال + دادهٔ تأییدشدهٔ محصول → ai_chat."""
     texts = [m["content"] for m in history if m.get("role") == "user"]
-    system = assistant_system(tenant, scope=channel) + extra + assistant_grounding(texts[-2:], page_url)
+    system = assistant_system(tenant, scope=channel, query=" ".join(texts[-2:])) + extra + assistant_grounding(texts[-2:], page_url)
     return ai_chat(system, None, max_tokens=max_tokens, temperature=0.4, history=history)
 
 
