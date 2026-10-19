@@ -79,6 +79,7 @@ class Endpoints(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.db = str(Path(tmp.name) / 't.sqlite')
         load_schema(Path(server.HERE) / 'migrations/006_identity_attendance.sql', self.db)
+        load_schema(Path(server.HERE) / 'migrations/009_batch_rows.sql', self.db)
         self.full = {'people': FIXTURE['people']}
         self.users = {'mgr': {'role': 'manager'}, 'sara': {'personId': 2, 'role': 'sales'}, 'mohammad': {'person': 'محمد رضایی', 'role': 'sales'}}
         self.ident = {'user': 'mgr', 'role': 'manager'}
@@ -94,9 +95,16 @@ class Endpoints(unittest.TestCase):
     def res(self, r):
         return (r.status_code, json.loads(r.body)) if hasattr(r, 'status_code') else (200, r)
 
-    def upload(self, sha='a', tenant='t1', sheets=None):
+    def upload(self, sha='a', tenant='t1', sheets=None, source='import-center'):
         return self.res(server.attendance_upload(None, {'tenant': tenant, 'fileName': 'synthetic.xlsx', 'sha256': sha * 64,
-                                                        'source': 'import-center', 'sheets': sheets or FIXTURE['sheets']}))
+                                                        'source': source, 'sheets': sheets or FIXTURE['sheets']}))
+
+    def rows(self, sql, args=()):
+        cx = Connection(self.db)
+        try:
+            return [tuple(r) for r in cx.connection.execute(sql, args).fetchall()]
+        finally:
+            cx.close()
 
     def get(self, tenant='t1', **kw):
         return self.res(server.attendance_read(None, tenant=tenant, **kw))
@@ -189,15 +197,58 @@ class Endpoints(unittest.TestCase):
     def test_delete_batch_keeps_newer_rows_and_overrides(self):
         first = self.upload()[1]['batch']['id']
         changed = copy.deepcopy(FIXTURE['sheets']); changed[SHEET_A][0]['حضور'] = '08:00'
-        self.upload('b', sheets=changed)
+        second = self.upload('b', sheets=changed)[1]['batch']['id']
         self.res(server.attendance_override(None, {'tenant': 't1', 'cardNo': '1', 'date': '1405/06/03', 'fields': {'code': 'sick'}}))
         self.assertEqual(server.attendance_delete(None, tenant='t1').status_code, 400)
+        # R01: the newer batch still contains the 9 days it re-uploaded unchanged, so nothing is lost
         self.assertEqual(self.res(server.attendance_delete(None, tenant='t1', batch=str(first)))[1],
-                         {'ok': True, 'removedDays': 9, 'removedBatches': 1, 'removedOverrides': 0})
-        self.assertEqual((self.count('attendance_days'), self.count('attendance_overrides')), (1, 1))
+                         {'ok': True, 'removedDays': 0, 'removedBatches': 1, 'removedOverrides': 0, 'restored': 9})
+        self.assertEqual((self.count('attendance_days'), self.count('attendance_overrides')), (10, 1))
+        self.assertEqual(self.rows('SELECT DISTINCT batch_id FROM attendance_days'), [(second,)])
+        self.assertEqual(self.res(server.attendance_delete(None, tenant='t1', batch=str(second)))[1]['removedDays'], 10)
+        self.assertEqual((self.count('attendance_days'), self.count('import_batch_rows'), self.count('attendance_overrides')), (0, 0, 1))
         self.assertEqual(self.upload()[0], 201)   # deleted file can be uploaded again
         self.assertEqual(self.res(server.attendance_delete(None, tenant='t1', all='1', overrides='1'))[1]['removedOverrides'], 1)
         self.assertEqual(self.count('identity_aliases'), 2)
+
+    def test_delete_restores_older_version_and_migration_ranks_last(self):
+        a = self.upload()[1]['batch']['id']
+        changed = copy.deepcopy(FIXTURE['sheets']); changed[SHEET_A][0]['حضور'] = '08:00'
+        b = self.upload('b', sheets=changed)[1]['batch']['id']
+        (card, date, sha_b), = self.rows('SELECT card_no,date_j,row_sha256 FROM attendance_days WHERE batch_id=?', (b,))
+        (sha_a,), = self.rows('SELECT row_sha256 FROM import_batch_rows WHERE domain=? AND batch_id=? AND row_key=?', ('attendance', a, card + '|' + date))
+        self.assertNotEqual(sha_a, sha_b)
+        out = self.res(server.attendance_delete(None, tenant='t1', batch=str(b)))[1]
+        self.assertEqual((out['removedDays'], out['restored']), (0, 1))
+        self.assertEqual(self.rows('SELECT batch_id,row_sha256 FROM attendance_days WHERE card_no=? AND date_j=?', (card, date)), [(a, sha_a)])
+        m = self.upload('e', sheets=changed, source='migration')[1]['batch']   # browser data only fills gaps
+        self.assertEqual((m['updated'], m['unchanged']), (0, 10))
+        self.assertEqual(self.res(server.attendance_delete(None, tenant='t1', batch=str(a)))[1]['restored'], 10)
+        self.assertEqual(self.rows('SELECT batch_id,row_sha256 FROM attendance_days WHERE card_no=? AND date_j=?', (card, date)), [(m['id'], sha_b)])
+        pick = lambda *c: server._batch_winner('attendance', [{'batch_id': i, 'sort_key': k} for i, k in c])['batch_id']
+        self.assertEqual((pick((9, 'migration'), (3, None)), pick((9, 'migration'), (4, 'migration'))), (3, 9))
+
+    def test_rows_without_membership_still_delete(self):
+        bid = self.upload()[1]['batch']['id']
+        cx = Connection(self.db)
+        try:
+            cx.connection.execute('DELETE FROM import_batch_rows')   # rows written before migration 009
+            cx.connection.commit()
+        finally:
+            cx.close()
+        self.assertEqual(self.res(server.attendance_delete(None, tenant='t1', batch=str(bid)))[1], {
+            'ok': True, 'removedDays': 10, 'removedBatches': 1, 'removedOverrides': 0, 'restored': 0})
+
+    def test_every_writer_takes_the_domain_lock_first(self):
+        seen, real = [], server._SaTx.x
+        def spy(tx, sql, args=None):
+            seen.append(sql.split()[0] + (' LOCK' if 'import_locks' in sql else ''))
+            return real(tx, sql, args)
+        with patch.object(server._SaTx, 'x', spy):
+            for name, call in (('upload', lambda: self.upload()), ('batch', lambda: server.attendance_delete(None, tenant='t1', batch='1')),
+                               ('all', lambda: server.attendance_delete(None, tenant='t1', all='1'))):
+                seen.clear(); call()
+                self.assertEqual(seen[:2], ['INSERT LOCK', 'SELECT LOCK'], name)
 
     def test_overrides_if_absent_batch_and_settings(self):
         put = lambda **kw: self.res(server.attendance_override(None, dict({'tenant': 't1', 'cardNo': '9', 'date': '1405/06/01'}, **kw)))
@@ -228,6 +279,7 @@ class RouteOrder(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         db = str(Path(tmp.name) / 't.sqlite')
         load_schema(Path(server.HERE) / 'migrations/006_identity_attendance.sql', db)
+        load_schema(Path(server.HERE) / 'migrations/009_batch_rows.sql', db)
         with patch.object(server, 'kb_identity', return_value={'user': 'mgr', 'role': 'manager'}), \
                 patch.object(server, '_tenant_full', return_value={'people': FIXTURE['people']}), \
                 patch.object(server, 'db_conn', side_effect=lambda: Connection(db)):

@@ -12,6 +12,7 @@ class Cursor:
 
     def execute(self, sql, args=()):
         sql = sql.replace("%s", "?").replace(" FOR UPDATE", "").replace("INSERT IGNORE", "INSERT OR IGNORE")
+        sql = re.sub(r" ON DUPLICATE KEY UPDATE (\w+)=\1$", " ON CONFLICT DO NOTHING", sql)   # no-op upsert used for lock rows
         try:
             self.cursor.execute(sql, tuple(args))
         except sqlite3.IntegrityError as error:

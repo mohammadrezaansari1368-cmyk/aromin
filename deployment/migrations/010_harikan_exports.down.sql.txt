@@ -1,0 +1,2 @@
+-- Manual rollback only. Export Harikan data first; no other table is touched.
+DROP TABLE IF EXISTS harikan_exports;

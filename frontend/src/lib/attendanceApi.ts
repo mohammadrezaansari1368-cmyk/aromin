@@ -47,7 +47,7 @@ export class ApiError extends Error {
 		this.body = body
 	}
 }
-async function call<T>(session: Session, method: string, path: string, body?: Record<string, unknown>): Promise<T> {
+export async function call<T>(session: Session, method: string, path: string, body?: Record<string, unknown>): Promise<T> {
 	const r = await fetch(path, {
 		method, cache: 'no-store',
 		headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...authHeaders(session) },
@@ -58,7 +58,7 @@ async function call<T>(session: Session, method: string, path: string, body?: Re
 	if (!r.ok || !d.ok) throw new ApiError(r.status, d)
 	return d as T
 }
-const qs = (o: Record<string, string | undefined>) => Object.entries({ tenant: currentTenant(), ...o }).filter(([, v]) => v).map(([k, v]) => k + '=' + encodeURIComponent(v!)).join('&')
+export const qs = (o: Record<string, string | undefined>) => Object.entries({ tenant: currentTenant(), ...o }).filter(([, v]) => v).map(([k, v]) => k + '=' + encodeURIComponent(v!)).join('&')
 
 export const fetchAttendance = (s: Session, q: { start?: string; end?: string; person?: string } = {}) => call<ServerAttendance>(s, 'GET', '/api/performance/attendance?' + qs(q))
 export const postAttendance = (s: Session, p: { fileName: string; sha256: string; source: AttendanceBatch['source']; sheets: Record<string, Row[]> }) => call<PostResult>(s, 'POST', '/api/performance/attendance', p)

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { yearDays } from '@/components/performance/PerformanceWorkspace'
 import { angle, goodness, PARK, ratio, START, SWEEP } from '../lib/gaugeMath'
 import { statusVisual } from '../lib/statusVisual'
-import { gaugeMax, groupIssues, tasksMetric, toDays, toMetric, toPerson, toStatus } from '../data/adapters'
+import { callMetrics, faDuration, gaugeMax, groupIssues, tasksMetric, toCalls, toDays, toMetric, toPerson, toStatus } from '../data/adapters'
 import { yearStats } from '../sections/YearHeatmap'
 import { shift } from '../sections/CommandBar'
 
@@ -82,5 +82,27 @@ describe('effortOf (port of the classic engine)', () => {
 		expect(achieve(150, 300)).toBe(50); expect(achieve(5, null)).toBeNull(); expect(achieve(null, 10)).toBeNull()
 		const month = [{ date: '1405/07/01', weekday: 2 }, { date: '1405/07/02', weekday: 6 }, { date: '1405/07/03', weekday: 0 }]
 		expect(workingDays(month, new Set(['1405/07/03']))).toBe(1); expect(dailyTarget(300, 0)).toBeNull(); expect(dailyTarget(300, 25)).toBe(12)
+	})
+})
+
+describe('WP-3 call stats', () => {
+	const full = { calls_in: 1, calls_out: 3, calls_internal: 0, calls_answered: 2, calls_missed: 1, talk_seconds: 3725 }
+	it('no server call data is «—», never zero; partial payload is rejected', () => {
+		expect(toCalls(null)).toBeNull(); expect(toCalls({ calls_out: 3 })).toBeNull()
+		expect(callMetrics(null).every((m) => m.value === null && m.status === 'not_computable')).toBe(true)
+		expect(toPerson({ id: '1', name: 'الف' }).calls).toBeNull()
+	})
+	it('maps to selectable pseudo-metrics with their own daily trend', () => {
+		const ms = callMetrics(toCalls(full))
+		const out = ms.find((m) => m.id === 'calls_out')!
+		expect([out.value, out.status, out.dailyMetric, out.source]).toEqual([3, 'valid', 'calls_out', ['call_logs']])
+		expect(ms.find((m) => m.id === 'talk_seconds')!.unit).toBe('ثانیه')
+		expect(toPerson({ id: '1', name: 'الف', calls: full }).calls).toEqual(full)
+		expect(faDuration(3725)).toBe('۱:۰۲'); expect(faDuration(null)).toBe('—')
+	})
+	it('sales activity trends on answered calls; percentage axes get no count trend', () => {
+		expect(toMetric({ id: 'activity', unit: 'تماس', detailsMetric: 'calls_answered' }).dailyMetric).toBe('calls_answered')
+		expect(toMetric({ id: 'efficiency', unit: '٪', detailsMetric: 'calls_answered' }).dailyMetric).toBeNull()
+		expect(toMetric({ id: 'activity', unit: 'خدمت', detailsMetric: 'activity' }).dailyMetric).toBeNull()
 	})
 })

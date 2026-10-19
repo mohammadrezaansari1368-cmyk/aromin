@@ -5,7 +5,7 @@ import math
 import re
 
 KINDS = ('card', 'julio', 'ext', 'name')
-SOURCES = ('attendance', 'tasks', 'calllog', 'callsummary', 'manual', 'migration')
+SOURCES = ('attendance', 'tasks', 'calllog', 'callsummary', 'tickets', 'manual', 'migration')
 STATUSES = ('confirmed', 'suggested', 'review', 'rejected')
 TITLES = ('اقای', 'اقا', 'خانم', 'جناب', 'سرکار', 'مهندس', 'دکتر')   # after normalization (آ→ا)
 RANK = {'exact': 3, 'strong': 2, 'weak': 1}

@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import type { Metric, PersonVM } from '../data/types'
+import type { CallKey, Metric, PersonVM } from '../data/types'
 import { fa, faMoney } from '../data/adapters'
 import { BentoCard, ScrollFadeList } from '../ui/primitives'
 
 /** Horizontal RTL bars for the active metric; click = person filter; inactive faded with a hide toggle. */
 export function TeamLeaderboard({ people, metric, selected, onSelect }: { people: PersonVM[]; metric: Metric; selected: string; onSelect: (id: string) => void }) {
 	const [hide, setHide] = useState(false)
-	const val = (p: PersonVM) => (metric.id === 'tasks' ? p.tasks : p.metrics.find((m) => m.id === metric.id)?.value ?? null)
+	const val = (p: PersonVM) => (metric.id === 'tasks' ? p.tasks : p.calls && metric.id in p.calls ? p.calls[metric.id as CallKey] : p.metrics.find((m) => m.id === metric.id)?.value ?? null)
 	const max = Math.max(0, ...people.map((p) => val(p) ?? 0))
 	const rows = people.filter((p) => !hide || !p.inactive).sort((a, b) => (val(b) ?? -1) - (val(a) ?? -1))
 	const fmt = metric.id === 'contract_average' ? faMoney : (n: number | null) => fa(n)

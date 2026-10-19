@@ -1,0 +1,22 @@
+[Unit]
+Description=Aromin ZK attendance sync (read-only, TCP 4370)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aromin-zk
+Group=aromin-zk
+WorkingDirectory=/opt/aromin-zk
+EnvironmentFile=/etc/aromin-zk/aromin-zk.env
+ExecStart=/opt/aromin-zk/venv/bin/uvicorn app.main:app --host ${AZK_HOST} --port ${AZK_PORT} --workers 1
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aromin-zk
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

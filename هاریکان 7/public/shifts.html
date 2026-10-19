@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تعریف شیفت | هاریکان ۷</title>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0f1115;--panel:#181b22;--card:#1f232c;--line:#2c313c;--txt:#e7e9ee;--mute:#8b93a3;--acc:#7c5cff;--acc2:#5b3fe0;--ok:#16a34a;--okbg:#0f2a1c;--bad:#e5484d;--r:12px}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f5f6f8;--panel:#fff;--card:#fff;--line:#e3e6eb;--txt:#1b1f27;--mute:#6b7280;--okbg:#e8f7ee}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.7 Vazirmatn,Tahoma,sans-serif}
+button,input,select{font:inherit;color:inherit}
+.wrap{max-width:1200px;margin:0 auto;padding:16px}
+h1{font-size:18px;margin:0 0 12px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.btn{border:1px solid var(--line);background:var(--card);padding:6px 14px;border-radius:8px;cursor:pointer}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#fff}.btn.pri:hover{background:var(--acc2)}
+.btn.bad{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn.sm{padding:2px 8px;font-size:12px}
+input[type=text],input[type=number],input[type=time],select{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;width:100%;min-width:0}
+input:disabled{opacity:.4}
+label.f{display:block;font-size:13px;color:var(--mute);margin-bottom:4px}
+.grid{display:grid;gap:12px}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:repeat(2,1fr)}
+@media(max-width:700px){.g3,.g2{grid-template-columns:1fr}}
+.unit{position:relative}.unit span{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--mute);font-size:12px}
+.hint{display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;border:1px solid var(--mute);font-size:10px;cursor:help;margin-inline-start:4px}
+.types{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}
+@media(max-width:600px){.types{grid-template-columns:1fr}}
+.type{border:2px solid var(--line);border-radius:var(--r);padding:20px;text-align:center;cursor:pointer;background:var(--card)}
+.type.on{border-color:var(--acc)}.type b{display:block;font-size:17px;margin:8px 0}.type p{margin:0;color:var(--mute);font-size:13px}
+.adv{color:var(--acc);cursor:pointer;margin:16px 0 8px;display:inline-block;user-select:none}
+table.week{width:100%;border-collapse:collapse;margin-top:12px}
+.week th{font-weight:600;color:var(--mute);font-size:13px;padding:6px;text-align:right}
+.week td{padding:4px 6px;border-top:1px solid var(--line)}
+.scroll-x{overflow-x:auto}
+.foot{display:flex;gap:8px;justify-content:flex-start;margin-top:16px}
+.head{display:flex;flex-wrap:wrap;gap:12px;align-items:end;justify-content:space-between}
+.head .grp{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:14px 0}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(120px,1fr));border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.cal .h{background:var(--card);padding:6px;text-align:center;font-weight:600;font-size:13px;border-bottom:1px solid var(--line)}
+.cell{min-height:118px;border-inline-start:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px;display:flex;flex-direction:column;gap:4px}
+.cell.out{opacity:.35}.cell.has{background:var(--okbg)}.cell.sel{outline:2px solid var(--acc);outline-offset:-2px}
+.cell.hol .num{color:var(--bad)}
+.cell .top{display:flex;justify-content:space-between;align-items:center}
+.cell .num{font-weight:700}.cell .t{font-size:12px;color:var(--mute)}
+.cell .act{margin-top:auto;display:flex;gap:4px;flex-wrap:wrap}
+.dd{position:relative}.menu{position:absolute;top:100%;right:0;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px;min-width:230px;display:none}
+.menu.open{display:block}.menu button{display:block;width:100%;text-align:right;margin-top:6px}
+.modal{position:fixed;inset:0;background:#0009;display:none;place-items:center;z-index:20;padding:16px}
+.modal.open{display:grid}.modal .panel{width:min(640px,100%);max-height:92vh;overflow:auto}
+.mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.mh b{font-size:16px}
+.x{background:none;border:0;font-size:20px;cursor:pointer;color:var(--mute)}
+.row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--line);padding:8px 16px;border-radius:8px;display:none;z-index:30}
+.err{color:var(--bad);font-size:13px;white-space:pre-line}
+hr{border:0;border-top:1px solid var(--line);margin:16px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <img id="businessLogo" hidden style="max-width:200px;width:100%;margin-bottom:12px"><h1>تعریف شیفت جدید</h1>
+
+  <!-- مرحله ۱: انتخاب نوع -->
+  <section id="step1" class="panel">
+    <b>نوع شیفت را انتخاب کنید</b>
+    <div class="types">
+      <div class="type" data-type="simple"><div>☑</div><b>ساده</b><p>شیفت هر هفته به شکل یکسان تکرار می‌شود.</p></div>
+      <div class="type" data-type="custom"><div>📅</div><b>سفارشی</b><p>شیفت چرخشی است یا هر هفته متفاوت است.</p></div>
+    </div>
+    <button class="btn pri" id="next1" style="width:100%" disabled>مرحله بعدی</button>
+  </section>
+
+  <!-- مرحله ۲: الگوی هفتگی (شیفت ساده) -->
+  <section id="step2" class="panel" hidden>
+    <div class="grid g3">
+      <div><label class="f">سال شیفت</label><select id="s_year"></select></div>
+      <div><label class="f">زمان شناوری <i class="hint" title="تاخیری که کارمند می‌تواند در همان روز با ماندن در انتهای شیفت جبران کند.">?</i></label><div class="unit"><input type="number" min="0" id="r_float_minutes" value="0"><span>دقیقه</span></div></div>
+      <div><label class="f">سقف اضافه‌کاری روزانه <i class="hint" title="خالی = بدون سقف">?</i></label><div class="unit"><input type="number" min="0" id="r_daily_overtime_cap"><span>دقیقه</span></div></div>
+    </div>
+    <span class="adv" id="advToggle">⊕ تنظیمات پیشرفته</span>
+    <div id="adv" hidden>
+      <div class="grid g3">
+        <div><label class="f">اضافه‌کار از ابتدای شیفت <i class="hint" title="سقف اضافه‌کاری قبل از شروع شیفت؛ بیشتر از آن مازاد حضور است. خالی = بدون سقف">?</i></label><div class="unit"><input type="number" min="0" id="r_ot_before"><span>دقیقه</span></div></div>
+        <div><label class="f">اضافه‌کار در میانه شیفت <i class="hint" title="سقف اضافه‌کاری بین دو قسمت شیفت. خالی = بدون سقف">?</i></label><div class="unit"><input type="number" min="0" id="r_ot_middle"><span>دقیقه</span></div></div>
+        <div><label class="f">اضافه‌کار از انتهای شیفت <i class="hint" title="سقف اضافه‌کاری بعد از پایان شیفت. خالی = بدون سقف">?</i></label><div class="unit"><input type="number" min="0" id="r_ot_after"><span>دقیقه</span></div></div>
+        <div><label class="f">تاخیر مجاز <i class="hint" title="تاخیر کمتر یا مساوی این مقدار، غیبت حساب نمی‌شود.">?</i></label><div class="unit"><input type="number" min="0" id="r_late_grace" value="0"><span>دقیقه</span></div></div>
+        <div><label class="f">تعجیل مجاز <i class="hint" title="خروج زودتر کمتر یا مساوی این مقدار، غیبت حساب نمی‌شود.">?</i></label><div class="unit"><input type="number" min="0" id="r_early_grace" value="0"><span>دقیقه</span></div></div>
+        <div><label class="f">شناوری قبل شیفت <i class="hint" title="اگر کارمند تا این مقدار زودتر بیاید، به همان اندازه می‌تواند زودتر برود.">?</i></label><div class="unit"><input type="number" min="0" id="r_float_before" value="0"><span>دقیقه</span></div></div>
+      </div>
+      <div class="grid g2" style="margin-top:12px">
+        <div><label class="f">شروع بازه مجاز ثبت تردد</label><input type="time" id="r_punch_window_start"></div>
+        <div><label class="f">پایان بازه مجاز ثبت تردد</label><input type="time" id="r_punch_window_end"></div>
+      </div>
+    </div>
+    <div class="scroll-x"><table class="week" id="week"></table></div>
+    <div class="err" id="err2"></div>
+    <div class="foot"><button class="btn pri" id="build">ساختن تقویم</button><button class="btn" id="back2">بازگشت</button></div>
+  </section>
+
+  <!-- مرحله ۳: تقویم -->
+  <section id="step3" class="panel" hidden>
+    <div class="head">
+      <div class="grp">
+        <div style="min-width:220px"><label class="f">نام شیفت</label><input type="text" id="s_name" placeholder="مثلاً شیفت صبح فروش"></div>
+        <div style="width:170px"><label class="f">سقف اضافه‌کاری روز بدون شیفت</label><div class="unit"><input type="number" min="0" id="s_noshift"><span>دقیقه</span></div></div>
+        <label class="row" style="gap:6px;padding-bottom:6px"><input type="checkbox" id="s_holidays" checked> تبعیت از تعطیلات رسمی</label>
+      </div>
+      <div class="grp"><button class="btn" id="openSettings" title="تنظیمات محاسبه">⚙</button><button class="btn pri" id="save">ثبت</button></div>
+    </div>
+    <div class="toolbar">
+      <select id="c_year" style="width:100px"></select>
+      <button class="btn sm" id="prevM">›</button><select id="c_month" style="width:120px"></select><button class="btn sm" id="nextM">‹</button>
+      <span style="flex:1"></span>
+      <button class="btn" id="clearSel" disabled>برداشتن تیک‌ها</button>
+      <button class="btn bad" id="delSel" disabled>حذف شیفت‌های انتخابی</button>
+      <div class="dd"><button class="btn pri" id="repeatBtn" disabled>تکرار الگوی انتخابی ▾</button>
+        <div class="menu" id="repeatMenu">
+          <label class="f">طول چرخه (روز)</label><input type="number" min="1" id="cycle">
+          <label class="row" style="gap:6px;font-size:13px;margin-top:6px"><input type="checkbox" id="clearRest"> روزهای خالی چرخه، استراحت شوند</label>
+          <button class="btn" data-scope="month">تکرار در ادامه ماه</button>
+          <button class="btn" data-scope="year">تکرار در ادامه سال</button>
+        </div>
+      </div>
+    </div>
+    <div class="scroll-x"><div class="cal" id="cal"></div></div>
+    <div class="err" id="err3"></div>
+  </section>
+</div>
+
+<!-- مودال تعریف روز -->
+<div class="modal" id="dayModal"><div class="panel">
+  <div class="mh"><b id="dm_title"></b><button class="x" data-close>×</button></div>
+  <div class="row"><span>نوع شیفت:</span>
+    <label><input type="radio" name="dm_kind" value="fixed" checked> ساده</label>
+    <label><input type="radio" name="dm_kind" value="floating"> شناور</label></div>
+  <hr>
+  <div id="dm_fixed">
+    <div class="grid g2">
+      <div><label class="f">زمان شناوری</label><div class="unit"><input type="number" min="0" id="dm_float"><span>دقیقه</span></div></div>
+      <div><label class="f">سقف اضافه‌کاری روزانه</label><div class="unit"><input type="number" min="0" id="dm_cap"><span>دقیقه</span></div></div>
+    </div>
+    <label class="row" style="margin-top:12px;gap:6px"><input type="checkbox" id="dm_p1" checked> قسمت اول روز</label>
+    <div class="grid g2"><div><label class="f">زمان شروع</label><input type="time" id="dm_p1s"></div><div><label class="f">زمان پایان</label><input type="time" id="dm_p1e"></div></div>
+    <label class="row" style="margin-top:12px;gap:6px"><input type="checkbox" id="dm_p2"> قسمت دوم روز</label>
+    <div class="grid g2"><div><label class="f">زمان شروع</label><input type="time" id="dm_p2s" disabled></div><div><label class="f">زمان پایان</label><input type="time" id="dm_p2e" disabled></div></div>
+  </div>
+  <div id="dm_floating" hidden>
+    <div class="grid g2">
+      <div><label class="f">مدت زمان موظفی روزانه</label><input type="time" id="dm_req" value="07:30"></div>
+      <div><label class="f">سقف اضافه‌کاری روزانه</label><div class="unit"><input type="number" min="0" id="dm_cap2"><span>دقیقه</span></div></div>
+    </div>
+    <span class="adv" id="dm_advT">⊕ تنظیمات پیشرفته</span>
+    <div id="dm_adv" hidden>
+      <div class="grid g2">
+        <div><label class="f">شروع بازه مجاز ثبت تردد</label><input type="time" id="dm_pws"></div>
+        <div><label class="f">پایان بازه مجاز ثبت تردد</label><input type="time" id="dm_pwe"></div>
+      </div>
+      <label class="row" style="margin-top:12px;gap:6px"><input type="checkbox" id="dm_next"> شب‌کاری: انتهای این شیفت در روز بعد است</label>
+      <div class="grid g2"><div><label class="f">شروع شب‌کاری</label><input type="time" id="dm_ns"></div><div><label class="f">مدت زمان شب‌کاری</label><input type="time" id="dm_nd"></div></div>
+    </div>
+  </div>
+  <div class="err" id="dm_err"></div>
+  <button class="btn pri" id="dm_save" style="width:100%;margin-top:14px">ثبت</button>
+</div></div>
+
+<!-- مودال تنظیمات -->
+<div class="modal" id="setModal"><div class="panel" style="width:min(420px,100%)">
+  <div class="mh"><b>تنظیمات</b><button class="x" data-close>×</button></div>
+  <label class="row" style="gap:6px"><input type="checkbox" id="st_calc_holiday_work"> محاسبه تعطیل‌کاری فعال شود</label>
+  <label class="row" style="gap:6px"><input type="checkbox" id="st_calc_friday_work"> محاسبه جمعه‌کاری فعال شود</label>
+  <label class="row" style="gap:6px"><input type="checkbox" id="st_add_grace_to_worktime" checked> اضافه شدن تاخیر و تعجیل مجاز به کارکرد</label>
+  <label class="row" style="gap:6px"><input type="checkbox" id="st_apply_float_over_limit"> اعمال شناوری در صورت گذر از حد مجاز شناوری</label>
+  <button class="btn pri" data-close style="margin-top:12px">ثبت</button>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+
+const pending=new Map();let seq=0;
+const fetch=(path,options={})=>new Promise(resolve=>{
+ const requestId=++seq;
+ const timer=setTimeout(()=>{pending.delete(requestId);resolve({ok:false,json:async()=>({error:'ارتباط با پنل برقرار نشد'})});},30000);
+ pending.set(requestId,({result,error})=>{clearTimeout(timer);resolve({ok:!error,json:async()=>error?{error}:result});});
+ let body;try{body=options.body?JSON.parse(options.body):undefined;}catch{body={};}
+ parent.postMessage({channel:'aromin-shifts-request',requestId,path,method:options.method||'GET',body},location.origin);
+});
+window.addEventListener('message',e=>{if(e.source!==parent||e.origin!==location.origin||e.data?.channel!=='aromin-shifts-response')return;const done=pending.get(e.data.requestId);if(done){pending.delete(e.data.requestId);done(e.data);}});
+
+window.addEventListener('message',e=>{if(e.origin===location.origin&&e.source===parent&&e.data?.channel==='aromin-shifts-brand-response'&&e.data.logo){const image=document.getElementById('businessLogo');image.src=e.data.logo;image.alt='لوگوی '+e.data.name;image.hidden=false;}});
+parent.postMessage({channel:'aromin-shifts-brand'},location.origin);
+const API = '/api/shifts';
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const WD = ['شنبه','یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه'];
+const MONTHS = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+const RULES = ['float_minutes','daily_overtime_cap','ot_before','ot_middle','ot_after','late_grace','early_grace','float_before','punch_window_start','punch_window_end'];
+const SETTINGS = ['calc_holiday_work','calc_friday_work','add_grace_to_worktime','apply_float_over_limit'];
+const faNum = n => String(n).replace(/\d/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]);
+const toast = m => { const t = $('#toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._t); t._t = setTimeout(() => t.style.display = 'none', 2500); };
+const hm2min = v => v ? (([h, m]) => h * 60 + m)(v.split(':').map(Number)) : null;
+const min2hm = m => m == null ? '' : String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+const numOrNull = v => v === '' || v == null ? null : +v;
+
+// ---------- تقویم شمسی ----------
+const jf = new Intl.DateTimeFormat('en-u-ca-persian', { year: 'numeric', month: 'numeric', day: 'numeric', timeZone: 'UTC' });
+const toJ = d => { const p = Object.fromEntries(jf.formatToParts(d).map(x => [x.type, x.value])); return { jy: +p.year, jm: +p.month, jd: +p.day }; };
+const iso = d => d.toISOString().slice(0, 10);
+const yearCache = {};
+function yearDays(jy) {
+  if (yearCache[jy]) return yearCache[jy];
+  const out = [], d = new Date(Date.UTC(jy + 621, 2, 10));
+  while (toJ(d).jy < jy) d.setUTCDate(d.getUTCDate() + 1);
+  while (toJ(d).jy === jy) { out.push({ date: iso(d), ...toJ(d), wd: (d.getUTCDay() + 1) % 7 }); d.setUTCDate(d.getUTCDate() + 1); }
+  return yearCache[jy] = out;
+}
+const todayJ = toJ(new Date());
+
+// ---------- وضعیت ----------
+const S = {
+  id: new URLSearchParams(location.search).get('id'),
+  type: null, year: todayJ.jy, month: todayJ.jm,
+  days: new Map(), selected: new Set(), clipboard: null, holidays: new Set(), weekly: null,
+};
+
+// ---------- مرحله ۱ ----------
+$$('.type').forEach(el => el.onclick = () => { $$('.type').forEach(x => x.classList.remove('on')); el.classList.add('on'); S.type = el.dataset.type; $('#next1').disabled = false; });
+$('#next1').onclick = () => { $('#step1').hidden = true; S.type === 'simple' ? ($('#step2').hidden = false) : openCalendar(); };
+
+// ---------- مرحله ۲: الگوی هفتگی ----------
+for (let y = todayJ.jy - 1; y <= todayJ.jy + 1; y++) ['#s_year', '#c_year'].forEach(s => $(s).add(new Option(faNum(y), y, false, y === todayJ.jy)));
+MONTHS.forEach((m, i) => $('#c_month').add(new Option(m, i + 1)));
+$('#advToggle').onclick = () => { $('#adv').hidden = !$('#adv').hidden; $('#advToggle').textContent = ($('#adv').hidden ? '⊕' : '⊖') + ' تنظیمات پیشرفته'; };
+
+$('#week').innerHTML = `<tr><th>روز کاری</th><th>زمان شروع</th><th>زمان پایان</th><th>قسمت دوم روز</th><th>زمان شروع</th><th>زمان پایان</th></tr>` +
+  WD.map((n, i) => `<tr data-i="${i}"><td><label class="row" style="gap:6px"><input type="checkbox" class="w_on"> ${n}</label></td>
+    <td><input type="time" class="w_p1s" disabled></td><td><input type="time" class="w_p1e" disabled></td>
+    <td><input type="checkbox" class="w_p2" disabled></td>
+    <td><input type="time" class="w_p2s" disabled></td><td><input type="time" class="w_p2e" disabled></td></tr>`).join('');
+$('#week').addEventListener('change', e => {
+  const tr = e.target.closest('tr'); if (!tr) return;
+  const on = tr.querySelector('.w_on').checked, p2 = tr.querySelector('.w_p2').checked;
+  ['.w_p1s', '.w_p1e', '.w_p2'].forEach(c => tr.querySelector(c).disabled = !on);
+  ['.w_p2s', '.w_p2e'].forEach(c => tr.querySelector(c).disabled = !(on && p2));
+});
+const readWeekly = () => $$('#week tr[data-i]').map(tr => {
+  const q = c => tr.querySelector(c);
+  return { enabled: q('.w_on').checked, p1_start: q('.w_p1s').value, p1_end: q('.w_p1e').value, p2_enabled: q('.w_p2').checked, p2_start: q('.w_p2s').value, p2_end: q('.w_p2e').value };
+});
+$('#back2').onclick = () => { $('#step2').hidden = true; $('#step1').hidden = false; };
+$('#build').onclick = async () => {
+  const weekly = readWeekly(), errs = [];
+  weekly.forEach((w, i) => {
+    if (!w.enabled) return;
+    if (!w.p1_start || !w.p1_end) errs.push(`${WD[i]}: زمان شروع و پایان را وارد کنید`);
+    if (w.p2_enabled && (!w.p2_start || !w.p2_end)) errs.push(`${WD[i]}: قسمت دوم ناقص است`);
+  });
+  if (!weekly.some(w => w.enabled)) errs.push('حداقل یک روز کاری انتخاب کنید');
+  $('#err2').textContent = errs.join('\n'); if (errs.length) return;
+  S.year = +$('#s_year').value; S.weekly = weekly;
+  const r = await fetch(API + '/preview/simple', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ year: S.year, weekly }) });
+  const response = await r.json(); if(!r.ok){$('#err2').textContent=response.error;return;} const { days } = response;
+  S.days = new Map(days.map(d => [d.date, d]));
+  $('#step2').hidden = true; openCalendar(); toast('تقویم ساخته شد');
+};
+
+// ---------- مرحله ۳: تقویم ----------
+function openCalendar() {
+  $('#step3').hidden = false;
+  $('#c_year').value = S.year;
+  if (S.days.size && !yearDays(S.year).some(d => d.jm === S.month && S.days.has(d.date))) S.month = toJ(new Date([...S.days.keys()][0])).jm;
+  render();
+}
+$('#c_year').onchange = e => { S.year = +e.target.value; render(); };
+$('#c_month').onchange = e => { S.month = +e.target.value; render(); };
+$('#prevM').onclick = () => { if (S.month > 1) S.month--; render(); };
+$('#nextM').onclick = () => { if (S.month < 12) S.month++; render(); };
+
+function fmtDay(d) {
+  if (d.kind === 'floating') return `شناور ${min2hm(d.required_minutes)}`;
+  return [[d.p1_start, d.p1_end], [d.p2_start, d.p2_end]].filter(p => p[0]).map(p => `${p[0]} تا ${p[1]}`).join('<br>');
+}
+function render() {
+  $('#c_month').value = S.month;
+  const all = yearDays(S.year), month = all.filter(d => d.jm === S.month);
+  const lead = month[0].wd;
+  let html = WD.map(n => `<div class="h">${n}</div>`).join('');
+  for (let i = 0; i < lead; i++) html += `<div class="cell out"></div>`;
+  for (const d of month) {
+    const sh = S.days.get(d.date), sel = S.selected.has(d.date);
+    const hol = d.wd === 6 || S.holidays.has(d.date);
+    html += `<div class="cell ${sh ? 'has' : ''} ${sel ? 'sel' : ''} ${hol ? 'hol' : ''}" data-date="${d.date}">
+      <div class="top"><span class="num">${faNum(d.jd)}</span>
+        <span>${sh ? `<button class="btn sm" data-a="copy" title="کپی">کپی</button>` : ''}
+        <input type="checkbox" data-a="sel" ${sel ? 'checked' : ''}></span></div>
+      ${sh ? `<div class="t">${fmtDay(sh)}</div>` : ''}
+      <div class="act">
+        ${sh ? `<button class="btn sm" data-a="edit">✎ ویرایش</button><button class="btn sm" data-a="del" title="حذف">🗑</button>`
+             : `<button class="btn sm" data-a="edit">+ تعریف شیفت</button>`}
+        ${S.clipboard ? `<button class="btn sm" data-a="paste">جای‌گذاری</button>` : ''}
+      </div></div>`;
+  }
+  $('#cal').innerHTML = html;
+  const n = S.selected.size;
+  ['#clearSel', '#delSel', '#repeatBtn'].forEach(s => $(s).disabled = !n);
+}
+$('#cal').addEventListener('click', e => {
+  const a = e.target.dataset.a, cell = e.target.closest('.cell'); if (!a || !cell) return;
+  const date = cell.dataset.date;
+  if (a === 'sel') e.target.checked ? S.selected.add(date) : S.selected.delete(date);
+  if (a === 'del') S.days.delete(date);
+  if (a === 'copy') { S.clipboard = { ...S.days.get(date) }; toast('کپی شد؛ روی «جای‌گذاری» هر روز بزنید'); }
+  if (a === 'paste') S.days.set(date, { ...S.clipboard, date });
+  if (a === 'edit') return openDay(date);
+  render();
+});
+$('#clearSel').onclick = () => { S.selected.clear(); render(); };
+$('#delSel').onclick = () => { S.selected.forEach(d => S.days.delete(d)); S.selected.clear(); render(); };
+$('#repeatBtn').onclick = e => {
+  e.stopPropagation();
+  const sel = [...S.selected].sort(), span = (new Date(sel.at(-1)) - new Date(sel[0])) / 864e5 + 1;
+  $('#cycle').value = Math.ceil(span / 7) * 7;
+  $('#repeatMenu').classList.toggle('open');
+};
+document.addEventListener('click', e => { if (!e.target.closest('.dd')) $('#repeatMenu').classList.remove('open'); });
+$$('#repeatMenu [data-scope]').forEach(b => b.onclick = async () => {
+  const body = { days: [...S.days.values()], selectedDates: [...S.selected], cycleDays: +$('#cycle').value, scope: b.dataset.scope, year: S.year, clearRestDays: $('#clearRest').checked };
+  const r = await fetch(API + '/preview/repeat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json(); if (!r.ok) return toast(j.error);
+  S.days = new Map(j.days.map(d => [d.date, d])); $('#repeatMenu').classList.remove('open');
+  render(); toast(b.dataset.scope === 'month' ? 'الگو در ماه تکرار شد' : 'الگو در سال تکرار شد');
+});
+
+// ---------- مودال روز ----------
+let editing = null;
+const kind = () => $('input[name=dm_kind]:checked').value;
+$$('input[name=dm_kind]').forEach(r => r.onchange = () => { $('#dm_fixed').hidden = kind() !== 'fixed'; $('#dm_floating').hidden = kind() !== 'floating'; });
+$('#dm_p1').onchange = () => ['#dm_p1s', '#dm_p1e'].forEach(s => $(s).disabled = !$('#dm_p1').checked);
+$('#dm_p2').onchange = () => ['#dm_p2s', '#dm_p2e'].forEach(s => $(s).disabled = !$('#dm_p2').checked);
+$('#dm_advT').onclick = () => { $('#dm_adv').hidden = !$('#dm_adv').hidden; };
+function openDay(date) {
+  editing = date;
+  const j = yearDays(S.year).find(d => d.date === date), d = S.days.get(date) || { kind: 'fixed' }, r = d.rules || {};
+  $('#dm_title').textContent = `مشخصات شیفت (${WD[j.wd]}، ${faNum(`${j.jy}/${String(j.jm).padStart(2, '0')}/${String(j.jd).padStart(2, '0')}`)})`;
+  $(`input[name=dm_kind][value=${d.kind}]`).checked = true; $$('input[name=dm_kind]')[0].onchange();
+  $('#dm_p1').checked = true; $('#dm_p1s').value = d.p1_start || ''; $('#dm_p1e').value = d.p1_end || '';
+  $('#dm_p2').checked = !!d.p2_start; $('#dm_p2s').value = d.p2_start || ''; $('#dm_p2e').value = d.p2_end || '';
+  $('#dm_p1').onchange(); $('#dm_p2').onchange();
+  $('#dm_float').value = r.float_minutes ?? ''; $('#dm_cap').value = $('#dm_cap2').value = r.daily_overtime_cap ?? '';
+  $('#dm_req').value = d.required_minutes ? min2hm(d.required_minutes) : '07:30';
+  $('#dm_pws').value = r.punch_window_start || ''; $('#dm_pwe').value = r.punch_window_end || '';
+  $('#dm_next').checked = !!d.ends_next_day; $('#dm_ns').value = d.night_start || ''; $('#dm_nd').value = min2hm(d.night_minutes);
+  $('#dm_err').textContent = ''; $('#dayModal').classList.add('open');
+}
+$('#dm_save').onclick = () => {
+  const k = kind(), errs = [];
+  let day = { date: editing, kind: k };
+  if (k === 'fixed') {
+    if (!$('#dm_p1').checked || !$('#dm_p1s').value || !$('#dm_p1e').value) errs.push('زمان شروع و پایان قسمت اول الزامی است');
+    if ($('#dm_p2').checked && (!$('#dm_p2s').value || !$('#dm_p2e').value)) errs.push('قسمت دوم ناقص است');
+    Object.assign(day, { p1_start: $('#dm_p1s').value, p1_end: $('#dm_p1e').value,
+      p2_start: $('#dm_p2').checked ? $('#dm_p2s').value : null, p2_end: $('#dm_p2').checked ? $('#dm_p2e').value : null });
+    const rules = { float_minutes: numOrNull($('#dm_float').value), daily_overtime_cap: numOrNull($('#dm_cap').value) };
+    if (rules.float_minutes != null || rules.daily_overtime_cap != null) day.rules = rules;
+  } else {
+    const req = hm2min($('#dm_req').value); if (!req) errs.push('مدت زمان موظفی الزامی است');
+    Object.assign(day, { required_minutes: req, ends_next_day: $('#dm_next').checked, night_start: $('#dm_ns').value || null, night_minutes: hm2min($('#dm_nd').value),
+      rules: { daily_overtime_cap: numOrNull($('#dm_cap2').value), punch_window_start: $('#dm_pws').value || null, punch_window_end: $('#dm_pwe').value || null } });
+  }
+  $('#dm_err').textContent = errs.join('\n'); if (errs.length) return;
+  S.days.set(editing, day); $('#dayModal').classList.remove('open'); render();
+};
+$$('[data-close]').forEach(b => b.onclick = () => b.closest('.modal').classList.remove('open'));
+$('#openSettings').onclick = () => $('#setModal').classList.add('open');
+
+// ---------- ثبت ----------
+$('#save').onclick = async () => {
+  const rules = {}; RULES.forEach(k => { const v = $('#r_' + k).value; rules[k] = k.startsWith('punch') ? (v || null) : numOrNull(v); });
+  const settings = {}; SETTINGS.forEach(k => settings[k] = $('#st_' + k).checked);
+  const body = { name: $('#s_name').value, type: S.type, year: S.year, no_shift_overtime_cap: numOrNull($('#s_noshift').value),
+    follow_official_holidays: $('#s_holidays').checked, rules, settings, weekly: S.weekly, days: [...S.days.values()], _version:S.version };
+  const r = await fetch(S.id ? `${API}/${S.id}` : API, { method: S.id ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { $('#err3').textContent = (j.errors || [j.error]).join('\n'); return; }
+  $('#err3').textContent = ''; S.id = j.id; S.version=j._version; history.replaceState(null, '', '?id=' + j.id); toast('شیفت ثبت شد');
+};
+
+// ---------- بارگذاری (ویرایش) ----------
+(async () => {
+  fetch('/api/holidays').then(r => r.json()).then(h => { S.holidays = new Set(h.map(x => x.date)); if (!$('#step3').hidden) render(); }).catch(() => {});
+  if (!S.id) return;
+  const r = await fetch(`${API}/${S.id}`); if (!r.ok) return;
+  const s = await r.json();
+  Object.assign(S, { version:s._version, type: s.type, year: s.year, weekly: s.weekly, days: new Map(s.days.map(d => [d.date, d])) });
+  $('#s_name').value = s.name; $('#s_noshift').value = s.no_shift_overtime_cap ?? ''; $('#s_holidays').checked = !!s.follow_official_holidays;
+  RULES.forEach(k => $('#r_' + k).value = s.rules[k] ?? ''); SETTINGS.forEach(k => $('#st_' + k).checked = !!s.settings[k]);
+  $('h1').textContent = 'ویرایش شیفت'; $('#step1').hidden = true; openCalendar();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,3 @@
+-- Manual destructive rollback only. Export ticket data before use. identity_aliases (006) is untouched.
+DROP TABLE IF EXISTS ticket_logs;
+DROP TABLE IF EXISTS ticket_batches;
