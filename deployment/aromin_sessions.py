@@ -50,10 +50,12 @@ def _encode(raw):
     return base64.urlsafe_b64encode(raw).rstrip(b'=').decode('ascii')
 
 
-def issue(user, role, tenant):
+def issue(user, role, tenant, must_change_password=False, credential=None):
     now = int(time.time())
     claims = {'v': 1, 'user': user, 'role': role, 'tenant': tenant,
-              'iat': now, 'exp': now + TTL}
+              'iat': now, 'exp': now + TTL, 'must_change_password': bool(must_change_password)}
+    if credential is not None:
+        claims['credential'] = credential
     body = _encode(json.dumps(claims, separators=(',', ':'), ensure_ascii=True).encode())
     signature = _encode(hmac.new(signing_key(), body.encode('ascii'), hashlib.sha256).digest())
     return body + '.' + signature
@@ -76,6 +78,6 @@ def verify(token, tenant):
                 or not isinstance(claims.get('user'), str) or not claims['user']
                 or not isinstance(claims.get('role'), str)):
             return None
-        return {k: claims[k] for k in ('user', 'role', 'tenant')}
+        return {k: claims[k] for k in ('user', 'role', 'tenant', 'must_change_password', 'credential') if k in claims}
     except (ValueError, TypeError, KeyError, UnicodeError):
         return None

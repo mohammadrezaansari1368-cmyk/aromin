@@ -312,6 +312,101 @@ def _password_matches(password, stored):
     return _hmac.compare_digest(password.encode("utf-8"), stored.encode("utf-8"))
 
 
+def _hash_password(password):
+    # bcrypt has a 72-byte limit; reject longer input rather than truncate.
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("ascii")
+
+
+def _stored_password(rec):
+    return rec.get("pass_hash") or rec.get("pass") or rec.get("password") or ""
+
+
+def _must_change(rec):
+    stored = _stored_password(rec)
+    return bool(rec.get("must_change_password")) or not stored or _password_matches("123", stored)
+
+
+def _credential(rec):
+    return _hmac.new(sessions.signing_key(), str(_stored_password(rec)).encode(), hashlib.sha256).hexdigest()
+
+
+def _redact_passwords(value):
+    if isinstance(value, dict):
+        return {k: _redact_passwords(v) for k, v in value.items()
+                if not any(word in str(k).lower() for word in ("pass", "hash"))}
+    if isinstance(value, list):
+        return [_redact_passwords(v) for v in value]
+    return value
+
+
+def _store_password(tenant, user, password, rec, required=False):
+    hashed = _hash_password(password)
+    if not tenant:
+        q("UPDATE users SET pass_hash=%s WHERE username=%s", (hashed, user))
+    else:
+        cx = db_conn()
+        cx.autocommit(False)
+        try:
+            with cx.cursor() as cur:
+                cur.execute("SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE", (tenant,))
+                row = cur.fetchone()
+                if not row:
+                    raise PublicError("کاربر پیدا نشد.")
+                full = parse(row["payload"])
+                users = full.setdefault("users", {})
+                live = users.get(user, rec)
+                if _stored_password(live) != _stored_password(rec):
+                    raise PublicError("اطلاعات ورود تغییر کرده است؛ دوباره وارد شوید.")
+                updated = dict(live)
+                for key in list(updated):
+                    if any(w in key.lower() for w in ("pass", "hash")):
+                        updated.pop(key)
+                updated.update(pass_hash=hashed, must_change_password=required)
+                users[user] = updated
+                cur.execute("UPDATE tenant_state SET payload=%s WHERE tenant=%s", (j(full), tenant))
+            cx.commit()
+        except Exception:
+            cx.rollback()
+            raise
+        finally:
+            cx.close()
+    result = dict(rec, pass_hash=hashed, must_change_password=required)
+    result.pop("pass", None)
+    result.pop("password", None)
+    return result
+
+
+def _session_result(tenant, user, rec, people=()):
+    if rec.get("person") and any(p.get("name") == rec["person"] and p.get("inactive") for p in people):
+        return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
+    required = _must_change(rec)
+    role = str(rec.get("role") or "sales")
+    return {"ok": True, "token": sessions.issue(user, role, tenant, required, _credential(rec)),
+            "expiresIn": sessions.TTL, "must_change_password": required,
+            "session": {"user": user, "name": rec.get("person") or user, "role": role,
+                        "tenant": tenant, "must_change_password": required}}
+
+
+@app.middleware("http")
+async def restricted_password_session(request, call_next):
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer ") and request.url.path.startswith("/api/"):
+        token = auth[7:].strip()
+        try:
+            body = token.split(".")[0] if len(token) <= 4096 else ""
+            tenant = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))).get("tenant")
+            claims = sessions.verify(token, tenant)
+        except (ValueError, TypeError, UnicodeError, AttributeError):
+            claims = None
+        if claims and claims.get("must_change_password") and request.url.path not in ("/api/auth/change-password", "/api/change-password"):
+            return JSONResponse({"ok": False, "must_change_password": True,
+                                 "error": "ابتدا رمز عبور را تغییر دهید."}, status_code=403)
+    response = await call_next(request)
+    if request.url.path == "/api/state":
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def _bearer(request, tenant):
     auth = request.headers.get("authorization", "")
     if not auth.lower().startswith("bearer "):
@@ -324,14 +419,20 @@ def _db_identity(request):
     if not ident:
         return None
     rows = q("SELECT * FROM users WHERE username=%s", (ident["user"],))
-    if not rows:
+    if not rows or ident.get("must_change_password") or _must_change(rows[0]):
+        return None
+    if ident.get("credential") and ident["credential"] != _credential(rows[0]):
         return None
     return dict(ident, role=str(rows[0].get("role") or "sales"))
 
 
 def _management_guard(request, tenant=""):
     ident = kb_identity(request, tenant) if tenant else _db_identity(request)
-    if not ident:
+    if not ident and not tenant:
+        scope = request.headers.get("x-aromin-tenant", "")
+        if scope:
+            ident = kb_identity(request, scope)
+    if not _bearer(request, tenant or request.headers.get("x-aromin-tenant", "")) or not ident:
         return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
     if ident["role"] not in KB_ADMIN_ROLES + ("admin",):
         return JSONResponse({"ok": False, "error": "این عملیات فقط برای مدیر مجاز است."}, status_code=403)
@@ -339,73 +440,85 @@ def _management_guard(request, tenant=""):
 
 
 @app.post("/api/auth/session")
-def session_login(payload: dict = Body(default={})):
+def session_login(payload: dict = Body(default={}), request: Request = None):
     tenant = str((payload or {}).get("tenant") or "").strip()
     user = str((payload or {}).get("username") or "").strip()
     password = str((payload or {}).get("password") or "")
-    if len(user) > 200 or len(password.encode("utf-8")) > 4096 or (tenant and not _TENANT_RE.fullmatch(tenant)):
+    if len(user) > 200 or len(password.encode("utf-8")) > 72 or (tenant and not _TENANT_RE.fullmatch(tenant)):
         return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
+    if payload.get("resume"):
+        ident = kb_identity(request, tenant) if request and tenant else (_db_identity(request) if request else None)
+        if not ident or not _bearer(request, tenant):
+            return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
+        if tenant:
+            users, people = _kb_directory(tenant)
+            return _session_result(tenant, ident["user"], users[ident["user"]], people)
+        return _session_result(tenant, ident["user"], q("SELECT * FROM users WHERE username=%s", (ident["user"],))[0])
+    if payload.get("credential"):
+        return google_auth(payload)
+    if payload.get("mobile"):
+        verified = otp_verify(payload)
+        if not verified.get("ok"):
+            return verified
+        users, people = _kb_directory(tenant)
+        mobile = _otp_norm_mobile(payload.get("mobile"))
+        matches = [(u, r) for u, r in users.items() if
+                   _otp_norm_mobile(r.get("mobile")) == mobile or any(
+                       p.get("name") == r.get("person") and _otp_norm_mobile(p.get("mobile")) == mobile for p in people)]
+        if len(matches) != 1 or not _tenant_full(tenant):
+            return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
+        user, rec = matches[0]
+        return _session_result(tenant, user, rec, people)
     if tenant:
         # A missing tenant must never authenticate through synthetic defaults.
         if not _tenant_full(tenant):
             return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
         users, people = _kb_directory(tenant)
         rec = users.get(user)
-        good = rec and _password_matches(password, rec.get("pass_hash") or rec.get("pass"))
+        good = rec and _password_matches(password, _stored_password(rec) or "123")
         if rec and rec.get("person") and any(p.get("name") == rec["person"] and p.get("inactive") for p in people):
             good = False
     else:
         rows = q("SELECT * FROM users WHERE username=%s", (user,))
         rec = rows[0] if rows else None
-        good = rec and _password_matches(password, rec.get("pass_hash"))
+        good = rec and _password_matches(password, _stored_password(rec) or "123")
     if not good:
         return JSONResponse({"ok": False, "error": "نام کاربری یا رمز عبور درست نیست."}, status_code=401)
-    role = str(rec.get("role") or "sales")
-    return {"ok": True, "token": sessions.issue(user, role, tenant), "expiresIn": sessions.TTL,
-            "session": {"user": user, "name": rec.get("person") or user, "role": role, "tenant": tenant}}
+    stored = str(_stored_password(rec))
+    if not stored.startswith(("$2a$", "$2b$", "$2y$")):
+        rec = _store_password(tenant, user, password, rec, _must_change(rec))
+    return _session_result(tenant, user, rec, people if tenant else ())
 
 
 # ---------------- ورود ----------------
 @app.post("/api/login")
 def login(payload: dict = Body(default={})):
-    username = str((payload or {}).get("username", "")).strip()
-    password = str((payload or {}).get("password", ""))
-    rows = q("SELECT * FROM users WHERE username=%s", (username,))
-    if not rows:
-        return {"ok": False, "error": "کاربری با این نام پیدا نشد."}
-    u = rows[0]
-    try:
-        good = bcrypt.checkpw(password.encode("utf-8"), u["pass_hash"].encode("utf-8"))
-    except Exception:
-        good = False
-    if not good:
-        return {"ok": False, "error": "رمز عبور درست نیست."}
-    acc = q("SELECT panel FROM role_access WHERE role=%s", (u["role"],))
-    return {
-        "ok": True,
-        "user": {"username": u["username"], "role": u["role"],
-                 "canEdit": bool(u.get("can_edit")), "personId": u.get("person_id")},
-        "panels": [a["panel"] for a in acc],
-    }
+    return session_login(payload)
 
 
+@app.post("/api/auth/change-password")
 @app.post("/api/change-password")
-def change_password(payload: dict = Body(default={})):
-    username = (payload or {}).get("username")
-    current = str((payload or {}).get("current", ""))
-    nxt = str((payload or {}).get("next", ""))
-    rows = q("SELECT * FROM users WHERE username=%s", (username,))
-    if not rows:
-        return {"ok": False, "error": "کاربر پیدا نشد."}
-    try:
-        ok = bcrypt.checkpw(current.encode("utf-8"), rows[0]["pass_hash"].encode("utf-8"))
-    except Exception:
-        ok = False
-    if not ok:
-        return {"ok": False, "error": "رمز فعلی درست نیست."}
-    h = bcrypt.hashpw(nxt.encode("utf-8"), bcrypt.gensalt(rounds=10)).decode("utf-8")
-    q("UPDATE users SET pass_hash=%s WHERE username=%s", (h, username))
-    return {"ok": True}
+def change_password(request: Request, payload: dict = Body(default={})):
+    tenant = str(payload.get("tenant") or "").strip()
+    ident = _bearer(request, tenant)
+    if not ident:
+        return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
+    if tenant:
+        users, people = _kb_directory(tenant)
+        rec = users.get(ident["user"])
+    else:
+        rows = q("SELECT * FROM users WHERE username=%s", (ident["user"],))
+        rec, people = (rows[0] if rows else None), []
+    if not rec or (ident.get("credential") and ident["credential"] != _credential(rec)) or any(
+            p.get("name") == rec.get("person") and p.get("inactive") for p in people):
+        return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
+    nxt = str(payload.get("next") or "")
+    if nxt.strip() == "123" or len(nxt.strip()) < 8 or len(nxt.encode("utf-8")) > 72:
+        return JSONResponse({"ok": False, "error": "رمز تازه باید حداقل ۸ نویسه و متفاوت از رمز پیش‌فرض باشد."}, status_code=422)
+    if not ident.get("must_change_password") and not _password_matches(str(payload.get("current") or ""), _stored_password(rec)):
+        return JSONResponse({"ok": False, "error": "رمز فعلی درست نیست."}, status_code=403)
+    rec = _store_password(tenant, ident["user"], nxt, rec)
+    return _session_result(tenant, ident["user"], rec, people)
 
 
 # ---------------- خواندنِ کل وضعیت ----------------
@@ -415,7 +528,7 @@ def get_state(tenant: str = Query(default="")):
     if tenant:
         ensure_tenant_table()
         rows = q("SELECT payload FROM tenant_state WHERE tenant=%s", (tenant,))
-        return {"ok": True, "full": parse(rows[0]["payload"]) if rows else None}
+        return {"ok": True, "full": _redact_passwords(parse(rows[0]["payload"])) if rows else None}
 
     people = q("SELECT * FROM people ORDER BY id")
     deals = q("SELECT * FROM deals")
@@ -476,7 +589,7 @@ def get_state(tenant: str = Query(default="")):
             }
             full["years"][fy] = {"budget": BUDGET, "targets": {}}
 
-    return {
+    return _redact_passwords({
         "ok": True,
         "full": full,
         "people": [{
@@ -493,7 +606,7 @@ def get_state(tenant: str = Query(default="")):
         } for t in tickets],
         "ACCESS": ACCESS, "BUDGET": BUDGET,
         "PERF": settings.get("PERF"), "SERVICE": settings.get("SERVICE"),
-    }
+    })
 
 
 _SETTLEMENTS = {"cash", "check", "hold", "cash_after_check"}
@@ -556,9 +669,51 @@ def import_history_delete(request: Request, payload: dict = Body(default={})):
 
 
 # ---------------- ذخیرهٔ کل وضعیت ----------------
+def _state_credentials(old, st, ident):
+    old = old or {}
+    admin = ident["role"] in KB_ADMIN_ROLES + ("admin",)
+    supplied = st.get("users", old.get("users", {}))
+    if not isinstance(supplied, dict):
+        return JSONResponse({"ok": False, "error": "کاربران نامعتبر است."}, status_code=422)
+    # Redacted round trips retain server credentials. Client hash injection is never accepted.
+    merged = {}
+    for user, rec in supplied.items():
+        if not isinstance(rec, dict):
+            return JSONResponse({"ok": False}, status_code=422)
+        previous = (old.get("users") or {}).get(user, {})
+        clean = _redact_passwords(rec)
+        for key, val in previous.items():
+            if any(w in key.lower() for w in ("pass", "hash")):
+                clean[key] = val
+        password = rec.get("pass") if "pass" in rec else rec.get("password")
+        if password is not None:
+            if not admin:
+                return JSONResponse({"ok": False}, status_code=403)
+            password = str(password)
+            if len(password.encode()) > 72:
+                return JSONResponse({"ok": False}, status_code=422)
+            clean.pop("pass", None)
+            clean.pop("password", None)
+            clean.update(pass_hash=_hash_password(password or "123"), must_change_password=not password or password == "123")
+        merged[user] = clean
+    st["users"] = merged
+    def security(full):
+        return {k: full.get(k) for k in ("users", "ACCESS", "access", "tenant", "tenantInfo", "tenants")}, [
+            {k: p.get(k) for k in ("id", "name", "role", "access", "inactive", "mobile", "email")} for p in full.get("people", [])]
+    if not admin and security(dict(old, users=old.get("users", {}))) != security(st):
+        return JSONResponse({"ok": False, "error": "تغییر کاربران فقط برای مدیر مجاز است."}, status_code=403)
+    return None
+
+
 @app.post("/api/state")
-def post_state(payload: dict = Body(default={}), tenant: str = Query(default="")):
+def post_state(request: Request, payload: dict = Body(default={}), tenant: str = Query(default="")):
+    tenant = (tenant or "").strip()
+    ident = kb_identity(request, tenant) if tenant else _db_identity(request)
+    if not _bearer(request, tenant) or not ident:
+        return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
     st = payload or {}
+    if not tenant and ident["role"] not in KB_ADMIN_ROLES + ("admin",):
+        return JSONResponse({"ok": False, "error": "این عملیات فقط برای مدیر مجاز است."}, status_code=403)
     if not _settlements_valid(st):
         return JSONResponse({"ok": False, "error": "وضعیت تسویه نامعتبر است."}, status_code=422)
     tenant = (tenant or "").strip()
@@ -571,6 +726,9 @@ def post_state(payload: dict = Body(default={}), tenant: str = Query(default="")
                 cur.execute("SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE", (tenant,))
                 row = cur.fetchone()
                 old = parse(row["payload"]) if row else None
+                denied = _state_credentials(old, st, ident)
+                if denied is not None:
+                    return denied
                 _preserve_import_history(old, st)
                 _preserve_compensation(old, st)
                 _merge_sale_dates(old, st)
@@ -587,6 +745,10 @@ def post_state(payload: dict = Body(default={}), tenant: str = Query(default="")
             cx.close()
         return {"ok": True, "savedAt": datetime.datetime.utcnow().isoformat() + "Z", "tenant": tenant}
 
+    snapshots = q("SELECT payload FROM snapshots ORDER BY id DESC LIMIT 1")
+    denied = _state_credentials(parse(snapshots[0]["payload"]) if snapshots else {}, st, ident)
+    if denied is not None:
+        return denied
     cx = db_conn()
     cx.autocommit(False)
     try:
@@ -695,7 +857,10 @@ def health():
 
 # ---------------- چنداکانتی: کسب‌وکارها ----------------
 @app.get("/api/tenants")
-def tenants_list():
+def tenants_list(request: Request):
+    denied = _management_guard(request)
+    if denied is not None:
+        return denied
     ensure_tenant_table()
     rows = q("SELECT tenant AS id, industry, name FROM tenant_state ORDER BY name")
     return {"ok": True, "tenants": rows}
@@ -1148,7 +1313,9 @@ def kb_identity(request, tenant):
         return None
     users, people = _kb_directory(tenant)
     rec = users.get(user)
-    if not rec or (not ident and not _password_matches(pw, rec.get("pass_hash") or rec.get("pass"))):
+    if not rec or _must_change(rec) or (ident and ident.get("must_change_password")) or (not ident and not _password_matches(pw, _stored_password(rec))):
+        return None
+    if ident and ident.get("credential") and ident["credential"] != _credential(rec):
         return None
     person = rec.get("person")
     if person and any((p or {}).get("name") == person and (p or {}).get("inactive") for p in people):
@@ -1727,7 +1894,7 @@ def otp_request(payload: dict = Body(default={})):
     if cur and (now - cur["last"]) < OTP_RESEND:
         wait = int(OTP_RESEND - (now - cur["last"]))
         return {"ok": False, "error": "کمی صبر کنید؛ کد ارسال شده (%dث)." % max(wait, 1)}
-    code = "%06d" % random.randint(0, 999999)   # ۶ رقمی (صفرهای ابتدایی حفظ)
+    code = "%06d" % secrets.randbelow(1000000)   # ۶ رقمی (صفرهای ابتدایی حفظ)
     r = send_otp_sms(mobile, code)
     raw = (r or {}).get("result") if isinstance(r, dict) else None
     ok_http = isinstance(r, dict) and r.get("ok")
@@ -1737,7 +1904,7 @@ def otp_request(payload: dict = Body(default={})):
                 "error": "ارسالِ پیامک ناموفق بود.",
                 "detail": detail,           # پاسخِ خامِ نبض‌کار — برای دیدنِ علتِ دقیق
                 "hint": "الگوی %s تأیید شده؟ SMS_FROM درست است؟" % OTP_PATTERN}
-    _otp[mobile] = {"code": code, "exp": now + OTP_TTL, "tries": 0, "last": now}
+    _otp[mobile] = {"code": code, "exp": now + OTP_TTL, "tries": 0, "last": now, "tenant": str(payload.get("tenant") or "team")}
     return {"ok": True}
 
 
@@ -1746,7 +1913,7 @@ def otp_verify(payload: dict = Body(default={})):
     mobile = _otp_norm_mobile((payload or {}).get("mobile"))
     code = re.sub(r"\D", "", str((payload or {}).get("code") or ""))
     rec = _otp.get(mobile)
-    if not rec:
+    if not rec or rec.get("tenant", "team") != str(payload.get("tenant") or "team"):
         return {"ok": False, "error": "ابتدا کد را دریافت کنید."}
     if time.time() > rec["exp"]:
         _otp.pop(mobile, None)
@@ -3582,12 +3749,12 @@ def google_auth(payload: dict = Body(default={})):
     users = full.get("users") or {}
     for uname, rec in users.items():
         if isinstance(rec, dict) and str(rec.get("email", "")).strip().lower() == g["email"]:
-            return {"ok": True, "user": uname}
+            return _session_result(tenant, uname, _kb_directory(tenant)[0].get(uname, rec), full.get("people") or [])
     for p in full.get("people") or []:
         if str(p.get("email", "")).strip().lower() == g["email"]:
             for uname, rec in users.items():
                 if isinstance(rec, dict) and rec.get("person") == p.get("name"):
-                    return {"ok": True, "user": uname}
+                    return _session_result(tenant, uname, _kb_directory(tenant)[0].get(uname, rec), full.get("people") or [])
     # ناشناس → درخواستِ عضویت در جدولِ جدا (نه داخلِ بلاب؛ اپِ قدیمی بلاب را کامل بازنویسی می‌کند)
     _ensure_signup_table()
     q("""INSERT INTO signup_requests (tenant, email, name, picture, via, status) VALUES (%s,%s,%s,%s,'google','pending')

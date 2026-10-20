@@ -7,7 +7,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { currentTenant } from '@/lib/data'
-import { activeAuthHeaders } from '@/lib/auth'
+import { activeAuthHeaders, activeManagerSession } from '@/lib/auth'
 
 export async function fetchFull(): Promise<any | null> {
 	const r = await fetch(`/api/state?tenant=${encodeURIComponent(currentTenant())}`, { cache: 'no-store', headers: activeAuthHeaders() })
@@ -36,7 +36,7 @@ export function saveState(mutator: (full: any) => void, opts: { forceBackup?: bo
 	const run = async () => {
 		const full = await fetchFull()
 		if (!valid(full)) throw new Error('empty')
-		if (!backedUp || opts.forceBackup) {
+		if (activeManagerSession() && (!backedUp || opts.forceBackup)) {
 			await backup(full, opts.tag || 'react-forecast')
 			backedUp = true
 		}

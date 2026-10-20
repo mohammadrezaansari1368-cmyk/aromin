@@ -37,6 +37,10 @@ class Sessions(unittest.TestCase):
         self.full.start()
         self.addCleanup(self.full.stop)
 
+        migration = patch.object(server, '_store_password', side_effect=lambda tenant, user, password, rec, required=False: dict(rec, pass_hash=server._hash_password(password), must_change_password=required))
+        migration.start()
+        self.addCleanup(migration.stop)
+
     def token(self, user='مدیر', tenant='team'):
         return sessions.issue(user, 'manager', tenant)
 
@@ -80,7 +84,7 @@ class Sessions(unittest.TestCase):
 
     def test_live_role_removal_and_inactive_person(self):
         token = self.token()
-        with patch.object(server, '_kb_directory', return_value=({'مدیر': {'role': 'sales'}}, [])):
+        with patch.object(server, '_kb_directory', return_value=({'مدیر': {'role': 'sales', 'pass': 'synthetic-password'}}, [])):
             self.assertEqual(server.kb_identity(request(token), 'team')['role'], 'sales')
         for users, people in [({}, []), ({'مدیر': {'person': 'Test'}}, [{'name': 'Test', 'inactive': True}])]:
             with patch.object(server, '_kb_directory', return_value=(users, people)):
@@ -107,13 +111,13 @@ class Sessions(unittest.TestCase):
                      lambda: server.backup_get(sales, 1, 'team')]:
             self.assertEqual(call().status_code, 403)
         self.assertEqual(server.tenants_create(request(self.token()), {}).status_code, 401)
-        with patch.object(server, 'q', return_value=[{'role': 'sales'}]):
+        with patch.object(server, 'q', return_value=[{'role': 'sales', 'pass_hash': 'synthetic-password'}]):
             global_sales = request(sessions.issue('db-sales', 'sales', ''))
             self.assertEqual(server.users_upsert(global_sales, {}).status_code, 403)
             self.assertEqual(server.tenants_create(global_sales, {}).status_code, 403)
             self.assertEqual(server.tenants_delete(global_sales, 'other').status_code, 403)
 
-        with patch.object(server, 'q', return_value=[{'role': 'admin'}]):
+        with patch.object(server, 'q', return_value=[{'role': 'admin', 'pass_hash': 'synthetic-password'}]):
             self.assertIsNone(server._management_guard(request(sessions.issue('db-admin', 'admin', ''))))
 
     def test_authorized_backup_is_scoped_to_tenant(self):
