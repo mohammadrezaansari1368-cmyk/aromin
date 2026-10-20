@@ -1,3 +1,5 @@
+2026-10-20 · WP-01 تکمیل: state با نشست و حفظ رمزهای سرور، هش bcrypt و تغییر اجباری رمز پیش‌فرض، ورود React/legacy/OTP/Google با نشست، مدیریت کسب‌وکار و بک‌آپ فقط مدیر. تست: Python 213 (۶ skip؛ بیدارباش asyncio فقط در محیط اجرای تست)، Vitest و tsc موفق؛ بدون push/deploy.
+
 # HANDOFF — «تا اینجا انجام دادم»
 
 2026-10-16 · Claude Code · feat/calls-server: سرورِ MCPِ داشبورد (به‌جای دو REST؛ تصمیمِ مالک) — POST /api/mcp (Streamable HTTP، stateless، JSON)، Bearer از /etc/aromin/mcp.env (install.sh می‌سازد یا با MCP_TOKEN_IMPORT از فایلِ مالکِ root وارد می‌کند؛ 640 برای گروهِ سرویس). ابزارها: ask_aromin_agent (دانشِ داخلی با scope=harikan، context فقط داده، سقفِ ۲۲ ثانیهٔ سرتاسری، ۴ کارگر)، save/get/list_attendance_export (upsert با kind+key، کلیدِ شمسیِ معتبر، مهاجرت ۰۱۰). پلِ CRM (C:\HarikanCRM، بیرونِ گیت) با tools/call می‌فرستد و پاسخ را کامل می‌سنجد. طرح: Codex ۳ دور → APPROVED؛ کد: ۲ دور (۷ ایراد رفع شد؛ رفع‌های دورِ دوم بازبینیِ Codex ندارند). backend 189. فازِ ۲: پر کردنِ تبِ عملکرد/حضور از harikan_exports.

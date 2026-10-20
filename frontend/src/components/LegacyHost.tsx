@@ -40,7 +40,7 @@ const LegacyHost = forwardRef<LegacyHostHandle, { session: Session; panel: strin
 			}),
 		[send],
 	)
-	const sendAuth = useCallback(() => send({ aromin: 'auth', user: session.user, pass: session.pass }), [send, session])
+	const sendAuth = useCallback(() => send({ aromin: 'auth', user: session.user, token: session.token }), [send, session])
 	// تمِ رابط کاربری → پوستهٔ اپِ کامل (فقط ظاهر)
 	const theme = useTheme()
 	const sendTheme = useCallback(() => send({ aromin: 'theme', mode: theme.mode, vars: legacyVars() }), [send, theme])
