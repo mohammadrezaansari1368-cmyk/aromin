@@ -4384,6 +4384,21 @@ def widget_public_config(request: Request, site_id: str = PathParam(...)):
     return _w_json(_w_public_cfg(site), origin)
 
 
+async def _w_body(request, limit):
+    """Request body up to `limit` bytes, or None when larger (Content-Length checked first, then the stream is cut off)."""
+    try:
+        if int(request.headers.get("content-length") or 0) > limit:
+            return None
+    except ValueError:
+        return None
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf += chunk
+        if len(buf) > limit:
+            return None
+    return bytes(buf)
+
+
 @app.post("/api/widget/public/{site_id}/chat")
 async def widget_public_chat(request: Request, site_id: str = PathParam(...)):
     site, origin, err = _w_site_for(request, site_id)
@@ -4391,9 +4406,11 @@ async def widget_public_chat(request: Request, site_id: str = PathParam(...)):
         return err
     if not _w_public_cfg(site)["enabled"]:
         return _w_json({"ok": False, "error": "ابزارک غیرفعال است."}, origin, 403)
+    raw = await _w_body(request, 40000)
+    if raw is None:
+        return _w_json({"ok": False, "error": "درخواست بیش از حدِ مجاز بزرگ است."}, origin, 413)
     try:
-        raw = await request.body()
-        p = json.loads(raw[:40000].decode("utf-8")) if raw else {}
+        p = json.loads(raw.decode("utf-8")) if raw else {}
     except Exception:
         return _w_json({"ok": False, "error": "درخواست نامعتبر است."}, origin, 400)
     conv, vis = str(p.get("conversationId") or ""), str(p.get("visitorId") or "")
@@ -4423,7 +4440,7 @@ async def widget_public_chat(request: Request, site_id: str = PathParam(...)):
         if not out.get("ok"):
             agent_event(site["tenant"], sid, "error", {"code": "reply"})
         elif p.get("consent") is True:                 # فقط با رضایتِ صریحِ بازدیدکننده، بدونِ اطلاعاتِ شخصی (برای fine-tune)
-            agent_training_save(site["tenant"], conv, history + [{"role": "assistant", "content": out.get("text") or ""}])
+            agent_training_save(site["tenant"], conv, history + [{"role": "assistant", "content": out.get("text") or ""}], agent_conv_names(site["tenant"], conv))
     return _w_json(out, origin, 200 if out.get("ok") else 502)
 
 
@@ -4460,9 +4477,11 @@ async def bot_answer(request: Request):
     got = request.headers.get("x-bot-key") or ""
     if not _hmac.compare_digest(got.encode("utf-8"), BOT_ANSWER_KEY.encode("utf-8")):
         return JSONResponse({"ok": False}, status_code=401)
+    raw = await _w_body(request, 20000)
+    if raw is None:
+        return JSONResponse({"ok": False, "error": "too large"}, status_code=413)
     try:
-        raw = await request.body()
-        p = json.loads(raw[:20000].decode("utf-8")) if raw else {}
+        p = json.loads(raw.decode("utf-8")) if raw else {}
     except Exception:
         return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
     conv = str(p.get("conversationId") or "")
@@ -5838,6 +5857,100 @@ def _agent_int(v, lo, hi, d):
         return d
 
 
+_AGENT_WHEN = set(AGENT_COND) | {"minSeconds", "minScroll", "visitor", "manual"}
+_AGENT_ID_RE = re.compile(r"-?\d{3,20}|@[A-Za-z][A-Za-z0-9_]{3,63}")
+
+
+def _agent_bad_ids(v, where, errs):
+    if v is None:
+        return
+    items = v if isinstance(v, list) else str(v).replace("،", ",").split(",") if isinstance(v, str) else None
+    if items is None:
+        errs.append(where + ": فهرستِ شناسه‌ها باید آرایه یا متنِ جداشده با ویرگول باشد.")
+        return
+    items = [str(x).strip() for x in items if str(x).strip()]
+    bad = [x for x in items if not _AGENT_ID_RE.fullmatch(x)]
+    if bad:
+        errs.append(where + ": شناسهٔ نامعتبر «" + "، ".join(bad[:3])[:80] + "» (عددِ chat_id یا @نام‌کاربری).")
+    if len(items) > 10:
+        errs.append(where + ": حداکثر ۱۰ گیرنده.")
+
+
+def agent_validate(src):
+    """Strict check of the trigger and routing sections before saving → list of Persian errors ([] = valid).
+    agent_norm still clamps the rest; nothing is saved when this returns errors."""
+    errs = []
+    if not isinstance(src, dict):
+        return ["تنظیمات باید یک شیء JSON باشد."]
+    if "triggers" in src:
+        trs = src["triggers"]
+        if not isinstance(trs, list):
+            errs.append("triggers باید فهرست باشد.")
+            trs = []
+        if len(trs) > 20:
+            errs.append("حداکثر ۲۰ تریگر.")
+        seen = set()
+        for i, t in enumerate(trs[:20], 1):
+            at = "تریگرِ %d" % i
+            if not isinstance(t, dict):
+                errs.append(at + ": باید شیء باشد."); continue
+            tid = str(t.get("id") or "")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", tid):
+                errs.append(at + ": شناسه فقط حروفِ لاتین، عدد، - و _ (حداکثر ۳۲)."); continue
+            if tid in seen:
+                errs.append(at + ": شناسهٔ تکراری «" + tid + "»."); continue
+            seen.add(tid)
+            w = t.get("when", {})
+            if not isinstance(w, dict):
+                errs.append(at + ": شرط‌ها (when) باید شیء باشد."); continue
+            unknown = sorted(set(w) - _AGENT_WHEN)
+            if unknown:
+                errs.append(at + ": شرطِ ناشناخته «" + "، ".join(unknown)[:60] + "».")
+            for k, n in AGENT_COND.items():
+                if w.get(k) not in (None, "") and (not isinstance(w[k], str) or len(w[k]) > n):
+                    errs.append(at + ": «" + k + "» باید متنِ حداکثر %d نویسه باشد." % n)
+            for k, hi in (("minSeconds", 3600), ("minScroll", 100)):
+                v = w.get(k)
+                if v not in (None, "") and (isinstance(v, bool) or not str(v).isdigit() or not 0 <= int(v) <= hi):
+                    errs.append(at + ": «" + k + "» باید عددِ ۰ تا %d باشد." % hi)
+            if w.get("visitor") not in (None, "", "first", "returning"):
+                errs.append(at + ": visitor فقط first یا returning.")
+            if t.get("emotion") not in (None, "") and t.get("emotion") not in AGENT_STATES:
+                errs.append(at + ": حالتِ چهرهٔ ناشناخته.")
+            if t.get("message") is not None and (not isinstance(t["message"], str) or len(t["message"]) > 200):
+                errs.append(at + ": پیام باید متنِ حداکثر ۲۰۰ نویسه باشد.")
+    if "routing" in src:
+        r = src["routing"]
+        if not isinstance(r, dict):
+            errs.append("routing باید شیء باشد.")
+            r = {}
+        for k in ("telegram", "bale"):
+            if k in r and not isinstance(r[k], bool):
+                errs.append("routing." + k + " باید true/false باشد.")
+        rc = r.get("recipients", {})
+        if not isinstance(rc, dict):
+            errs.append("گیرنده‌ها (recipients) باید شیء باشد.")
+            rc = {}
+        for k in ("telegram", "bale"):
+            _agent_bad_ids(rc.get(k), "گیرنده‌های " + ("تلگرام" if k == "telegram" else "بله"), errs)
+        rules = r.get("rules", [])
+        if not isinstance(rules, list):
+            errs.append("قوانینِ مسیریابی (rules) باید فهرست باشد.")
+            rules = []
+        if len(rules) > 20:
+            errs.append("حداکثر ۲۰ قانونِ مسیریابی.")
+        for i, x in enumerate(rules[:20], 1):
+            at = "قانونِ %d" % i
+            if not isinstance(x, dict):
+                errs.append(at + ": باید شیء باشد."); continue
+            m = x.get("match")
+            if not isinstance(m, str) or not m.strip() or len(m) > 120:
+                errs.append(at + ": «match» باید متنِ ۱ تا ۱۲۰ نویسه باشد.")
+            _agent_bad_ids(x.get("telegram"), at + " (تلگرام)", errs)
+            _agent_bad_ids(x.get("bale"), at + " (بله)", errs)
+    return errs
+
+
 def agent_norm(src, base=None):
     """اعتبارسنجیِ قطعیِ تنظیمات (ورودیِ مدیر یا دیتابیس) روی پیش‌فرض‌ها؛ هر مقدارِ نامعتبر نادیده گرفته می‌شود."""
     out = json.loads(json.dumps(base or AGENT_DEFAULTS))
@@ -6082,6 +6195,14 @@ _AGENT_PII = [(re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"), "[EMAIL]"),
               (re.compile(r"\d[\d\s-]{5,}\d"), "[NUMBER]")]
 
 
+def agent_conv_names(tenant, conv):
+    """Names of the leads captured in this conversation, so the training copy never keeps them."""
+    try:
+        return [r["name"] for r in q("SELECT name FROM sa_leads WHERE tenant=%s AND conversation_id=%s", (tenant, conv)) or [] if r.get("name")]
+    except Exception:
+        return []
+
+
 def agent_redact(text, names=()):
     """حذفِ PII پیش از ذخیره/خروجیِ fine-tune: ایمیل، موبایل، نشانی، عددهای بلند (کارت/کدملی) و نام‌های شناخته‌شده."""
     t = str(text or "").translate(_TO_EN_DIGITS)
@@ -6091,6 +6212,9 @@ def agent_redact(text, names=()):
         nm = str(nm or "").strip()
         if len(nm) >= 2:
             t = t.replace(nm, "[NAME]")
+            for part in nm.split():                       # «علی» alone, as a whole word only
+                if len(part) >= 2:
+                    t = re.sub(r"(?<!\w)" + re.escape(part) + r"(?!\w)", "[NAME]", t)
     return t[:2000]
 
 
@@ -6142,9 +6266,11 @@ async def widget_public_event(request: Request, site_id: str = PathParam(...)):
         return err
     if not _w_allow(("evt", _w_ip(request)), 60, 600):
         return _w_json({"ok": False}, origin, 429)
+    raw = await _w_body(request, 2000)
+    if raw is None:
+        return _w_json({"ok": False}, origin, 413)
     try:
-        raw = await request.body()
-        p = json.loads(raw[:2000].decode("utf-8")) if raw else {}
+        p = json.loads(raw.decode("utf-8")) if raw else {}
     except Exception:
         return _w_json({"ok": False}, origin, 400)
     ev = str(p.get("event") or "")
@@ -6178,7 +6304,11 @@ def agent_settings_put(request: Request, payload: dict = Body(default={}), tenan
     ident, err = _w_guard(request, tenant, True)
     if err:
         return err
-    cfg = agent_save(tenant, payload.get("settings") if isinstance(payload.get("settings"), dict) else payload, ident.get("name") or ident.get("role"))
+    src = payload.get("settings") if isinstance(payload.get("settings"), dict) else payload
+    errs = agent_validate(src)
+    if errs:                                               # nothing saved: the last valid config stays active
+        return JSONResponse({"ok": False, "error": "تنظیمات ذخیره نشد: " + errs[0], "errors": errs[:20]}, status_code=400)
+    cfg = agent_save(tenant, src, ident.get("name") or ident.get("role"))
     if cfg is None:
         return JSONResponse({"ok": False, "error": "دیتابیس در دسترس نیست؛ تنظیمات ذخیره نشد."}, status_code=503)
     if cfg["enabled"]:

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { authHeaders, isAdmin, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
+import { deepLinkLead } from '@/lib/deepLink'
 import { BTN_GHOST, CARD, CARD_PAD, CARD_TITLE, INPUT } from '@/components/ui/tokens'
 
 type Lead = { id: number; name: string; phone: string; city?: string; source: string; source_url?: string; product_interest?: string; summary?: string; lead_score?: number | null; intent?: string | null; need?: string | null; status: string; assigned_to?: string; created_at: string; assigned_at?: string }
@@ -18,6 +19,7 @@ const inCls = `${INPUT} min-h-8 px-2 text-[12px]`
 export default function LeadsCard({ session }: { session: Session }) {
 	const [d, setD] = useState<{ leads: Lead[]; notifications: Note[]; reports: Report[]; reps: { id: string; name: string }[] } | null>(null)
 	const [err, setErr] = useState('')
+	const focusId = deepLinkLead()   // لیدی که از لینکِ تلگرام/بله آمده
 	const [busy, setBusy] = useState(false)
 	const api = useCallback(async (method: string, path: string, body?: unknown) => {
 		const r = await fetch(`/api/leads${path}?tenant=${encodeURIComponent(currentTenant())}`, { method, headers: { 'Content-Type': 'application/json', ...authHeaders(session) }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' })
@@ -53,7 +55,7 @@ export default function LeadsCard({ session }: { session: Session }) {
 						<thead><tr className="bg-muted/60 text-right text-[11.5px] text-muted-foreground">{['نام', 'شماره', 'شهر / محصول', 'منبع', 'وضعیت', 'کارشناس', 'اعلان‌ها', 'ثبت'].map((h) => <th key={h} className="whitespace-nowrap px-3 py-2 font-bold">{h}</th>)}</tr></thead>
 						<tbody>
 							{d.leads.map((l) => (
-								<tr key={l.id} className="border-t border-border/80 align-top hover:bg-muted/30">
+								<tr key={l.id} ref={l.id === focusId ? (el) => el?.scrollIntoView({ block: 'center' }) : undefined} className={`border-t border-border/80 align-top hover:bg-muted/30${l.id === focusId ? ' bg-primary/10 ring-2 ring-primary/40' : ''}`}>
 									<td className="px-3 py-2 font-bold" title={l.summary || ''}>{l.name}</td>
 									<td className="whitespace-nowrap px-3 py-2 tabular-nums" dir="ltr">{l.phone}</td>
 									<td className="px-3 py-2">{l.city || '—'}{l.product_interest && <div className="text-muted-foreground">{l.product_interest}</div>}{l.lead_score != null && <div className="text-[11px] font-bold" title={l.need || ''}>⭐ {l.lead_score}/100{l.intent === 'buy' ? ' · 🔥 آمادهٔ خرید' : l.intent === 'compare' ? ' · مقایسه' : ''}</div>}{l.source_url && <a href={l.source_url} target="_blank" rel="noreferrer noopener" className="text-[11px] text-primary-ink underline">صفحه</a>}</td>

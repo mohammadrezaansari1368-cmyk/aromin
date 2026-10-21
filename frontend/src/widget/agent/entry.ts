@@ -22,6 +22,7 @@ const CSS = FACE_CSS + `
 .ag-consent{display:flex;gap:6px;align-items:center;font-size:11px;color:#666;padding:4px 12px 0}
 @media (max-width:480px){.ag-pop{max-width:calc(100vw - 24px)}}
 @media (prefers-reduced-motion:reduce){.ag-pop{transition:none}}
+.af.paused,.af.paused *{animation-play-state:paused!important}
 `
 
 export function start(h: Host) {
@@ -71,9 +72,19 @@ export function start(h: Host) {
 	const returning = ls.get(VK) === '1'; ls.set(VK, '1')
 	const t0 = Date.now(), fired = new Set<string>(), clicked: string[] = [], manual: string[] = []
 	let pop: HTMLElement | null = null, timer = 0
+	// پنهان بودنِ تب: انیمیشنِ چهره متوقف، تریگرها بررسی نمی‌شوند و زمانِ پنهان در «ثانیه‌های حضور» شمرده نمی‌شود
+	let hiddenAt = document.hidden ? Date.now() : 0, hiddenMs = 0
+	const onVis = () => {
+		if (document.hidden) hiddenAt = Date.now()
+		else if (hiddenAt) { hiddenMs += Date.now() - hiddenAt; hiddenAt = 0 }
+		faces.forEach((f) => f.classList.toggle('paused', document.hidden))
+	}
+	document.addEventListener('visibilitychange', onVis)
+	onVis()
 	const ctx = (): Ctx => {
 		const de = document.documentElement, max = Math.max(1, de.scrollHeight - W.innerHeight)
-		return { url: location.href, seconds: (Date.now() - t0) / 1000, scroll: Math.min(100, Math.round((W.scrollY / max) * 100)), returning, clicked, manual }
+		const away = hiddenMs + (hiddenAt ? Date.now() - hiddenAt : 0)
+		return { url: location.href, seconds: (Date.now() - t0 - away) / 1000, scroll: Math.min(100, Math.round((W.scrollY / max) * 100)), returning, clicked, manual }
 	}
 	const hide = (dismiss: boolean) => {
 		if (!pop) return
@@ -99,7 +110,7 @@ export function start(h: Host) {
 		return true
 	}
 	const check = () => {
-		if (!h.cfg.proactive || pop || h.isOpen()) return
+		if (!h.cfg.proactive || pop || h.isOpen() || document.hidden) return
 		const t = firstMatch(h.cfg.triggers || [], ctx(), fired)
 		if (t) { fired.add(t.id); show(t) }
 	}
@@ -117,7 +128,7 @@ export function start(h: Host) {
 		/** اجرای دستیِ تریگر از سایت: ArominAgent.trigger('id') */
 		trigger: (id: string) => { manual.push(id); fired.delete(id); check() },
 		state: () => emo.state,
-		stop: () => { W.clearInterval(timer); emo.destroy(); hide(false) },
+		stop: () => { W.clearInterval(timer); document.removeEventListener('visibilitychange', onVis); emo.destroy(); hide(false) },
 	}
 }
 

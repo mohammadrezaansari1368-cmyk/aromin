@@ -36,7 +36,7 @@ describe('EmotionController', () => {
 		c.emit('reply', 'متأسفم، این مورد موجود نیست'); expect(c.state).toBe('concerned')
 		ft.advance(3100); expect(c.state).toBe('neutral')
 		c.emit('lead'); expect(c.state).toBe('success')
-		c.emit('error'); expect(c.state).toBe('error')
+		c.emit('error'); expect(c.state).toBe('concerned')   // provider error → concerned (brief §5.5)
 		ft.advance(61_000); expect(c.state).toBe('idle')
 		ft.advance(121_000); expect(c.state).toBe('sleeping')
 		c.emit('wake'); expect(c.state).toBe('surprised')

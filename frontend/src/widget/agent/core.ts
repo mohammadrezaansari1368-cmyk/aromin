@@ -10,7 +10,7 @@ export type AgentEvent = 'open' | 'close' | 'typing' | 'send' | 'reply' | 'error
 
 /** نگاشتِ رویدادِ اجرا ← حالتِ چهره */
 export const EVENT_STATE: Record<AgentEvent, EmotionState> = {
-	open: 'happy', close: 'neutral', typing: 'listening', send: 'thinking', reply: 'speaking', error: 'error', lead: 'success', handoff: 'laugh',
+	open: 'happy', close: 'neutral', typing: 'listening', send: 'thinking', reply: 'speaking', error: 'concerned', lead: 'success', handoff: 'laugh',
 	trigger: 'curious', dismiss: 'neutral', greet: 'happy', rateLimit: 'annoyed', offline: 'confused', wake: 'surprised', idle: 'idle',
 	sleep: 'sleeping', warn: 'serious', abuse: 'angry',
 }

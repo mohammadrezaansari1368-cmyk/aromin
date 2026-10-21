@@ -35,6 +35,7 @@ const SalesAgentCard = lazy(() => import('@/components/sales/SalesAgentCard'))
 const AgentSettingsCard = lazy(() => import('@/components/agent/AgentSettingsCard'))
 const LeadsCard = lazy(() => import('@/components/sales/LeadsCard'))
 import { TAB_ALIASES, setPerfView, takePerfView } from '@/components/performance/perfNav'
+import { takeDeepLink } from '@/lib/deepLink'
 import { isAdmin, roleLabel, type Session } from '@/lib/auth'
 import { BTN_GHOST, FOCUS, INPUT } from '@/components/ui/tokens'
 
@@ -72,7 +73,7 @@ const TABS: Tab[] = [
 ]
 
 export default function AppShell({ session, onLogout }: { session: Session; onLogout: () => void }) {
-	const [active, setActive] = useState('dashboard')
+	const [active, setActive] = useState(() => { const t = takeDeepLink().tab; return t && TABS.some((x) => x.id === t) ? t : 'dashboard' })
 	const [reload, setReload] = useState(false)
 	const [busy, setBusy] = useState(false)
 	const host = useRef<LegacyHostHandle>(null)
