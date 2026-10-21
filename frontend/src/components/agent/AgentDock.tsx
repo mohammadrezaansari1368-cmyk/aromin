@@ -11,6 +11,7 @@ import {
 	clearChat, hasPersianVoice, markVoiceInput, openAgent, send, setFeature, setStatus, stopSpeaking, useAgent, type Msg,
 } from '@/lib/agent'
 import { isAdmin } from '@/lib/auth'
+import EmotionFace from './EmotionFace'
 
 const SmartAssistant3D = lazy(() => import('./SmartAssistant3D'))
 
@@ -166,6 +167,7 @@ export default function AgentDock({ role }: { role: string }) {
 						transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }} style={{ transformOrigin: 'bottom left' }}
 						className="pointer-events-auto relative flex h-[min(640px,calc(100dvh-8rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-[0_30px_80px_-28px_hsl(var(--shadow)/.55)]">
 						<header className="flex items-center gap-2 border-b border-border px-4 py-3">
+							<EmotionFace status={a.status} text={[...a.msgs].reverse().find((m) => m.role === 'assistant' && m.text)?.text} className="size-9 shrink-0" />
 							<div className="min-w-0 flex-1">
 								<h2 id="agent-h" className="text-[14px] font-extrabold leading-6">دستیارِ آرومین</h2>
 								<p className="truncate text-[11.5px] text-muted-foreground">

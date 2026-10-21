@@ -1,35 +1,58 @@
 /**
- * تنظیمات ← «دستیارِ آرومین»: روشن/خاموش، چهرهٔ احساسی، تریگرهای پیش‌فعال، سلام‌های ساعت‌محور، سقفِ پاپ‌آپ، امتیازِ لید،
- * مسیریابیِ ارجاع (تلگرام @arominagent_bot / بله)، مدلِ fine-tune و خروجیِ دادهٔ رضایت‌دار. ذخیره در دیتابیس (agent_settings).
+ * تنظیمات ← «دستیارِ آرومین»: روشن/خاموش، چهرهٔ احساسی، تریگرهای پیش‌فعال (ویرایشِ ردیفی، بدونِ JSONِ خام)، سلام‌های ساعت‌محور،
+ * سقفِ پاپ‌آپ، امتیازِ لید، مسیریابیِ ارجاع (تلگرام @arominagent_bot / بله، قاعده‌های ردیفی بر اساسِ محصول/صفحه)،
+ * مدلِ fine-tune، بازبینی/تصویبِ گفت‌وگوهای رضایت‌دار پیش از خروجی، و خروجیِ دادهٔ رضایت‌دار. ذخیره در دیتابیس (agent_settings).
  */
 import { useCallback, useEffect, useState } from 'react'
 import { authHeaders, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
-import { BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
+import { BTN_GHOST, BTN_PRIMARY, BTN_DANGER, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
 
 type Ids = { telegram: string[]; bale: string[] }
+type CondKey = 'path' | 'urlContains' | 'domain' | 'minSeconds' | 'minScroll' | 'visitor' | 'click' | 'utmSource' | 'utmCampaign' | 'manual'
+type Cond = Partial<Record<CondKey, string | number | boolean>>
+type Trigger = { id: string; enabled?: boolean; when: Cond; message?: string; emotion?: string }
+type Rule = { match: string; telegram: string[]; bale: string[] }
 type Cfg = {
 	enabled: boolean; emotion: boolean; proactive: boolean
 	greetings: Record<'morning' | 'noon' | 'afternoon' | 'night' | 'custom', string>
-	triggers: unknown[]; caps: Record<'perSession' | 'perDay' | 'cooldownMin' | 'dismissCooldownMin', number>
+	triggers: Trigger[]; caps: Record<'perSession' | 'perDay' | 'cooldownMin' | 'dismissCooldownMin', number>
 	lead: { required: string[]; minScore: number; weights: Record<string, number> }
-	routing: { telegram: boolean; bale: boolean; recipients: Ids; rules: unknown[] }
+	routing: { telegram: boolean; bale: boolean; recipients: Ids; rules: Rule[] }
 	behavior: { useFineTuned: boolean; consentText: string }
 }
 type Delivery = { leadId: number; channel: string; recipient: string; status: string; attempts: number; error: string; createdAt: string }
-type Info = { settings: Cfg; stats: Record<string, number>; deliveries: Delivery[]; fineTunedModel: boolean; transports: { telegram: boolean; bale: boolean } }
+type Info = { settings: Cfg; stats: Record<string, number>; deliveries: Delivery[]; fineTunedModel: boolean; states: string[]; transports: { telegram: boolean; bale: boolean } }
+type FtMsg = { role: 'user' | 'assistant'; content: string }
+type FtItem = { id: number; conversationId: string; messages: FtMsg[]; approved: boolean; createdAt: string; updatedAt: string }
 
 const G: [keyof Cfg['greetings'], string][] = [['morning', 'صبح (۵ تا ۱۱)'], ['noon', 'ظهر (۱۱ تا ۱۴)'], ['afternoon', 'عصر (۱۴ تا ۱۹)'], ['night', 'شب'], ['custom', 'سفارشی (اگر پر باشد همیشه همین)']]
 const C: [keyof Cfg['caps'], string][] = [['perSession', 'حداکثر در هر نشست'], ['perDay', 'حداکثر در روز'], ['cooldownMin', 'فاصله (دقیقه)'], ['dismissCooldownMin', 'پس از بستن (دقیقه)']]
 const ST: Record<string, string> = { sent: '✅ ارسال شد', pending: '⏳ در صف', sending: '⏳ در حالِ ارسال', failed: '❌ ناموفق', cancelled: '⏹ متوقف' }
+const COND: [CondKey, string, 'text' | 'number' | 'visitor' | 'none'][] = [
+	['path', 'مسیرِ صفحه (مثلاً /sepidz یا با * مثلِ /blog/*)', 'text'],
+	['urlContains', 'شاملِ بخشی از آدرس', 'text'],
+	['domain', 'دامنه', 'text'],
+	['minSeconds', 'حداقلِ زمانِ حضور در صفحه (ثانیه)', 'number'],
+	['minScroll', 'حداقلِ اسکرول (٪)', 'number'],
+	['visitor', 'نوعِ بازدیدکننده', 'visitor'],
+	['click', 'کلیک روی انتخابگرِ CSS', 'text'],
+	['utmSource', 'utm_source', 'text'],
+	['utmCampaign', 'utm_campaign', 'text'],
+	['manual', 'فقط اجرای دستی (ArominAgent.trigger)', 'none'],
+]
+const condOf = (w: Cond): CondKey => (COND.find(([k]) => w[k] !== undefined)?.[0]) || 'path'
+const uid = () => 't-' + Math.random().toString(36).slice(2, 10)
 const inCls = `${INPUT} py-2`
+const selCls = `${INPUT} py-2 ps-2`
 
 export default function AgentSettingsCard({ session }: { session: Session }) {
 	const [info, setInfo] = useState<Info | null>(null)
 	const [f, setF] = useState<Cfg | null>(null)
-	const [json, setJson] = useState({ triggers: '', rules: '' })
 	const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 	const [busy, setBusy] = useState(false)
+	const [ft, setFt] = useState<FtItem[] | null>(null)
+	const [ftBusy, setFtBusy] = useState(false)
 	const call = useCallback(async (method: string, path: string, body?: unknown) => {
 		const r = await fetch(`/api/agent${path}?tenant=${encodeURIComponent(currentTenant())}`, { method, headers: { 'Content-Type': 'application/json', ...authHeaders(session) }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' })
 		const j = await r.json().catch(() => ({ ok: false, error: 'پاسخِ نامعتبر (' + r.status + ')' }))
@@ -40,7 +63,6 @@ export default function AgentSettingsCard({ session }: { session: Session }) {
 		try {
 			const d: Info = await call('GET', '/settings')
 			setInfo(d); setF(d.settings)
-			setJson({ triggers: JSON.stringify(d.settings.triggers, null, 1), rules: JSON.stringify(d.settings.routing.rules, null, 1) })
 		} catch (e) { setMsg({ ok: false, text: (e as Error).message }) }
 	}, [call])
 	useEffect(() => { load() }, [load])
@@ -51,18 +73,42 @@ export default function AgentSettingsCard({ session }: { session: Session }) {
 	const save = async () => {
 		setBusy(true); setMsg(null)
 		try {
-			const triggers = JSON.parse(json.triggers || '[]'), rules = JSON.parse(json.rules || '[]')
-			const r = await call('PUT', '/settings', { settings: { ...f, triggers, routing: { ...f.routing, rules } } })
+			const r = await call('PUT', '/settings', { settings: f })
 			setF(r.settings); setMsg({ ok: true, text: 'ذخیره شد.' }); load()
-		} catch (e) { setMsg({ ok: false, text: e instanceof SyntaxError ? 'JSONِ تریگرها/قاعده‌ها نامعتبر است.' : (e as Error).message }) } finally { setBusy(false) }
+		} catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
 	}
-	const exportFt = async () => {
+	const exportFt = async (approvedOnly: boolean) => {
 		try {
-			const r = await fetch(`/api/agent/finetune/export?tenant=${encodeURIComponent(currentTenant())}`, { headers: authHeaders(session), cache: 'no-store' })
+			const r = await fetch(`/api/agent/finetune/export?tenant=${encodeURIComponent(currentTenant())}&approved=${approvedOnly ? 1 : 0}`, { headers: authHeaders(session), cache: 'no-store' })
 			if (!r.ok) throw new Error('خطا ' + r.status)
-			const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = 'aromin-agent-finetune.jsonl'; a.click(); URL.revokeObjectURL(a.href)
+			const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = 'aromin-agent-finetune' + (approvedOnly ? '-approved' : '') + '.jsonl'; a.click(); URL.revokeObjectURL(a.href)
 		} catch (e) { setMsg({ ok: false, text: (e as Error).message }) }
 	}
+	const loadFt = async () => {
+		if (ft) { setFt(null); return }
+		setFtBusy(true)
+		try { setFt((await call('GET', '/finetune')).items) } catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setFtBusy(false) }
+	}
+	const approveFt = async (id: number, approved: boolean) => {
+		try { await call('POST', `/finetune/${id}/approve`, { approved }); setFt((cur) => cur && cur.map((x) => (x.id === id ? { ...x, approved } : x))) }
+		catch (e) { setMsg({ ok: false, text: (e as Error).message }) }
+	}
+	const deleteFt = async (id: number) => {
+		try { await call('DELETE', `/finetune/${id}`); setFt((cur) => cur && cur.filter((x) => x.id !== id)) }
+		catch (e) { setMsg({ ok: false, text: (e as Error).message }) }
+	}
+
+	const setTriggers = (triggers: Trigger[]) => set('triggers', triggers)
+	const addTrigger = () => setTriggers([...f.triggers, { id: uid(), enabled: true, when: { path: '' }, message: '', emotion: 'curious' }])
+	const patchTrigger = (i: number, p: Partial<Trigger>) => setTriggers(f.triggers.map((t, j) => (j === i ? { ...t, ...p } : t)))
+	const patchTriggerCond = (i: number, key: CondKey, value: Cond[CondKey]) => patchTrigger(i, { when: key === 'manual' ? { manual: true } : { [key]: value } })
+	const removeTrigger = (i: number) => setTriggers(f.triggers.filter((_, j) => j !== i))
+
+	const setRules = (rules: Rule[]) => set('routing', { ...f.routing, rules })
+	const addRule = () => setRules([...f.routing.rules, { match: '', telegram: [], bale: [] }])
+	const patchRule = (i: number, p: Partial<Rule>) => setRules(f.routing.rules.map((r, j) => (j === i ? { ...r, ...p } : r)))
+	const removeRule = (i: number) => setRules(f.routing.rules.filter((_, j) => j !== i))
+
 	const Tog = ({ on, label, onChange }: { on: boolean; label: string; onChange: (v: boolean) => void }) => (
 		<label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={on} onChange={(e) => onChange(e.target.checked)} />{label}</label>
 	)
@@ -85,8 +131,48 @@ export default function AgentSettingsCard({ session }: { session: Session }) {
 			<fieldset className="grid grid-cols-2 gap-2 sm:grid-cols-4"><legend className="mb-1 text-[13px] font-bold">سقف و فاصلهٔ پاپ‌آپ</legend>
 				{C.map(([k, l]) => <label key={k} className="grid gap-1 text-[12px]">{l}<input type="number" min={0} className={inCls} value={f.caps[k]} onChange={(e) => set('caps', { ...f.caps, [k]: Number(e.target.value) })} /></label>)}
 			</fieldset>
-			<label className="grid gap-1 text-[12px]">تریگرها (JSON؛ شرط‌ها: path، urlContains، domain، minSeconds، minScroll، visitor=first|returning، click، utmSource، utmCampaign، manual)
-				<textarea dir="ltr" rows={5} className={`${inCls} font-mono text-[11.5px]`} value={json.triggers} onChange={(e) => setJson({ ...json, triggers: e.target.value })} /></label>
+			<fieldset className="grid gap-2">
+				<legend className="mb-1 text-[13px] font-bold">تریگرهای پیش‌فعال (پاپ‌آپِ خودکار)</legend>
+				{f.triggers.length === 0 && <p className="text-[12px] text-muted-foreground">هنوز تریگری نیست.</p>}
+				{f.triggers.map((t, i) => {
+					const ck = condOf(t.when)
+					const spec = COND.find(([k]) => k === ck)!
+					return (
+						<div key={t.id} className="grid gap-2 rounded-md border border-border p-2.5 sm:grid-cols-6">
+							<label className="grid gap-1 text-[11.5px] sm:col-span-1">شرط
+								<select className={selCls} value={ck} onChange={(e) => patchTriggerCond(i, e.target.value as CondKey, e.target.value === 'visitor' ? 'first' : e.target.value === 'minSeconds' || e.target.value === 'minScroll' ? 0 : '')}>
+									{COND.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+								</select>
+							</label>
+							<label className="grid gap-1 text-[11.5px] sm:col-span-2">مقدار
+								{spec[2] === 'none' ? (
+									<p className="flex min-h-10 items-center text-[12px] text-muted-foreground">با کدِ <code dir="ltr">ArominAgent.trigger('{t.id}')</code> در سایت</p>
+								) : spec[2] === 'visitor' ? (
+									<select className={selCls} value={String(t.when.visitor || 'first')} onChange={(e) => patchTrigger(i, { when: { visitor: e.target.value as 'first' | 'returning' } })}>
+										<option value="first">بازدیدکنندهٔ تازه</option><option value="returning">بازدیدکنندهٔ قبلی</option>
+									</select>
+								) : spec[2] === 'number' ? (
+									<input type="number" min={0} className={inCls} value={Number(t.when[ck] ?? 0)} onChange={(e) => patchTrigger(i, { when: { [ck]: Number(e.target.value) } })} />
+								) : (
+									<input dir="ltr" className={inCls} value={String(t.when[ck] ?? '')} onChange={(e) => patchTrigger(i, { when: { [ck]: e.target.value } })} />
+								)}
+							</label>
+							<label className="grid gap-1 text-[11.5px] sm:col-span-2">پیامِ پاپ‌آپ (خالی = سلامِ پیش‌فرض)
+								<input className={inCls} value={t.message || ''} maxLength={200} onChange={(e) => patchTrigger(i, { message: e.target.value })} /></label>
+							<label className="grid gap-1 text-[11.5px]">حالتِ چهره
+								<select className={selCls} value={t.emotion || 'curious'} onChange={(e) => patchTrigger(i, { emotion: e.target.value })}>
+									{info.states.map((s) => <option key={s} value={s}>{s}</option>)}
+								</select>
+							</label>
+							<div className="flex items-end justify-between gap-2 sm:col-span-6">
+								<Tog on={t.enabled !== false} label="فعال" onChange={(v) => patchTrigger(i, { enabled: v })} />
+								<button type="button" className={BTN_DANGER} onClick={() => removeTrigger(i)}>حذفِ تریگر</button>
+							</div>
+						</div>
+					)
+				})}
+				<button type="button" className={BTN_GHOST} onClick={addTrigger}>+ تریگرِ تازه</button>
+			</fieldset>
 			<fieldset className="grid gap-2 sm:grid-cols-2"><legend className="mb-1 text-[13px] font-bold">لید و ارجاع به کارشناس</legend>
 				<label className="grid gap-1 text-[12px]">حداقلِ امتیاز برای ارجاع (۰–۱۰۰)<input type="number" min={0} max={100} className={inCls} value={f.lead.minScore} onChange={(e) => set('lead', { ...f.lead, minScore: Number(e.target.value) })} /></label>
 				<div className="flex flex-wrap items-end gap-4">
@@ -95,8 +181,21 @@ export default function AgentSettingsCard({ session }: { session: Session }) {
 				</div>
 				<label className="grid gap-1 text-[12px]">گیرنده‌های تلگرام (chat id یا ‎@channel، با کاما)<input dir="ltr" className={inCls} value={f.routing.recipients.telegram.join(', ')} onChange={(e) => set('routing', { ...f.routing, recipients: { ...f.routing.recipients, telegram: ids(e.target.value) } })} /></label>
 				<label className="grid gap-1 text-[12px]">گیرنده‌های بله (chat id، با کاما)<input dir="ltr" className={inCls} value={f.routing.recipients.bale.join(', ')} onChange={(e) => set('routing', { ...f.routing, recipients: { ...f.routing.recipients, bale: ids(e.target.value) } })} /></label>
-				<label className="grid gap-1 text-[12px] sm:col-span-2">قاعده‌های مسیریابی بر اساسِ محصول/صفحه (JSON: [{'{'}"match": "صندوق", "telegram": ["…"], "bale": ["…"]{'}'}])
-					<textarea dir="ltr" rows={2} className={`${inCls} font-mono text-[11.5px]`} value={json.rules} onChange={(e) => setJson({ ...json, rules: e.target.value })} /></label>
+				<div className="grid gap-2 sm:col-span-2">
+					<p className="text-[12px] font-bold">قاعده‌های مسیریابیِ تکمیلی بر اساسِ محصول/صفحه</p>
+					{f.routing.rules.map((r, i) => (
+						<div key={i} className="grid gap-2 rounded-md border border-border p-2.5 sm:grid-cols-4">
+							<label className="grid gap-1 text-[11.5px] sm:col-span-2">شاملِ این متن در محصول/صفحه
+								<input className={inCls} value={r.match} onChange={(e) => patchRule(i, { match: e.target.value })} /></label>
+							<label className="grid gap-1 text-[11.5px]">گیرنده‌های تلگرام
+								<input dir="ltr" className={inCls} value={r.telegram.join(', ')} onChange={(e) => patchRule(i, { telegram: ids(e.target.value) })} /></label>
+							<label className="grid gap-1 text-[11.5px]">گیرنده‌های بله
+								<input dir="ltr" className={inCls} value={r.bale.join(', ')} onChange={(e) => patchRule(i, { bale: ids(e.target.value) })} /></label>
+							<div className="sm:col-span-4"><button type="button" className={BTN_DANGER} onClick={() => removeRule(i)}>حذفِ قاعده</button></div>
+						</div>
+					))}
+					<button type="button" className={BTN_GHOST} onClick={addRule}>+ قاعدهٔ تازه</button>
+				</div>
 			</fieldset>
 			<fieldset className="grid gap-2"><legend className="mb-1 text-[13px] font-bold">رفتار و یادگیری</legend>
 				<Tog on={f.behavior.useFineTuned} label={'استفاده از مدلِ fine-tuneشده' + (info.fineTunedModel ? '' : ' (AGENT_FT_MODEL تنظیم نشده → مدلِ پایه)')} onChange={(v) => set('behavior', { ...f.behavior, useFineTuned: v })} />
@@ -104,9 +203,30 @@ export default function AgentSettingsCard({ session }: { session: Session }) {
 			</fieldset>
 			<div className="flex flex-wrap gap-2">
 				<button type="button" className={BTN_PRIMARY} disabled={busy} onClick={save}>ذخیره</button>
-				<button type="button" className={BTN_GHOST} onClick={exportFt}>خروجیِ دادهٔ fine-tune (JSONL، فقط با رضایت و بدونِ اطلاعاتِ شخصی)</button>
+				<button type="button" className={BTN_GHOST} onClick={loadFt} disabled={ftBusy}>{ft ? 'بستنِ بازبینیِ گفت‌وگوها' : 'بازبینی و تصویبِ گفت‌وگوهای رضایت‌دار'}</button>
+				<button type="button" className={BTN_GHOST} onClick={() => exportFt(false)}>خروجیِ همهٔ دادهٔ fine-tune (JSONL)</button>
+				<button type="button" className={BTN_GHOST} onClick={() => exportFt(true)}>خروجیِ فقط تصویب‌شده‌ها</button>
 			</div>
 			{msg && <p role="status" className={`text-[12.5px] ${msg.ok ? 'text-success' : 'text-error'}`}>{msg.text}</p>}
+			{ft && (
+				<div className="flex flex-col gap-2 rounded-md border border-border p-2.5">
+					{ft.length === 0 && <p className="text-[12px] text-muted-foreground">هنوز گفت‌وگوی رضایت‌داری ذخیره نشده.</p>}
+					{ft.map((x) => (
+						<div key={x.id} className="rounded-md bg-muted/50 p-2 text-[12px]">
+							<div className="flex items-center justify-between gap-2">
+								<span className="text-muted-foreground">{x.createdAt}</span>
+								<div className="flex items-center gap-2">
+									<Tog on={x.approved} label="تصویب برای آموزش" onChange={(v) => approveFt(x.id, v)} />
+									<button type="button" className={BTN_DANGER} onClick={() => deleteFt(x.id)}>حذف</button>
+								</div>
+							</div>
+							<ul className="mt-1.5 space-y-1">
+								{x.messages.slice(0, 6).map((m, i) => <li key={i}><b>{m.role === 'user' ? 'بازدیدکننده' : 'دستیار'}:</b> {m.content.slice(0, 160)}</li>)}
+							</ul>
+						</div>
+					))}
+				</div>
+			)}
 			<p className="text-[12px] text-muted-foreground">۷ روزِ اخیر: بازشدن {stat('widget_opened')} · تریگر {stat('trigger_fired')} · گفت‌وگو {stat('conversation_started')} · لید {stat('lead_captured')} · واجدِ شرایط {stat('lead_qualified')} · ارجاع {stat('handoff_queued')} · ارسالِ موفق {stat('delivery_success')} · ناموفق {stat('delivery_failed')}</p>
 			{info.deliveries.length > 0 && (
 				<div className="overflow-x-auto"><table className="w-full text-[12px]"><thead><tr className="text-muted-foreground"><th className="text-start">لید</th><th className="text-start">کانال</th><th className="text-start">گیرنده</th><th className="text-start">وضعیت</th><th className="text-start">خطا</th></tr></thead>

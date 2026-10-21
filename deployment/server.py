@@ -6196,6 +6196,49 @@ def agent_finetune_export(request: Request, tenant: str = Query(default=""), app
                     headers={"Content-Disposition": "attachment; filename=aromin-agent-finetune.jsonl", "Cache-Control": "no-store"})
 
 
+@app.get("/api/agent/finetune")
+def agent_finetune_list(request: Request, tenant: str = Query(default="")):
+    """فهرستِ گفت‌وگوهای رضایت‌دار (بدونِ PII) برای بازبینیِ مدیر پیش از آموزش؛ فقط مدیر (مثلِ export)."""
+    ident, err = _w_guard(request, tenant, True)
+    if err:
+        return err
+    items = []
+    if agent_tables():
+        for r in q("SELECT id, conversation_id, messages, approved, created_at, updated_at FROM agent_training WHERE tenant=%s ORDER BY id DESC LIMIT 200", (tenant,)):
+            try:
+                msgs = [m for m in json.loads(r["messages"]) if m.get("role") in ("user", "assistant")]
+            except Exception:
+                msgs = []
+            items.append({"id": r["id"], "conversationId": r["conversation_id"], "messages": msgs, "approved": bool(r["approved"]),
+                          "createdAt": sa_fa_dt(r["created_at"]) if isinstance(r["created_at"], datetime.datetime) else str(r["created_at"]),
+                          "updatedAt": sa_fa_dt(r["updated_at"]) if isinstance(r["updated_at"], datetime.datetime) else str(r["updated_at"])})
+    return {"ok": True, "items": items}
+
+
+@app.post("/api/agent/finetune/{tid}/approve")
+def agent_finetune_approve(request: Request, tid: int = PathParam(...), payload: dict = Body(default={}), tenant: str = Query(default="")):
+    ident, err = _w_guard(request, tenant, True)
+    if err:
+        return err
+    if not agent_tables():
+        return JSONResponse({"ok": False, "error": "دیتابیس در دسترس نیست."}, status_code=503)
+    approved = 1 if (payload or {}).get("approved") else 0
+    q("UPDATE agent_training SET approved=%s, updated_at=%s WHERE tenant=%s AND id=%s", (approved, _sa_now(), tenant, tid))
+    return {"ok": True, "id": tid, "approved": bool(approved)}
+
+
+@app.delete("/api/agent/finetune/{tid}")
+def agent_finetune_delete(request: Request, tid: int = PathParam(...), tenant: str = Query(default="")):
+    """حذفِ یک نمونه (بازدیدکننده می‌تواند بعداً رضایتش را پس بگیرد؛ مدیر هم می‌تواند نمونهٔ نامناسب را کنار بگذارد)."""
+    ident, err = _w_guard(request, tenant, True)
+    if err:
+        return err
+    if not agent_tables():
+        return JSONResponse({"ok": False, "error": "دیتابیس در دسترس نیست."}, status_code=503)
+    q("DELETE FROM agent_training WHERE tenant=%s AND id=%s", (tenant, tid))
+    return {"ok": True}
+
+
 # ---- API مدیریت (فقط مدیران؛ همان احرازِ هدری) ----
 def _sa_guard(request, tenant, write=True):
     return _w_guard(request, tenant, write)

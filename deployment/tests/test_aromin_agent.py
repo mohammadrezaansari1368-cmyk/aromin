@@ -221,6 +221,32 @@ class CriticalPath(unittest.TestCase):
         self.assertIn("گیرنده", n["last_error"])
         self.assertEqual(self.rows("SELECT lead_score FROM sa_leads")[0]["lead_score"], 50)
 
+    def test_finetune_list_approve_delete_requires_manager(self):
+        from fastapi.testclient import TestClient
+        client = TestClient(server.app)
+        server.agent_training_save("team", "c" * 20, [{"role": "user", "content": "موبایلم 09121234567"},
+                                                       {"role": "assistant", "content": "چشم کارشناس تماس می‌گیرد."}])
+        with patch.object(server, "kb_identity", return_value=None):
+            self.assertEqual(client.get("/api/agent/finetune?tenant=team").status_code, 401)
+        with patch.object(server, "kb_identity", return_value={"user": "s", "role": "sales", "tenant": "team"}):
+            denied = client.get("/api/agent/finetune?tenant=team")
+            self.assertEqual(denied.status_code, 403)
+        with patch.object(server, "kb_identity", return_value={"user": "m", "role": "manager", "tenant": "team"}):
+            listed = client.get("/api/agent/finetune?tenant=team").json()
+            self.assertEqual(len(listed["items"]), 1)
+            row = listed["items"][0]
+            self.assertFalse(row["approved"])
+            self.assertNotIn("09121234567", json.dumps(row))
+            tid = row["id"]
+            ap = client.post("/api/agent/finetune/%d/approve?tenant=team" % tid, json={"approved": True})
+            self.assertTrue(ap.json()["approved"])
+            self.assertEqual(self.rows("SELECT approved FROM agent_training WHERE id=%s", (tid,))[0]["approved"], 1)
+            only_approved = server.agent_ft_export("team", approved_only=True)
+            self.assertIn('"role": "system"', only_approved)
+            d = client.delete("/api/agent/finetune/%d?tenant=team" % tid)
+            self.assertTrue(d.json()["ok"])
+            self.assertEqual(self.rows("SELECT id FROM agent_training"), [])
+
     def test_dedupe_same_phone(self):
         server.agent_save("team", {"enabled": True, "routing": {"recipients": {"telegram": ["123456"], "bale": ["777777"]}}}, "test")
         a = server.sa_create_lead("team", {"name": "سارا", "phone": "09351234567"})
