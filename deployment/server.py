@@ -1108,8 +1108,11 @@ def api_ai(request: Request, payload: dict = Body(default={})):
     question = str(payload.get("question") or "")
     fields = payload.get("fields") or []
 
-    authorized_tenant = kb_tenant if kb_identity(request, kb_tenant) else None
-    system = assistant_system(kb_tenant) if authorized_tenant else AI_PERSONA
+    # WP-02: بدون نشستِ معتبرِ همان کسب‌وکار، پراکسیِ مدل باز نیست (جلوگیری از سوءاستفادهٔ هزینه‌ای)
+    if not kb_identity(request, kb_tenant):
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
+    authorized_tenant = kb_tenant
+    system = assistant_system(kb_tenant)
     if business or industry:
         system += "\n\nکسب‌وکار: " + business + " | صنعت: " + industry
 
@@ -3778,7 +3781,10 @@ def _ensure_signup_table():
 
 
 @app.get("/api/auth/signup-requests")
-def signup_list(tenant: str = Query(default="team")):
+def signup_list(request: Request, tenant: str = Query(default="team")):
+    ident = kb_identity(request, (tenant or "team").strip())
+    if not ident or ident["role"] not in KB_ADMIN_ROLES:  # WP-02: فهرستِ ایمیل‌ها فقط برای مدیر
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401 if not ident else 403)
     _ensure_signup_table()
     rows = q("SELECT id, email, name, picture, via, status, created FROM signup_requests WHERE tenant=%s AND status='pending' ORDER BY id DESC LIMIT 100",
              ((tenant or "team").strip(),))
@@ -3789,13 +3795,17 @@ def signup_list(tenant: str = Query(default="team")):
 
 
 @app.post("/api/auth/signup-requests/{rid}")
-def signup_decide(rid: int = PathParam(...), payload: dict = Body(default={})):
+def signup_decide(request: Request, rid: int = PathParam(...), tenant: str = Query(default="team"), payload: dict = Body(default={})):
     """فقط وضعیتِ درخواست را عوض می‌کند؛ ساختِ کاربر را خودِ اپ (با بک‌آپ و خواندن-تغییر-نوشتن) انجام می‌دهد."""
     status = str((payload or {}).get("status") or "")
     if status not in ("approved", "rejected"):
         return JSONResponse({"ok": False, "error": "bad_status"}, status_code=400)
+    tenant = (tenant or "team").strip()
+    ident = kb_identity(request, tenant)
+    if not ident or ident["role"] not in KB_ADMIN_ROLES:
+        return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401 if not ident else 403)
     _ensure_signup_table()
-    q("UPDATE signup_requests SET status=%s WHERE id=%s", (status, rid))
+    q("UPDATE signup_requests SET status=%s WHERE id=%s AND tenant=%s", (status, rid, tenant))
     return {"ok": True}
 
 
