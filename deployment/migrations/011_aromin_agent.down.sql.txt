@@ -1,0 +1,5 @@
+-- rollback 011 (manual): leads keep their rows; only agent columns/tables are dropped.
+DROP TABLE IF EXISTS agent_training;
+DROP TABLE IF EXISTS agent_events;
+DROP TABLE IF EXISTS agent_settings;
+ALTER TABLE IF EXISTS sa_leads DROP COLUMN IF EXISTS lead_score, DROP COLUMN IF EXISTS intent, DROP COLUMN IF EXISTS need, DROP COLUMN IF EXISTS consent;
