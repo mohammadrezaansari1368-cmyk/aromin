@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && vite build -c vite.widget.config.ts",
+    "build": "tsc -b && vite build && vite build -c vite.widget.config.ts && vite build -c vite.agent.config.ts",
     "deploy": "node deploy.mjs",
     "package": "node make-pkg.mjs",
     "lint": "oxlint",

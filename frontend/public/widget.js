@@ -14,6 +14,7 @@
 	var TEST = W.ArominWidgetTest || null // فقط صفحهٔ «تست ابزارک» داخلِ داشبورد
 	var STORE = 'aromin-widget:' + siteId
 	var BOT_V = '3.9.25' // با هر تغییرِ رباتِ سه‌بعدی بالا برود: نشانیِ تازه = بدونِ کشِ کهنهٔ CDN
+	var AGENT_V = '1.0.0' // «دستیارِ آرومین» (widget-agent.js): چهره، پاپ‌آپِ پیش‌فعال، سلامِ ساعت‌محور
 
 	function rid() {
 		var a = new Uint8Array(12); (W.crypto || W.msCrypto).getRandomValues(a)
@@ -93,7 +94,9 @@
 		$('.head b').textContent = c.title
 		$('.panel').setAttribute('aria-label', c.title)
 		btn.setAttribute('aria-label', 'گفت‌وگو با ' + c.title)
-		var busy = false, bot = null
+		var busy = false, bot = null, ag = null
+		function emit(ev, t) { if (ag) try { ag.emit(ev, t) } catch { /* دستیار نباید ابزارک را خراب کند */ } }
+		function track(ev, props) { if (!preview && c.agent) req('POST', '/event', { event: ev, props: props || {} }).catch(function () { /* بی‌صدا */ }) }
 		function status(v) { w.classList.toggle('busy', v !== 'idle'); if (bot) bot.setStatus(v) }
 		function loadBot() {
 			var still = W.matchMedia && W.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -116,6 +119,7 @@
 			var o = v === undefined ? !w.classList.contains('open') : v
 			w.classList.toggle('open', o); btn.setAttribute('aria-expanded', String(o))
 			st.open = o; if (!preview) save()
+			emit(o ? 'open' : 'close'); if (o) track('widget_opened')
 			if (o) setTimeout(function () { ta.focus() }, 60)
 		}
 		btn.onclick = function () { toggle() }
@@ -123,7 +127,7 @@
 		$('.new').onclick = function () { st.messages = []; st.conversationId = rid(); if (!preview) save(); render() }
 		root.addEventListener('keydown', function (e) { if (e.key === 'Escape') { toggle(false); btn.focus() } })
 		ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('form').requestSubmit ? $('form').requestSubmit() : submit(e) } })
-		ta.addEventListener('input', function () { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 110) + 'px' })
+		ta.addEventListener('input', function () { emit('typing'); ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 110) + 'px' })
 		function submit(e) {
 			e.preventDefault()
 			var text = ta.value.trim()
@@ -132,20 +136,35 @@
 			st.messages.push({ role: 'user', content: text.slice(0, 1000) }); st.messages = st.messages.slice(-40)
 			bubble('u', text)
 			if (preview) { bubble('a', 'این پیش‌نمایش است؛ پاسخِ واقعی بعد از نصب روی سایت نمایش داده می‌شود.'); return }
-			save(); busy = true; send.disabled = true; status('thinking')
+			save(); busy = true; send.disabled = true; status('thinking'); emit('send')
 			var wait = bubble('a t', '…')
-			req('POST', '/chat', { conversationId: st.conversationId, visitorId: st.visitorId, messages: st.messages.slice(-12), page: { url: location.href.slice(0, 500), title: D.title.slice(0, 200), landing: st.landing } })
+			req('POST', '/chat', { conversationId: st.conversationId, visitorId: st.visitorId, messages: st.messages.slice(-12), consent: !!st.consent, page: { url: location.href.slice(0, 500), title: D.title.slice(0, 200), landing: st.landing } })
 				.then(function (d) {
 					wait.remove()
-					if (d.ok && d.text) { st.messages.push({ role: 'assistant', content: String(d.text) }); save(); bubble('a', String(d.text)) }
-					else bubble('e', d.error || 'ارسال نشد؛ دوباره امتحان کنید.')
+					if (d.ok && d.text) { st.messages.push({ role: 'assistant', content: String(d.text) }); save(); bubble('a', String(d.text)); emit(d.lead && d.lead.ok ? 'lead' : 'reply', String(d.text)) }
+					else { bubble('e', d.error || 'ارسال نشد؛ دوباره امتحان کنید.'); emit(d.status === 429 ? 'rateLimit' : 'error') }
 				})
-				.catch(function () { wait.remove(); bubble('e', 'اتصال برقرار نشد؛ دوباره امتحان کنید.') })
+				.catch(function () { wait.remove(); bubble('e', 'اتصال برقرار نشد؛ دوباره امتحان کنید.'); emit('offline') })
 				.then(function () { busy = false; send.disabled = false; status('idle'); ta.focus() })
 		}
 		$('form').addEventListener('submit', submit)
 		render()
 		if (st.open || me.getAttribute('data-open') === '1') toggle(true)
+		function loadAgent() { // تنبل، پس از بارِ صفحه (بدونِ اثر بر LCP/INP)؛ خطا → همان ابزارکِ قبلی
+			var go = function () {
+				try {
+					ag = W.ArominAgent.start({ root: root, cfg: c.agent, key: siteId, pos: (W.innerWidth < 640 ? c.mobile : c.desktop) || {},
+						open: function () { toggle(true) }, isOpen: function () { return w.classList.contains('open') },
+						setWelcome: function (t) { c.welcome = t; render() }, consent: !!st.consent,
+						setConsent: function (v) { st.consent = !!v; if (!preview) save() }, track: track })
+					W.ArominAgentWidget = ag
+				} catch { ag = null }
+			}
+			if (W.ArominAgent) return go()
+			var s = D.createElement('script'); s.src = BASE + '/widget-agent.js?v=' + AGENT_V; s.async = true; s.onload = go
+			;(D.head || D.documentElement).appendChild(s)
+		}
+		if (c.agent) (W.requestIdleCallback || function (f) { setTimeout(f, 1200) })(loadAgent)
 	}
 
 	if (preview) { try { mount(JSON.parse(preview)) } catch (e) { /* تنظیماتِ نامعتبر */ } return }

@@ -1,3 +1,5 @@
+2026-10-21 · feat/aromin-agent-p0 (روی feat/kb-sepidz-tutorials + cherry-pick هشدارِ لیدِ تلگرام/بله): دستیارِ آرومین — چهرهٔ SVG و EmotionController، تریگر/پاپ‌آپ/سلامِ ساعت‌محور با سقف، امتیازِ لید، ارجاعِ صف‌شده به تلگرام/بله با تکرار، تنظیمات در DB (مهاجرت 011)، رویدادها، خروجیِ JSONLِ رضایت‌دار؛ AGENT_FT_MODEL. تست build — بدونِ push/deploy.
+
 2026-10-20 · WP-01 تکمیل: state با نشست و حفظ رمزهای سرور، هش bcrypt و تغییر اجباری رمز پیش‌فرض، ورود React/legacy/OTP/Google با نشست، مدیریت کسب‌وکار و بک‌آپ فقط مدیر. تست: Python 213 (۶ skip؛ بیدارباش asyncio فقط در محیط اجرای تست)، Vitest و tsc موفق؛ بدون push/deploy.
 
 # HANDOFF — «تا اینجا انجام دادم»
