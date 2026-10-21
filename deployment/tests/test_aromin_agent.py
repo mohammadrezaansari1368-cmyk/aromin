@@ -95,6 +95,29 @@ class Privacy(unittest.TestCase):
         self.assertEqual(props, {"trigger": "t1", "path": "/p"})
 
 
+class RealIp(unittest.TestCase):
+    """Rate-limit IP: ArvanCloud's documented `ar-real-ip` only via a trusted ArvanCloud hop; otherwise the connection address."""
+    def ip(self, peer, **headers):
+        class R:
+            pass
+        r = R()
+        r.client = type("C", (), {"host": peer})()
+        h = {k.replace("_", "-"): v for k, v in headers.items()}
+        r.headers = type("H", (), {"get": lambda self, k, d=None: h.get(k.lower(), d)})()
+        return server._w_ip(r)
+
+    def test_trusted_and_untrusted_hops(self):
+        self.assertEqual(self.ip("185.143.232.5", ar_real_ip="5.6.7.8"), "5.6.7.8")                    # direct from an ArvanCloud edge
+        self.assertEqual(self.ip("8.8.8.8", ar_real_ip="1.2.3.4", x_forwarded_for="1.1.1.1", x_real_ip="2.2.2.2"), "8.8.8.8")   # untrusted: all ignored
+        self.assertEqual(self.ip("127.0.0.1", x_real_ip="185.143.233.10", ar_real_ip="5.6.7.8"), "5.6.7.8")  # via local nginx from Arvan
+        self.assertEqual(self.ip("127.0.0.1", x_real_ip="9.9.9.9", ar_real_ip="5.6.7.8"), "9.9.9.9")        # origin hit directly: no Arvan
+        self.assertEqual(self.ip("127.0.0.1", x_forwarded_for="1.2.3.4, 185.143.232.7", ar_real_ip="5.6.7.8"), "5.6.7.8")  # nginx appended edge
+        self.assertEqual(self.ip("127.0.0.1", x_forwarded_for="185.143.232.7, 9.9.9.9", ar_real_ip="5.6.7.8"), "9.9.9.9")  # forged first hop
+        self.assertEqual(self.ip("185.143.232.5", ar_real_ip="not-an-ip"), "185.143.232.5")
+        self.assertEqual(self.ip("::1", x_real_ip="185.215.232.9", ar_real_ip="2001:db8::7"), "2001:db8::7")
+        self.assertEqual(self.ip("127.0.0.1"), "127.0.0.1")
+
+
 class CriticalPath(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -340,7 +363,8 @@ class CriticalPath(unittest.TestCase):
         for _, f in sent:
             self.assertNotIn("parse_mode", f)                    # plain text: user input cannot become markup
             self.assertLessEqual(len(f["text"]), 4096)
-            self.assertTrue(f["text"].startswith("🔥 لید جدید آرومین"))
+            lid = self.rows("SELECT id FROM sa_leads")[0]["id"]
+            self.assertTrue(f["text"].startswith("🔥 لید جدید آرومین #%d\n" % lid))   # short lead id: a duplicate alert is recognizable (risk 4.5)
             self.assertIn("/?panel=p-leads&lead=", f["text"])    # opens the leads table after login (frontend deepLink)
 
     def test_llm_error_returns_persian_fallback_and_keeps_the_lead(self):
@@ -362,6 +386,31 @@ class CriticalPath(unittest.TestCase):
         lead = self.rows("SELECT name, city, business_type, phone FROM sa_leads")
         self.assertEqual(lead, [{"name": "مریم", "city": "رشت", "business_type": "کافه", "phone": "09121112233"}])
         self.assertIn("error", {r["event"] for r in self.rows("SELECT event FROM agent_events")})
+
+    def test_whole_turn_budget_fallback_keeps_lead(self):
+        import time as _t
+        from fastapi.testclient import TestClient
+        client = TestClient(server.app)
+        server.agent_save("team", {"enabled": True, "routing": {"recipients": {"telegram": ["123456"]}}}, "test")
+        ok = {"ok": True, "text": "ممنون.\n```lead {\"name\": \"مریم\", \"phone\": \"09121112233\", \"city\": \"رشت\"}```"}
+        with patch.object(server, "ai_chat", return_value=ok):
+            self.assertTrue(self.chat(client, "مریم هستم 09121112233").json()["lead"]["ok"])
+        slow_rounds = []
+
+        def slow(*a, **k):                                 # each call is under any per-call timeout; together they exceed the budget
+            slow_rounds.append(1)
+            _t.sleep(0.25)
+            return {"ok": True, "text": "```search {\"query\": \"قیمت\"}```"}
+        with patch.object(server, "SA_TURN_BUDGET", 0.4), patch.object(server, "ai_chat", side_effect=slow), \
+                patch.object(server, "sa_search", side_effect=lambda q: (_t.sleep(0.25), [])[1]):
+            t0 = _t.monotonic()
+            r = self.chat(client, "قیمت؟", history=[{"role": "user", "content": "مریم هستم 09121112233"}, {"role": "assistant", "content": "ممنون."}])
+            took = _t.monotonic() - t0
+        self.assertEqual(r.status_code, 502)
+        self.assertEqual(r.json()["error"], server.SA_FALLBACK)   # Persian fallback; the widget maps this error to the concerned face
+        self.assertLess(took, 1.5)                                 # returns at the deadline, not after all rounds
+        self.assertEqual([x["name"] for x in self.rows("SELECT name FROM sa_leads")], ["مریم"])
+        _t.sleep(1.2)                                              # let the abandoned worker finish before teardown
 
     def test_dedupe_same_phone(self):
         server.agent_save("team", {"enabled": True, "routing": {"recipients": {"telegram": ["123456"], "bale": ["777777"]}}}, "test")

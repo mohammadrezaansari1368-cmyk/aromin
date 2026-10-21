@@ -105,7 +105,11 @@
 			var s = D.createElement('script'); s.src = BASE + '/widget-bot.js?v=' + BOT_V; s.async = true; s.onload = go
 			;(D.head || D.documentElement).appendChild(s)
 		}
-		loadBot()
+		// ربات سه‌بعدی (~۳۰۸KB gzip) هنگامِ بارِ صفحه بار نمی‌شود: فقط با باز شدنِ ابزارک یا اولین تعامل با خودِ ابزارک
+		// (اشاره‌گر، لمس، فوکوس یا کلید روی دکمه/پنل). اسکرول یا کلیک در جای دیگرِ صفحه آن را بار نمی‌کند؛ تا آن موقع جانگه‌دار.
+		var botWanted = false
+		function needBot() { if (botWanted) return; botWanted = true; loadBot() }
+		;['pointerenter', 'pointerdown', 'touchstart', 'focusin', 'keydown'].forEach(function (ev) { w.addEventListener(ev, needBot, { once: true, passive: true }) })
 
 		function bubble(role, text) {
 			var d = D.createElement('div'); d.className = 'm ' + role; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d
@@ -119,6 +123,7 @@
 			var o = v === undefined ? !w.classList.contains('open') : v
 			w.classList.toggle('open', o); btn.setAttribute('aria-expanded', String(o))
 			st.open = o; if (!preview) save()
+			if (o) needBot()
 			emit(o ? 'open' : 'close'); if (o) track('widget_opened')
 			if (o) setTimeout(function () { ta.focus() }, 60)
 		}

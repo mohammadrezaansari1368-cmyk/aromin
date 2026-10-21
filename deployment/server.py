@@ -4283,13 +4283,52 @@ def _w_sites_of(tenant):
     return sorted(mine, key=lambda x: x.get("createdAt") or "")
 
 
+# ArvanCloud adds the visitor address as `ar-real-ip` (official: github.com/arvancloud/ar-ngxrealip; ranges:
+# https://www.arvancloud.ir/fa/ips.txt, fetched 2026-10-21). It is trusted only when the hop that delivered the request is an
+# ArvanCloud edge; otherwise the connecting address is used. A local reverse proxy (nginx on loopback) must set
+# `proxy_set_header X-Real-IP $remote_addr;` so its own view of the edge address overwrites anything a client sent.
+import ipaddress as _ipa  # noqa: E402
+_ARVAN_DEFAULT = ("185.143.232.0/22,188.229.116.16/30,94.101.182.0/27,2.144.3.128/28,37.32.16.0/27,37.32.17.0/27,37.32.18.0/27,"
+                  "37.32.19.0/27,185.215.232.0/22,178.131.120.48/28,94.101.183.0/28,78.157.36.112/28,95.38.61.80/28,193.24.119.0/29")
+
+
+def _w_nets(spec):
+    out = []
+    for x in (spec or "").replace(";", ",").split(","):
+        try:
+            out.append(_ipa.ip_network(x.strip(), strict=False)) if x.strip() else None
+        except ValueError:
+            print("[WIDGET] invalid network ignored:", x.strip()[:60])
+    return tuple(out)
+
+
+W_EDGE_NETS = _w_nets(os.environ.get("TRUSTED_EDGE_PROXIES", _ARVAN_DEFAULT))       # CDN edges allowed to state ar-real-ip
+W_LOCAL_NETS = _w_nets(os.environ.get("TRUSTED_LOCAL_PROXIES", "127.0.0.0/8,::1/128"))  # reverse proxy on this server
+
+
+def _w_addr(v):
+    try:
+        return _ipa.ip_address(str(v or "").strip())
+    except ValueError:
+        return None
+
+
+def _w_in(addr, nets):
+    return addr is not None and any(addr.version == n.version and addr in n for n in nets)
+
+
 def _w_ip(request):
-    for h in ("ar-real-ip", "x-real-ip"):
-        v = (request.headers.get(h) or "").strip()
-        if v:
-            return v[:64]
-    xf = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
-    return (xf or (request.client.host if request.client else "") or "?")[:64]
+    peer = _w_addr(request.client.host if request.client else "")
+    edge = peer
+    if _w_in(peer, W_LOCAL_NETS):                      # behind our own nginx: its $remote_addr is the real edge
+        xr = _w_addr(request.headers.get("x-real-ip"))
+        xf = [a for a in (_w_addr(x) for x in (request.headers.get("x-forwarded-for") or "").split(",")) if a]
+        edge = xr or (xf[-1] if xf else peer)          # nginx appends the address it saw as the LAST X-Forwarded-For entry
+    if _w_in(edge, W_EDGE_NETS):
+        real = _w_addr(request.headers.get("ar-real-ip"))
+        if real:
+            return str(real)
+    return str(edge) if edge else "?"
 
 
 def _w_allow(key, limit, window):
@@ -5644,7 +5683,32 @@ def _sa_blocks(text):
     return found, re.sub(r"```[a-z]*\s*\{.*?\}\s*```", "", clean, flags=re.S).strip()
 
 
+SA_TURN_BUDGET = float(os.environ.get("AGENT_TURN_BUDGET_SEC", "25"))   # whole turn; per-call HTTP timeouts are not the budget
+SA_FALLBACK = "پاسخ‌گویی موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید."
+SA_TURN_WORKERS = 8
+_SA_POOL = _cf.ThreadPoolExecutor(max_workers=SA_TURN_WORKERS, thread_name_prefix="sa-turn")
+_SA_SLOTS = _th.BoundedSemaphore(SA_TURN_WORKERS)
+
+
 def sa_reply(site, history, page=None, conv="", visitor="", dry_run=False):
+    """One visitor turn under a single deadline. On expiry (or when all slots are busy) the visitor gets the Persian fallback at
+    once; a lead the model already proposed in an earlier turn is in the DB and stays; a turn finishing late is not shown."""
+    if not _SA_SLOTS.acquire(blocking=False):
+        return {"ok": False, "error": SA_FALLBACK, "code": "busy"}
+    try:
+        fut = _SA_POOL.submit(_sa_reply_turn, site, history, page, conv, visitor, dry_run)
+    except Exception:
+        _SA_SLOTS.release()
+        raise
+    fut.add_done_callback(lambda f: _SA_SLOTS.release())
+    try:
+        return fut.result(timeout=SA_TURN_BUDGET)
+    except _cf.TimeoutError:
+        print("[SA] turn budget exceeded (%ss)" % SA_TURN_BUDGET)
+        return {"ok": False, "error": SA_FALLBACK, "code": "timeout"}
+
+
+def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False):
     """حالتِ دستیارِ فروش: پرامپتِ تنظیمات + دانشِ عمومی + کاتالوگِ مرتبط + جستجوی امن (سقفِ ۳) + ثبتِ لید."""
     tenant = site["tenant"]
     page = page or {}
@@ -5666,7 +5730,7 @@ def sa_reply(site, history, page=None, conv="", visitor="", dry_run=False):
     for _ in range(3):
         out = ai_chat(system, None, max_tokens=600, temperature=0.4, history=msgs, model=agent_model(tenant))
         if not out.get("ok"):
-            return {"ok": False, "error": "پاسخ‌گویی موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید."}
+            return {"ok": False, "error": SA_FALLBACK}
         blocks, visible = _sa_blocks(out.get("text"))
         sq = next((b for k, b in blocks if k == "search"), None)
         if not sq:
