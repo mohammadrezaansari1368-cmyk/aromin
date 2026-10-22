@@ -35,7 +35,8 @@ class Council(unittest.TestCase):
         r = self.c.get("/api/council/seats?tenant=team").json()
         ready = {s["key"]: s["ready"] for s in r["seats"]}
         self.assertTrue(ready["alavi"] and ready["bezos"])
-        self.assertFalse(ready["sadeghin"] or ready["parsi"] or ready["raftari"] or ready["soleimani"])
+        self.assertFalse(ready["sadeghin"] or ready["raftari"])
+        self.assertNotIn("parsi", ready); self.assertNotIn("soleimani", ready)
         self.assertNotIn("hormozi", ready)
         self.assertEqual(next(s for s in r["seats"] if s["key"] == "alavi")["entries"][0]["id"], "k1")
         self.ident = {"user": "s", "role": "sales", "tenant": "team"}
@@ -49,9 +50,9 @@ class Council(unittest.TestCase):
         self.assertEqual(r["verdict"]["label"], "مشروط")
         chair_sys = self.ai.call_args_list[-1].args[0]
         self.assertIn(server.AGENT_REGISTRY_DEFAULTS["coach"]["prompt"], chair_sys)        # the coach agent chairs
-        seat_sys = next(c.args[0] for c in self.ai.call_args_list if "مثلِ دکتر یحیی علوی" in c.args[0])
+        seat_sys = next(c.args[0] for c in self.ai.call_args_list if "مثلِ Dr. Yahya Alavi" in c.args[0])
         self.assertIn("پیشنهاد را با ارزش شروع کن", seat_sys)                                   # its own «دانشنامه» only
-        self.assertEqual(self.c.post("/api/council/ask?tenant=team", json={"question": "قیمت را بالا ببریم؟", "seats": ["alavi", "parsi"]}).status_code, 400)
+        self.assertEqual(self.c.post("/api/council/ask?tenant=team", json={"question": "قیمت را بالا ببریم؟", "seats": ["alavi", "raftari"]}).status_code, 400)
 
     def test_knowledge_entry_is_internal_council_and_tagged(self):
         put = patch.object(server, "_kb_put").start()

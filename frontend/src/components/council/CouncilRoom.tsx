@@ -1,28 +1,31 @@
 /**
- * «اتاق شورا» (3.9.71) — بومی‌سازیِ Roast Room (MIT، github.com/nateherkai/roast-room): صندلی‌های مشاور دورِ میز دربارهٔ یک تصمیم حرف می‌زنند
- * (قاب‌های دهان و پلک مثلِ نسخهٔ اصلی) و ایجنتِ «تحلیل و کوچینگ فروش» رئیسِ جلسه است و رأی می‌دهد.
- * «دانشنامه»: مدخل‌های هر صندلی (مجموعهٔ council در پایگاه دانش)؛ صندلیِ بی‌دانشنامه نمی‌نشیند. فقط مدیر.
+ * «Council Room» (3.9.75) — the Roast Room UI (MIT, github.com/nateherkai/roast-room) rebuilt in React with its own markup and styles
+ * (council.css): top bar + stepper, the stage with seats behind the table edge, nameplates, spotlight, word-by-word captions,
+ * playback speed / skip, the «Key points» feed and the verdict sheet. The table is a turning Earth (Globe.tsx).
+ * Seats speak from their brain or the «Library» (KB collection council); the coach agent chairs and writes the verdict. Managers only.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { authHeaders, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
-import { BTN_DANGER, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
+import Globe from './Globe'
+import './council.css'
 
 type Seat = { key: string; name: string; short: string; initials: string; pillar: string; question: string; color: string; brain: boolean; ready: boolean; portrait: boolean; entries: { id: string; filename: string; chars: number }[] }
 type Card = { seat: string; ok: boolean; stance?: string; score?: number; line?: string; why?: string[]; error?: string }
 type Verdict = { ok: boolean; label?: string; call?: string; carried?: string[]; dissent?: string; next?: string[]; error?: string }
 type Result = { cards: Card[]; verdict: Verdict; skipped: string[] }
 type Shape = 'base' | 'open' | 'mid' | 'blink'
+type Geo = Record<string, { x: number; head: number; size: number; plate: number; top: number }>
 
 async function api<T>(session: Session, path: string, body?: unknown, method?: string): Promise<T> {
 	const r = await fetch(path + (path.includes('?') ? '&' : '?') + 'tenant=' + encodeURIComponent(currentTenant()),
 		{ method: method || (body ? 'POST' : 'GET'), headers: { 'Content-Type': 'application/json', ...authHeaders(session) }, ...(body ? { body: JSON.stringify(body) } : {}), cache: 'no-store' })
-	const j = await r.json().catch(() => ({ ok: false, error: 'پاسخِ نامعتبر (' + r.status + ')' }))
-	if (!r.ok || j.ok === false) throw new Error(j.error || 'خطا ' + r.status)
+	const j = await r.json().catch(() => ({ ok: false, error: 'Invalid response (' + r.status + ')' }))
+	if (!r.ok || j.ok === false) throw new Error(j.error || 'Error ' + r.status)
 	return j as T
 }
 
-/** دهان برای هر واژهٔ فارسی/لاتین: مصوت‌های باز → open، و/او → mid، لب‌ها (ب م پ ف) → base */
+/** Mouth shape per word (Persian and Latin): open vowels → open, و/o/u → mid, lips (ب م پ ف / b m p f) → base */
 export function shapesFor(word: string): Shape[] {
 	const out: Shape[] = []
 	for (const ch of word.toLowerCase()) {
@@ -32,53 +35,65 @@ export function shapesFor(word: string): Shape[] {
 	return out.length ? out : ['mid']
 }
 
-/** نیم‌تنهٔ کشیده‌شده (صندلی‌های بی‌پرتره) — همان طرحِ نسخهٔ اصلی با دهان و پلکِ متحرک */
-function DrawnBust({ seat, shape }: { seat: Seat; shape: Shape }) {
-	const eyes = shape === 'blink'
-		? <path d="M226 250h30M304 250h30" stroke="#1d2733" strokeWidth="7" strokeLinecap="round" />
-		: <><circle cx="241" cy="250" r="11" fill="#1d2733" /><circle cx="319" cy="250" r="11" fill="#1d2733" /></>
-	const mouth = shape === 'open' ? <ellipse cx="280" cy="318" rx="24" ry="17" fill="#5a2430" />
-		: shape === 'mid' ? <ellipse cx="280" cy="316" rx="20" ry="8" fill="#5a2430" />
-			: <path d="M256 312q24 16 48 0" fill="none" stroke="#5a2430" strokeWidth="7" strokeLinecap="round" />
+/** The original's drawn bust for a seat without a portrait — moving eyes and mouth in the seat's colour. */
+function DrawnBust({ seat, shape, cls }: { seat: Seat; shape: Shape; cls: string }) {
+	const eyes = shape === 'blink' ? <path d="M226 250h30M304 250h30" stroke="#1d2733" strokeWidth="7" strokeLinecap="round" />
+		: <><circle cx="241" cy="250" r="11" fill="#1d2733" /><circle cx="319" cy="250" r="11" fill="#1d2733" /><circle cx="245" cy="246" r="3.5" fill="#fff" /><circle cx="323" cy="246" r="3.5" fill="#fff" /></>
+	const mouth = shape === 'open' ? <ellipse cx="280" cy="318" rx="24" ry="17" fill="#5a2430" /> : shape === 'mid' ? <ellipse cx="280" cy="316" rx="20" ry="8" fill="#5a2430" />
+		: <path d="M256 312q24 16 48 0" fill="none" stroke="#5a2430" strokeWidth="7" strokeLinecap="round" />
 	return (
-		<svg viewBox="0 0 560 560" className="size-full" aria-hidden="true"><g transform="translate(-14 -64) scale(1.05)">
-			<path d="M70 640c0-160 86-250 210-250s210 90 210 250z" fill={seat.color} />
-			<rect x="248" y="330" width="64" height="70" rx="22" fill="#d9b49a" />
-			<ellipse cx="280" cy="250" rx="112" ry="128" fill="#e8c4a8" />
-			<path d="M168 236c0-90 50-122 112-122s112 32 112 122c-20-46-60-64-112-64s-92 18-112 64z" fill="#3a4654" />
-			{eyes}{mouth}
-			<text x="280" y="545" textAnchor="middle" fontWeight="800" fontSize="64" fill="rgba(255,255,255,.92)">{seat.initials}</text>
-		</g></svg>
+		<svg className={cls} viewBox="0 0 560 560"><g transform="translate(-14 -64) scale(1.05)">
+			<path d="M70 640c0-160 86-250 210-250s210 90 210 250z" fill={seat.color} /><path d="M232 384h96l-48 58z" fill="#e9eef3" />
+			<rect x="248" y="330" width="64" height="70" rx="22" fill="#d9b49a" /><ellipse cx="280" cy="250" rx="112" ry="128" fill="#e8c4a8" />
+			<path d="M168 236c0-90 50-122 112-122s112 32 112 122c-20-46-60-64-112-64s-92 18-112 64z" fill="#3a4654" />{eyes}{mouth}
+			<text x="280" y="540" textAnchor="middle" fontWeight="800" fontSize="54" fill="rgba(255,255,255,.92)">{seat.initials}</text></g></svg>
 	)
 }
+const FRAMES: Record<string, Shape[]> = {}          // seats with talking frames on disk (the original twelve)
+for (const k of ['bezos', 'graham', 'garyvee', 'martell', 'buffett', 'naval', 'sanchez', 'blakely', 'leila', 'musk']) FRAMES[k] = ['base', 'open', 'mid', 'blink']
+const src = (s: Seat, shape: Shape = 'base') => `/council/${s.key}-${FRAMES[s.key]?.includes(shape) ? shape : 'base'}.webp`
 
 function Bust({ seat, shape }: { seat: Seat; shape: Shape }) {
-	if (!seat.portrait) return <DrawnBust seat={seat} shape={shape} />
 	return (
-		<div className="relative size-full">{(['base', 'open', 'mid', 'blink'] as Shape[]).map((s) => (
-			<img key={s} src={`/council/${seat.key}-${s}.webp`} alt="" draggable={false} className={`absolute inset-0 size-full object-contain transition-none ${s === shape ? 'opacity-100' : 'opacity-0'}`} />
-		))}</div>
+		<div className="bust" data-shape={shape}>
+			{(['base', 'open', 'mid', 'blink'] as Shape[]).map((sh) => seat.portrait
+				? <img key={sh} className={sh} src={src(seat, sh)} alt="" draggable={false} />
+				: <DrawnBust key={sh} seat={seat} shape={sh} cls={sh} />)}
+		</div>
 	)
 }
 
-const STANCE: Record<string, string> = { موافق: 'text-success', مخالف: 'text-error', مشروط: 'text-warning' }
+const STANCE: Record<string, string> = { موافق: 'endorse', مخالف: 'dissent', مشروط: 'amend' }
+const STANCE_EN: Record<string, string> = { موافق: 'ENDORSE', مخالف: 'DISSENT', مشروط: 'AMEND' }
+const vClass = (l = '') => (/انجام نده|نکن/.test(l) ? 'dont' : /انجام بده/.test(l) ? '' : 'amend')
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const reduced = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches
+const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+const STEPS = [['setup', 'Brief'], ['round1', 'Openings'], ['verdict', 'Verdict']] as const
 
 export default function CouncilRoom({ session }: { session: Session }) {
 	const [seats, setSeats] = useState<Seat[]>([])
 	const [chair, setChair] = useState('')
 	const [pick, setPick] = useState<string[]>([])
-	const [view, setView] = useState<'room' | 'kb'>('room')
+	const [mode, setMode] = useState<'full' | 'quick'>('full')
 	const [question, setQuestion] = useState('')
+	const [asked, setAsked] = useState('')
 	const [busy, setBusy] = useState(false)
 	const [err, setErr] = useState('')
 	const [res, setRes] = useState<Result | null>(null)
 	const [shapes, setShapes] = useState<Record<string, Shape>>({})
 	const [speaker, setSpeaker] = useState<string | null>(null)
-	const [said, setSaid] = useState<{ seat: string; words: string[]; n: number } | null>(null)
+	const [said, setSaid] = useState<{ seat: string | null; words: string[]; n: number; tag: string } | null>(null)
+	const [heard, setHeard] = useState<string[]>([])
 	const [done, setDone] = useState(false)
+	const [sheet, setSheet] = useState(false)
+	const [tab, setTab] = useState<'feed' | 'lib'>('feed')
+	const [speed, setSpeed] = useState(1)
+	const [geo, setGeo] = useState<Geo>({})
+	const [box, setBox] = useState({ W: 0, H: 0, narrow: false, gx: 0, gy: 0, gr: 0, ctop: 0 })
+	const stage = useRef<HTMLDivElement>(null)
 	const skip = useRef(false)
+	const speedRef = useRef(1)
+	speedRef.current = speed
 
 	const load = useCallback(() => api<{ seats: Seat[]; default: string[]; chair: string }>(session, '/api/council/seats').then((j) => {
 		setSeats(j.seats); setChair(j.chair)
@@ -86,114 +101,218 @@ export default function CouncilRoom({ session }: { session: Session }) {
 	}, (e) => setErr((e as Error).message)), [session])
 	useEffect(() => { load() }, [load])
 
-	// پلک زدنِ گاه‌به‌گاه تا اتاق زنده باشد
+	const by = (k: string | null) => seats.find((s) => s.key === k)
+	const table = (pick.map(by).filter(Boolean) as Seat[])
+
+	// The table is a globe seen from the front; seats sit along its far edge (middle seat farthest, ends nearest), as in the original.
+	useLayoutEffect(() => {
+		const el = stage.current
+		if (!el) return
+		const lay = () => {
+			const W = el.clientWidth, narrow = W < 760
+			const H = narrow ? Math.round(W * 0.7) : el.clientHeight
+			const gr = W * (narrow ? 0.62 : 0.46), gx = W / 2, gy = H * (narrow ? 1.02 : 0.86) + gr * (narrow ? 0.5 : 0.36)
+			const edge = (x: number) => gy - Math.sqrt(Math.max(0, gr * gr - (x - gx) ** 2))
+			const n = table.length
+			const xs = n === 1 ? [0.5] : table.map((_, i) => 0.1 + (0.8 * i) / (n - 1))
+			const fit = Math.min(1, 6 / Math.max(1, n - 1))
+			const g: Geo = {}
+			let low = 0
+			table.forEach((s, i) => {
+				const x = W * xs[i], d = ((x - gx) / gr) ** 2
+				const size = H * (narrow ? 0.46 + 0.08 * d : 0.3 + 0.06 * d) * fit
+				const bottom = edge(x) + size * 0.2
+				g[s.key] = { x, head: bottom - size * 0.72, size, plate: edge(x) + H * 0.01, top: bottom - size }
+				if (i > 0 && i < n - 1) low = Math.max(low, edge(x) + H * 0.04)
+			})
+			setGeo(g)
+			setBox({ W, H, narrow, gx, gy, gr, ctop: narrow ? H : Math.max(low, H * 0.45) + H * 0.035 })
+		}
+		lay()
+		const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(lay) : null
+		ro?.observe(el)
+		return () => ro?.disconnect()
+	}, [pick.join(','), seats.length])     // eslint-disable-line react-hooks/exhaustive-deps
+
+	// idle blinking so the room feels alive
 	useEffect(() => {
 		if (reduced()) return
 		const t = setInterval(() => {
 			const k = pick[Math.floor(Math.random() * pick.length)]
 			if (!k || k === speaker) return
-			setShapes((s) => ({ ...s, [k]: 'blink' })); setTimeout(() => setShapes((s) => ({ ...s, [k]: 'base' })), 140)
-		}, 1400)
+			setShapes((s) => ({ ...s, [k]: 'blink' })); setTimeout(() => setShapes((s) => ({ ...s, [k]: 'base' })), 130)
+		}, 1200)
 		return () => clearInterval(t)
 	}, [pick, speaker])
 
-	const by = (k: string) => seats.find((s) => s.key === k)
-	const table = pick.map(by).filter(Boolean) as Seat[]
-
+	const wait = (ms: number) => (skip.current ? Promise.resolve() : sleep(ms / speedRef.current))
 	const play = async (r: Result) => {
 		skip.current = reduced()
+		setSaid({ seat: null, words: ['Openings:', 'each', 'seat', 'takes', 'a', 'position.'], n: 6, tag: 'The floor is open' }); await wait(1400)
 		for (const c of r.cards.filter((x) => x.ok && x.line)) {
 			const words = c.line!.split(/\s+/).filter(Boolean)
 			setSpeaker(c.seat)
-			for (let i = 0; i < words.length; i++) {
-				if (skip.current) break
-				setSaid({ seat: c.seat, words, n: i + 1 })
+			for (let i = 0; i < words.length && !skip.current; i++) {
+				setSaid({ seat: c.seat, words, n: i + 1, tag: 'Opening' })
 				const sh = shapesFor(words[i].replace(/[^\p{L}]/gu, ''))
-				const per = Math.max(170, words[i].length * 60) / (sh.length + 1)
-				for (const x of sh) { setShapes((s) => ({ ...s, [c.seat]: x })); await sleep(per) }
-				setShapes((s) => ({ ...s, [c.seat]: 'base' })); await sleep(per + (/[.!؟?]$/.test(words[i]) ? 320 : 40))
+				const per = Math.max(170, words[i].length * 52) / (sh.length + 1)
+				for (const x of sh) { setShapes((s) => ({ ...s, [c.seat]: x })); await wait(per) }
+				setShapes((s) => ({ ...s, [c.seat]: 'base' })); await wait(per + (/[.!؟?]$/.test(words[i]) ? 340 : 25))
 			}
-			setSaid({ seat: c.seat, words, n: words.length }); setShapes((s) => ({ ...s, [c.seat]: 'base' }))
-			if (!skip.current) await sleep(900)
+			setSaid({ seat: c.seat, words, n: words.length, tag: 'Opening' }); setShapes((s) => ({ ...s, [c.seat]: 'base' }))
+			setHeard((h) => [...h, c.seat]); await wait(1300)
 		}
-		setSpeaker(null); setDone(true)
+		setHeard(r.cards.filter((x) => x.ok).map((x) => x.seat))
+		setSpeaker(null); setSaid(null); setDone(true)
 	}
 
-	const ask = async () => {
-		setBusy(true); setErr(''); setRes(null); setDone(false); setSaid(null)
+	const convene = async () => {
+		const seatsNow = mode === 'quick' ? pick.slice(0, 4) : pick
+		setBusy(true); setErr(''); setRes(null); setDone(false); setSaid(null); setHeard([]); setAsked(question.trim()); setSpeed(1)
 		try {
-			const r = await api<Result>(session, '/api/council/ask', { question: question.trim(), seats: pick })
+			const r = await api<Result>(session, '/api/council/ask', { question: question.trim(), seats: seatsNow })
 			setRes(r); setBusy(false); await play(r)
 		} catch (e) { setErr((e as Error).message); setBusy(false) }
 	}
-
+	const reset = () => { setRes(null); setDone(false); setAsked(''); setSaid(null); setHeard([]) }
 	const toggle = (k: string) => setPick((p) => (p.includes(k) ? p.filter((x) => x !== k) : p.length < 7 ? [...p, k] : p))
+	const step = done ? 'verdict' : res || busy ? 'round1' : 'setup'
+	const live = !!res && !done
+	const cards = Object.fromEntries((res?.cards || []).filter((c) => c.ok).map((c) => [c.seat, c])) as Record<string, Card>
+	const opts = res ? [...new Set(res.cards.filter((c) => c.ok).map((c) => c.stance || ''))].map((st) => {
+		const cs = res.cards.filter((c) => c.ok && c.stance === st)
+		return { st, n: cs.length, avg: Math.round(cs.reduce((a, c) => a + (c.score || 0), 0) / Math.max(1, cs.length) * 10) / 10 }
+	}).sort((a, b) => b.n - a.n) : []
+	const sp = speaker ? geo[speaker] : null
 
 	return (
-		<section dir="rtl" className={`flex flex-col gap-4 ${CARD} ${CARD_PAD}`} data-testid="council">
-			<header className="flex flex-wrap items-center justify-between gap-2">
-				<div><h2 className={CARD_TITLE}>اتاق شورا</h2><p className={CARD_SUB}>رئیسِ جلسه: {chair || 'ایجنتِ کوچ'} · شبیه‌سازی از منابعِ عمومی، نه خودِ اشخاص.</p></div>
-				<div className="flex gap-1 rounded-full bg-muted p-1 text-[12.5px]">
-					{(['room', 'kb'] as const).map((v) => <button key={v} type="button" onClick={() => setView(v)} className={`rounded-full px-3 py-1 ${view === v ? 'bg-card font-semibold shadow-card' : 'text-muted-foreground'}`}>{v === 'room' ? 'جلسه' : 'دانشنامه'}</button>)}
+		<div className="rr" data-testid="council">
+			<header className="topbar">
+				<div className="brand"><img className="brand-logo" src="/aromin-mark.svg" alt="AROMIN" /><span className="brand-rule" aria-hidden="true" /><span className="brand-name">Council Room</span></div>
+				<ol className="stepper" aria-label="Council progress">{STEPS.map(([k, l], i) => (
+					<li key={k} className={k === step ? 'active' : STEPS.findIndex((x) => x[0] === step) > i ? 'done' : ''}>{l}</li>))}</ol>
+				<div className="top-actions">
+					<span className="usage">Chair: {chair || 'Coach agent'}</span>
+					{res && <button className="ghost" type="button" onClick={reset}>New question</button>}
 				</div>
 			</header>
-			{err && <p role="alert" className="text-[12.5px] text-error">{err}</p>}
+			{asked && (
+				<div className="topic">
+					<div><div className="label">On the table</div><h1>{asked}</h1></div>
+					{opts.length > 0 && <div className="options">{opts.map((o, i) => (
+						<div key={o.st} className={`opt ${i === 0 ? 'lead' : ''}`}><span className="id">{'ABC'[i] || '•'}</span><span className="bar"><i style={{ width: `${o.avg * 10}%` }} /></span>
+							<span className="val">{STANCE_EN[o.st] ? o.avg : '—'}</span><span className="label" style={{ gridColumn: 2, gridRow: 1 }}>{STANCE_EN[o.st] || o.st} · {o.n}</span></div>))}</div>}
+				</div>
+			)}
+			{err && <p role="alert" style={{ color: 'var(--dissent)', margin: '12px 24px 0', fontSize: 13 }}>{err}</p>}
 
-			{view === 'room' ? (<>
-				<div className="relative overflow-hidden rounded-2xl bg-[radial-gradient(ellipse_at_top,#2b2f3a,#0d0f14)] px-3 pb-4 pt-6" data-testid="council-stage">
-					<div className="flex flex-wrap items-end justify-center gap-x-2 gap-y-4">
+			<main className="layout">
+				<section aria-label="The council table">
+					<div ref={stage} className={`stage ${live ? 'live' : ''} ${box.narrow ? 'narrow' : ''}`} data-testid="council-stage" style={box.narrow ? { paddingTop: box.H } : undefined}>
+						<div className="wall" aria-hidden="true" />
+						<div className={`spot ${sp ? 'on' : ''}`} style={sp ? { left: sp.x, top: sp.head, width: sp.size * 1.9, height: sp.size * 1.9 } : undefined} aria-hidden="true" />
 						{table.map((s) => {
-							const on = speaker === s.key
+							const g = geo[s.key]
+							if (!g) return null
+							const on = speaker === s.key, c = cards[s.key]
 							return (
-								<figure key={s.key} className={`flex w-[92px] flex-col items-center gap-1 transition duration-300 ${speaker && !on ? 'opacity-55' : ''} ${on ? 'scale-110' : ''}`} data-seat={s.key}>
-									<div className={`size-[84px] overflow-hidden rounded-full bg-black/30 ring-2 ${on ? 'ring-white' : 'ring-white/10'}`}><Bust seat={s} shape={shapes[s.key] || 'base'} /></div>
-									<figcaption className="text-center leading-tight"><b className="block text-[12px] text-white">{s.short}</b><span className="text-[10.5px] text-white/55">{s.pillar}</span></figcaption>
-								</figure>
+								<button key={s.key} type="button" className={`seat ${on ? 'speaking' : ''} ${busy ? 'thinking' : ''}`} data-seat={s.key} aria-label={s.name}
+									style={{ left: g.x - g.size / 2, top: g.top, width: g.size, height: g.size, zIndex: 10 + Math.round(((g.x - box.gx) / box.gr) ** 2 * 10), transform: on ? 'scale(1.05)' : undefined }}
+									onClick={() => setTab('feed')}>
+									<Bust seat={s} shape={shapes[s.key] || 'base'} />
+									<span className="think" aria-hidden="true"><i /><i /><i /></span>
+									{done && c?.stance && <span className={`vote ${STANCE[c.stance]}`}>{STANCE_EN[c.stance]}</span>}
+								</button>
 							)
 						})}
-					</div>
-					<div className="mx-auto mt-4 h-3 w-4/5 rounded-full bg-gradient-to-b from-[#6b4a2f] to-[#3c2a1b] shadow-[0_8px_20px_rgba(0,0,0,.5)]" aria-hidden="true" />
-					<div className="mt-4 min-h-14 rounded-xl bg-white/5 px-4 py-3 text-[14px] leading-7 text-white" aria-live="polite" data-testid="council-caption">
-						{said ? <><b className="ml-2 text-white/70">{by(said.seat)?.short}:</b>{said.words.map((w, i) => <span key={i} className={i < said.n ? '' : 'opacity-25'}>{w} </span>)}</>
-							: <span className="text-white/45">{busy ? 'صندلی‌ها فکر می‌کنند…' : 'تصمیم را بنویسید تا شورا شروع کند.'}</span>}
-					</div>
-					{res && !done && <button type="button" className="absolute left-3 top-3 rounded-full bg-white/10 px-3 py-1 text-[11.5px] text-white" onClick={() => { skip.current = true }}>رد کردن</button>}
-				</div>
+						<Globe className="globe" style={{ left: box.gx - box.gr, top: box.gy - box.gr, width: box.gr * 2, height: box.gr * 2 }} />
+						{table.map((s) => {
+							const g = geo[s.key], c = cards[s.key]
+							return g && (
+								<div key={s.key} className={`nameplate ${speaker === s.key ? 'speaking' : ''}`} style={{ left: g.x, top: g.plate }}>
+									<b>{s.short}</b>{!(heard.includes(s.key) && c) && <small>{s.pillar}</small>}
+									{heard.includes(s.key) && c && <div className="meta"><span className={`chip ${STANCE[c.stance || '']}`}>{STANCE_EN[c.stance || ''] || c.stance}</span><span className="score">{c.score}/10</span></div>}
+								</div>
+							)
+						})}
 
-				<div className="flex flex-wrap gap-1.5" aria-label="صندلی‌ها">{seats.map((s) => (
-					<button key={s.key} type="button" disabled={!s.ready || busy} onClick={() => toggle(s.key)} title={s.ready ? s.question : 'دانشنامه خالی است'}
-						className={`rounded-full px-3 py-1 text-[12px] transition ${pick.includes(s.key) ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground'} disabled:opacity-40`}>{s.short}{!s.ready && ' ·خالی'}</button>
-				))}</div>
-				<div className="flex flex-col gap-2 sm:flex-row">
-					<textarea className={`${INPUT} min-h-20 py-2`} maxLength={2000} placeholder="تصمیم، گزینه‌ها، عددها و تمایلِ خودتان…" aria-label="تصمیم" value={question} onChange={(e) => setQuestion(e.target.value)} />
-					<button type="button" className={`${BTN_PRIMARY} sm:self-end`} disabled={busy || question.trim().length < 8 || pick.length < 2} onClick={ask}>{busy ? 'در جلسه…' : 'شروعِ شورا'}</button>
-				</div>
-
-				{res && done && (
-					<div className="grid gap-3" data-testid="council-verdict">
-						{res.verdict.ok ? (
-							<div className="rounded-2xl bg-muted/60 p-4">
-								<div className="flex flex-wrap items-baseline gap-2"><b className="text-[17px]">{res.verdict.label}</b><span className="text-[13.5px]">{res.verdict.call}</span></div>
-								{!!res.verdict.carried?.length && <ul className="mt-2 list-disc pr-5 text-[12.5px]">{res.verdict.carried.map((x, i) => <li key={i}>{x}</li>)}</ul>}
-								{res.verdict.dissent && <p className="mt-1 text-[12.5px] text-muted-foreground">مخالفت: {res.verdict.dissent}</p>}
-								{!!res.verdict.next?.length && <ol className="mt-2 list-decimal pr-5 text-[12.5px] font-semibold">{res.verdict.next.map((x, i) => <li key={i}>{x}</li>)}</ol>}
+						<div className="center" style={box.narrow ? { position: 'relative', padding: '16px 18px 56px' } : { left: box.W * 0.2, width: box.W * 0.6, top: box.ctop, height: box.H - box.ctop - box.H * 0.09 }}>
+							{!res && !busy && (
+								<form className="composer" onSubmit={(e) => { e.preventDefault(); if (question.trim().length >= 10 && pick.length >= 2) convene() }}>
+									<h2>What decision do you need help with?</h2>
+									<textarea rows={3} dir="auto" minLength={10} required value={question} onChange={(e) => setQuestion(e.target.value)} aria-label="Decision"
+										placeholder="Give them the decision, your options, a few numbers (revenue, cash, team), and which way you're leaning." />
+									<div className="samples" aria-label="Seats">{seats.map((s) => (
+										<button key={s.key} type="button" aria-pressed={pick.includes(s.key)} disabled={!s.ready} title={s.ready ? s.question : 'Library is empty'} onClick={() => toggle(s.key)}>{s.short}</button>))}</div>
+									<div className="composer-row">
+										<div className="mode" role="radiogroup" aria-label="Council size">
+											<label><input type="radio" name="rr-mode" checked={mode === 'full'} onChange={() => setMode('full')} /><span>Full council <small>{Math.min(7, pick.length)} seats</small></span></label>
+											<label><input type="radio" name="rr-mode" checked={mode === 'quick'} onChange={() => setMode('quick')} /><span>Quick <small>4 seats</small></span></label>
+										</div>
+										<button className="convene" type="submit" disabled={busy || question.trim().length < 10 || pick.length < 2}>Convene the council</button>
+									</div>
+								</form>
+							)}
+							{busy && <div className="caption"><div className="cap-head"><span className="cap-who">The Chair</span><span className="cap-tag">Seats are thinking</span></div>
+								<p className="cap-text chair">Each seat reads its brain and the live numbers<span className="dots"><i /><i /><i /></span></p></div>}
+							{said && (
+								<div className="caption" aria-live="polite" data-testid="council-caption">
+									<div className="cap-head">{said.seat && <span className="cap-av"><img src={by(said.seat)?.portrait ? src(by(said.seat)!) : '/aromin-mark.svg'} alt="" /></span>}
+										<span className="cap-who">{said.seat ? by(said.seat)?.name : 'The Chair'}</span><span className="cap-tag">{said.tag}</span></div>
+									<p className={`cap-text ${said.seat ? '' : 'chair'}`} dir="auto">{said.words.map((w, i) => <span key={i} className={`w ${i < said.n ? 'on' : ''}`}>{w} </span>)}</p>
+								</div>
+							)}
+							{done && res && (
+								<div className="plate" data-testid="council-verdict">
+									<p dir="auto">{res.verdict.ok ? `${res.verdict.label} — ${res.verdict.call}` : `Chair: ${res.verdict.error}`}</p>
+									<div className="row"><button type="button" onClick={() => setSheet(true)}>Read the verdict</button><button type="button" className="alt" onClick={reset}>New question</button></div>
+								</div>
+							)}
+						</div>
+						{live && (
+							<div className="playbar">
+								<span className="queue">{heard.length}/{res!.cards.filter((c) => c.ok).length} spoken</span>
+								<div className="speed" role="radiogroup" aria-label="Playback speed">{[1, 1.6, 2.5].map((v) => <button key={v} type="button" aria-pressed={speed === v} onClick={() => setSpeed(v)}>{v}x</button>)}</div>
+								<button type="button" className="skip" onClick={() => { skip.current = true }}>Skip ahead</button>
 							</div>
-						) : <p className="text-[12.5px] text-error">رأیِ رئیس: {res.verdict.error}</p>}
-						<div className="grid gap-2 sm:grid-cols-2">{res.cards.filter((c) => c.ok).map((c) => (
-							<div key={c.seat} className="rounded-xl bg-muted/40 p-3 text-[12.5px]">
-								<b>{by(c.seat)?.short}</b> <span className={STANCE[c.stance || ''] || ''}>{c.stance} · {c.score}/10</span>
-								<p className="mt-1">{c.line}</p>
-							</div>
-						))}</div>
-						{!!res.skipped.length && <p className="text-[12px] text-muted-foreground">ننشستند (دانشنامه خالی): {res.skipped.map((k) => by(k)?.short).join('، ')}</p>}
+						)}
 					</div>
-				)}
-			</>) : <Encyclopedia session={session} seats={seats} reload={load} />}
-		</section>
+				</section>
+
+				<aside className="panel" aria-label="Key points">
+					<div className="tabs" role="tablist">
+						<button type="button" role="tab" aria-selected={tab === 'feed'} onClick={() => setTab('feed')}>Key points</button>
+						<button type="button" role="tab" aria-selected={tab === 'lib'} onClick={() => setTab('lib')}>Library</button>
+					</div>
+					{tab === 'feed' ? (
+						<div className="tabpanel">{heard.length === 0 && <div className="empty">One line per seat as the council talks.</div>}
+							{heard.map((k) => { const c = cards[k], s = by(k); return c && s && (
+								<div key={k} className="feed-card"><div className="h"><img className="av" src={s.portrait ? src(s) : '/aromin-mark.svg'} alt="" />{s.name}<span className="r">{STANCE_EN[c.stance || ''] || c.stance} · {c.score}/10</span></div>
+									<p dir="auto">{c.line}</p>{c.why?.map((w, i) => <p key={i} dir="auto" style={{ color: 'var(--ink-mute)', fontSize: 12 }}>• {w}</p>)}</div>) })}
+							{res && res.skipped.length > 0 && <div className="empty">Not seated (empty library): {res.skipped.map((k) => by(k)?.short).join(', ')}</div>}
+						</div>
+					) : <Library session={session} seats={seats} reload={load} />}
+				</aside>
+			</main>
+			<p className="disclaimer">Simulated advisors built from each person's public work. They are not the people and do not speak for them.</p>
+
+			{sheet && res?.verdict.ok && (
+				<div className="rr rr-sheet" role="dialog" aria-modal="true" aria-label="Verdict" onClick={(e) => { if (e.target === e.currentTarget) setSheet(false) }}>
+					<div className="sheet-inner">
+						<div className="v-top"><div><div className="label">The verdict · chaired by {chair}</div><span className={`v-label ${vClass(res.verdict.label)}`} dir="auto">{res.verdict.label}</span></div>
+							<button type="button" className="ghost" onClick={() => setSheet(false)}>Close</button></div>
+						<p className="v-call" dir="auto">{res.verdict.call}</p>
+						{!!res.verdict.carried?.length && <><h4>What carried the room</h4><ul dir="auto">{res.verdict.carried.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
+						{res.verdict.dissent && <><h4>Strongest objection</h4><p dir="auto" style={{ margin: 0 }}>{res.verdict.dissent}</p></>}
+						{!!res.verdict.next?.length && <><h4>Next steps</h4><ol dir="auto">{res.verdict.next.map((x, i) => <li key={i}>{x}</li>)}</ol></>}
+					</div>
+				</div>
+			)}
+		</div>
 	)
 }
 
-function Encyclopedia({ session, seats, reload }: { session: Session; seats: Seat[]; reload: () => void }) {
+function Library({ session, seats, reload }: { session: Session; seats: Seat[]; reload: () => void }) {
 	const [open, setOpen] = useState<string | null>(null)
 	const [text, setText] = useState('')
 	const [busy, setBusy] = useState(false)
@@ -205,24 +324,22 @@ function Encyclopedia({ session, seats, reload }: { session: Session; seats: Sea
 		for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000))
 		await api(session, '/api/council/knowledge', { seat, filename: f.name, data: btoa(bin) })
 	})
-	const del = (id: string) => { if (window.confirm('این مدخل حذف شود؟')) run(() => api(session, '/api/knowledge/' + encodeURIComponent(id), undefined, 'DELETE')) }
+	const del = (id: string) => { if (window.confirm('Delete this entry?')) run(() => api(session, '/api/knowledge/' + encodeURIComponent(id), undefined, 'DELETE')) }
 	return (
-		<div className="grid gap-2" data-testid="council-kb">
-			{msg && <p role="alert" className="text-[12.5px] text-error">{msg}</p>}
+		<div className="tabpanel" data-testid="council-kb">
+			{msg && <p role="alert" style={{ color: 'var(--dissent)', fontSize: 12.5, margin: 0 }}>{msg}</p>}
 			{seats.map((s) => (
-				<div key={s.key} className="rounded-xl bg-muted/40 p-3">
-					<button type="button" className="flex w-full items-center gap-3 text-right" onClick={() => setOpen(open === s.key ? null : s.key)} aria-expanded={open === s.key}>
-						<span className="size-10 shrink-0 overflow-hidden rounded-full bg-black/20"><Bust seat={s} shape="base" /></span>
-						<span className="min-w-0 flex-1"><b className="text-[13.5px]">{s.name}</b><span className="block truncate text-[12px] text-muted-foreground">{s.pillar}</span></span>
-						<span className={`text-[11.5px] ${s.ready ? 'text-success' : 'text-muted-foreground'}`}>{s.brain ? 'مغزِ آماده' : ''}{s.entries.length ? ` · ${s.entries.length} مدخل` : s.brain ? '' : 'خالی'}</span>
-					</button>
+				<div key={s.key} className="feed-card" style={{ cursor: 'default' }}>
+					<button type="button" className="h" style={{ background: 'none', border: 0, padding: 0, width: '100%', color: 'inherit' }} aria-expanded={open === s.key} onClick={() => setOpen(open === s.key ? null : s.key)}>
+						<img className="av" src={s.portrait ? src(s) : '/aromin-mark.svg'} alt="" />{s.name}
+						<span className="r">{s.brain ? 'brain' : ''}{s.entries.length ? `${s.brain ? ' + ' : ''}${s.entries.length} entries` : s.brain ? '' : 'empty'}</span></button>
 					{open === s.key && (
-						<div className="mt-3 grid gap-2">
-							{s.entries.map((e) => <div key={e.id} className="flex items-center gap-2 text-[12px]"><span className="flex-1 truncate">{e.filename}</span><span className="text-muted-foreground">{e.chars.toLocaleString('fa-IR')} نویسه</span><button type="button" className={BTN_DANGER} disabled={busy} onClick={() => del(e.id)}>حذف</button></div>)}
-							<textarea className={`${INPUT} min-h-20 py-2`} placeholder="متنِ سخنرانی، کتاب، مصاحبه یا یادداشت دربارهٔ این شخص…" aria-label={'متنِ دانشنامهٔ ' + s.short} value={text} onChange={(e) => setText(e.target.value)} />
-							<div className="flex flex-wrap gap-2">
-								<button type="button" className={BTN_PRIMARY} disabled={busy || text.trim().length < 20} onClick={() => addText(s.key)}>افزودنِ متن</button>
-								<label className={`${BTN_GHOST} cursor-pointer`}>بارگذاریِ فایل<input type="file" hidden accept=".txt,.md,.pdf,.docx,.html,.csv,.json" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) addFile(s.key, f); e.target.value = '' }} /></label>
+						<div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+							{s.entries.map((e) => <div key={e.id} className="lib-row"><span className="n">{e.filename}</span><span>{e.chars.toLocaleString()} chars</span><button type="button" className="ghost" disabled={busy} onClick={() => del(e.id)}>Delete</button></div>)}
+							<textarea className="lib-in" dir="auto" aria-label={'Library text for ' + s.short} placeholder="Talk transcript, book notes, interview…" value={text} onChange={(e) => setText(e.target.value)} />
+							<div style={{ display: 'flex', gap: 8 }}>
+								<button type="button" className="btn-w" disabled={busy || text.trim().length < 20} onClick={() => addText(s.key)}>Add text</button>
+								<label className="ghost" style={{ cursor: 'pointer' }}>Upload file<input type="file" hidden accept=".txt,.md,.pdf,.docx,.html,.csv,.json" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) addFile(s.key, f); e.target.value = '' }} /></label>
 							</div>
 						</div>
 					)}
