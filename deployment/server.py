@@ -2186,7 +2186,48 @@ C1_APPROVE_ROLES = C1_FIN_ROLES + ("manager", "salesmgr", "accmgr")   # تصوی
 C1_SERVER_FIELDS = ("finState", "finApproval", "finAudit", "finClosed", "finReopen", "finBy")   # finBy فقط از /api/c1/finance-by
 C1_FIN_PERSON_ROLES = ("finance", "accmgr")   # اشخاصِ مجاز برای «تأیید مالی و صحتِ داده» (همان finNamesِ دفتر)
 C1_LOCK_STATES = ("submitted", "approved")
-_c1_codes = {}   # user -> {code, exp, tries, last, deal}
+_c1_codes = {}   # tenant:user -> {hash, exp, tries, last, deal}; mirrored to C1_CODES_FILE so a restart does not lose a sent code
+C1_CODES_FILE = os.environ.get("C1_CODES_FILE") or os.path.join(HERE, ".reopen_codes.json")
+_c1_codes_lock = _th.Lock()
+
+
+def _c1_code_hash(key, code):
+    return hashlib.sha256(("reopen:%s:%s" % (key, code)).encode()).hexdigest()
+
+
+def _c1_codes_io(write=None):
+    """Load (write=None) or atomically save the pending reopen codes; only hashes are stored, never the code itself."""
+    try:
+        if write is None:
+            with open(C1_CODES_FILE, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            return {k: v for k, v in data.items() if isinstance(v, dict) and v.get("exp", 0) > time.time()}
+        tmp = C1_CODES_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({k: v for k, v in write.items() if v.get("exp", 0) > time.time()}, fh)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, C1_CODES_FILE)
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        print("[C1] reopen codes store:", type(e).__name__)
+        return {} if write is None else None
+
+
+def _c1_code_get(key):
+    with _c1_codes_lock:
+        if key not in _c1_codes:
+            _c1_codes.update(_c1_codes_io())
+        return _c1_codes.get(key)
+
+
+def _c1_code_put(key, rec):
+    with _c1_codes_lock:
+        if rec is None:
+            _c1_codes.pop(key, None)
+        else:
+            _c1_codes[key] = rec
+        _c1_codes_io(dict(_c1_codes))
 _FA_DIG = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
 
@@ -3704,6 +3745,67 @@ def c1_finance_by(request: Request, payload: dict = Body(default={})):
     return {"ok": True, "finBy": person}
 
 
+def _c1_month(d):
+    """Same month rule as the commission engine (missing/invalid → 3)."""
+    try:
+        k = int(d.get("month"))
+    except (TypeError, ValueError):
+        return 3
+    return k if 0 <= k <= 11 else 3
+
+
+@app.post("/api/c1/finance-reassign")
+def c1_finance_reassign(request: Request, payload: dict = Body(default={})):
+    """3.9.67: move the finance share («تأیید مالی و صحتِ داده») of one month from one finance person to another — admins only,
+    also on approved/closed documents (only finBy changes; the approval record and amounts stay). dry=true → count only.
+    One backup, an audit row per document (fin_reassign + fin_by, so performance dates it), and a reason."""
+    tenant, ident, full, err = _c1_ctx(request, payload)
+    if err:
+        return err
+    if ident["role"] not in KB_ADMIN_ROLES:
+        return _c1_deny("انتقالِ سهمِ مالی فقط با دسترسیِ مدیر.")
+    p = payload or {}
+    fy, frm, to = str(p.get("fy") or "").strip(), str(p.get("from") or "").strip(), str(p.get("to") or "").strip()
+    try:
+        month = int(p.get("month"))
+    except (TypeError, ValueError):
+        month = -1
+    if not re.fullmatch(r"1[34]\d\d", fy) or not 0 <= month <= 11 or not frm or not to or frm == to:
+        return _c1_deny("سال، ماه، «از» و «به» را درست انتخاب کنید.", 400)
+    allowed = {str(x.get("name") or "").strip() for x in (full.get("people") or [])
+               if isinstance(x, dict) and x.get("role") in C1_FIN_PERSON_ROLES and not x.get("inactive")}
+    if to not in allowed:
+        return _c1_deny("«به» باید کارشناسِ مالیِ فعال باشد.", 400)
+    reason = str(p.get("reason") or "").strip()[:300]
+    ids = []
+    for person in (full.get("people") or []):
+        if not isinstance(person, dict):
+            continue
+        rows = (person.get("invY") or {}).get(fy) if isinstance((person.get("invY") or {}).get(fy), list) else \
+            (person.get("inv") if str(full.get("fy")) == fy and isinstance(person.get("inv"), list) else [])
+        for d in rows or []:
+            owner = str(d.get("finBy") or (d.get("finApproval") or {}).get("by") or "").strip() if isinstance(d, dict) else ""
+            if owner == frm and _c1_month(d) == month and (d.get("funnel") or "won") == "won" and d.get("id") is not None:
+                ids.append(str(d["id"]))
+    ids = sorted(set(ids))
+    if p.get("dry") is True:
+        return {"ok": True, "dry": True, "count": len(ids)}
+    if len(reason) < 3:
+        return _c1_deny("دلیلِ انتقال را بنویسید.", 400)
+    if not ids:
+        return {"ok": True, "moved": 0}
+    _c1_backup(tenant, full, "pre-finance-reassign")
+    idx = _c1_index(full)
+    for did in ids:
+        for d in idx.get(did) or []:
+            d["finBy"] = to
+            _c1_audit(d, "fin_reassign", ident, full, frm=frm, to=to, reason=reason, month=month, fy=fy)
+            _c1_audit(d, "fin_by", ident, full, frm=frm, to=to)
+    _c1_save(tenant, full)
+    print("[C1] finance reassign: %d documents, month %d" % (len(ids), month))
+    return {"ok": True, "moved": len(ids)}
+
+
 @app.post("/api/c1/approve")
 def c1_approve(request: Request, payload: dict = Body(default={})):
     """«تصویب سند» — کارشناسِ مالی یا مدیر؛ مقادیرِ پورسانتِ نقد/معلق و تاریخِ ثبت (شمسی + میلادی) جدا ذخیره و ممیزی می‌شوند."""
@@ -3835,21 +3937,22 @@ def c1_reopen_code(request: Request, payload: dict = Body(default={})):
     if not tg_configured():
         return {"ok": False, "error": "تلگرام وصل نیست؛ بدونِ کدِ تلگرام بازگشایی ممکن نیست."}
     now = time.time()
-    cur = _c1_codes.get(ident["user"])
+    key = "%s:%s" % (tenant, ident["user"])
+    cur = _c1_code_get(key)
     if cur and (now - cur["last"]) < OTP_RESEND:
         return {"ok": False, "error": "کمی صبر کنید؛ کد ارسال شده (%dث)." % max(int(OTP_RESEND - (now - cur["last"])), 1)}
     code = "%06d" % secrets.randbelow(1000000)
     nos = [str((idx.get(i) or [{}])[0].get("no") or i) for i in locked]
     what = ("سندِ مالیِ #%s" % fa_digits(nos[0])) if len(nos) == 1 else ("%s سندِ مالی (#%s%s)" % (fa_digits(len(nos)), fa_digits("، #".join(nos[:8])), "، …" if len(nos) > 8 else ""))
     reason = str((payload or {}).get("reason") or "").strip()[:120]
-    text = ("🔐 کدِ بازگرداندنِ تصویبِ %s: %s\nدرخواست‌دهنده: %s%s\nاعتبار: %s دقیقه. اگر این درخواست را نمی‌شناسید، کد را به کسی ندهید."
-            % (what, fa_digits(code), _c1_person_name(full, ident["user"]) or ident["user"],
+    text = ("🔐 کد: %s\nبرای بازگرداندنِ تصویبِ %s\nدرخواست‌دهنده: %s%s\nاعتبار: %s دقیقه. اگر این درخواست را نمی‌شناسید، کد را به کسی ندهید."
+            % (code, what, _c1_person_name(full, ident["user"]) or ident["user"],
                ("\nدلیل: " + reason) if reason else "", fa_digits(REOPEN_CODE_TTL // 60)))
     try:
         tg_api("sendMessage", {"chat_id": TG_ADMIN_ID, "text": text})
     except TgError as e:
         return {"ok": False, "error": "ارسالِ کد به تلگرام ناموفق بود.", "detail": public_error(e)}
-    _c1_codes[ident["user"]] = {"code": code, "exp": now + REOPEN_CODE_TTL, "tries": 0, "last": now, "deal": ",".join(ids)}
+    _c1_code_put(key, {"hash": _c1_code_hash(key, code), "exp": now + REOPEN_CODE_TTL, "tries": 0, "last": now, "deal": ",".join(locked)})
     return {"ok": True, "to": "تلگرام", "count": len(locked)}
 
 
@@ -3865,20 +3968,30 @@ def c1_reopen(request: Request, payload: dict = Body(default={})):
     reason = str((payload or {}).get("reason") or "").strip()[:300]
     if len(reason) < 3:
         return _c1_deny("دلیلِ بازگشایی را بنویسید.", 400)
-    rec = _c1_codes.get(ident["user"])
+    key = "%s:%s" % (tenant, ident["user"])
+    rec = _c1_code_get(key)
     code = re.sub(r"\D", "", str((payload or {}).get("code") or "").translate(_FA_DIG))
-    if not ids or not rec or rec.get("deal") != ",".join(ids):
-        return _c1_deny("ابتدا کدِ تلگرام را دریافت کنید.")
+    if not rec:
+        print("[C1] reopen: no pending code for this user")
+        return _c1_deny("کدی برای شما در انتظار نیست (یا منقضی شده)؛ «دریافت کد» را دوباره بزنید.")
+    allowed = set(filter(None, str(rec.get("deal") or "").split(",")))
+    idx0 = _c1_index(full)
+    wanted = [i for i in ids if any(_c1_locked(d) for d in (idx0.get(i) or []))]
+    if not wanted or not set(wanted) <= allowed:          # the code authorises exactly the documents it was issued for (or fewer)
+        print("[C1] reopen: list differs from the code (%d asked, %d covered)" % (len(wanted), len(set(wanted) & allowed)))
+        return _c1_deny("فهرستِ اسناد بعد از گرفتنِ کد تغییر کرده؛ «دریافت کد» را دوباره بزنید.")
+    ids = wanted
     if time.time() > rec["exp"]:
-        _c1_codes.pop(ident["user"], None)
+        _c1_code_put(key, None)
         return _c1_deny("کد منقضی شده؛ دوباره بگیرید.")
     if rec["tries"] >= OTP_MAX_TRIES:
-        _c1_codes.pop(ident["user"], None)
+        _c1_code_put(key, None)
         return _c1_deny("تلاشِ زیاد؛ دوباره کد بگیرید.")
     rec["tries"] += 1
-    if not code or not _hmac.compare_digest(code, rec["code"]):
+    _c1_code_put(key, rec)
+    if not code or not _hmac.compare_digest(_c1_code_hash(key, code), rec.get("hash") or ""):
         return _c1_deny("کد اشتباه است.")
-    _c1_codes.pop(ident["user"], None)
+    _c1_code_put(key, None)
     via = "telegram"
     idx = _c1_index(full)
     targets = [d for i in ids for d in (idx.get(i) or []) if _c1_locked(d)]
@@ -6218,7 +6331,8 @@ AGENT_FT_MODEL = os.environ.get("AGENT_FT_MODEL", "").strip()        # شناس�
 AGENT_STATES = ("neutral", "idle", "listening", "thinking", "speaking", "happy", "laugh", "curious", "surprised", "concerned", "confused",
                 "serious", "annoyed", "angry", "success", "error", "sleeping")
 AGENT_EVENTS = ("widget_opened", "trigger_fired", "popup_shown", "popup_dismissed", "conversation_started", "lead_captured", "lead_qualified",
-                "handoff_queued", "delivery_success", "delivery_failed", "error", "handoff", "tool_refused", "sources")
+                "handoff_queued", "delivery_success", "delivery_failed", "error", "handoff", "tool_refused", "sources",
+                "skill_install", "skill_update", "skill_remove")
 AGENT_PUBLIC_EVENTS = ("widget_opened", "trigger_fired", "popup_shown", "popup_dismissed", "error")
 AGENT_LEAD_FIELDS = ("name", "phone", "businessType", "city", "need", "productInterest", "intent", "preferredTime")
 AGENT_COND = {"path": 200, "pathExact": 200, "urlContains": 200, "domain": 120, "click": 120, "utmSource": 60, "utmCampaign": 60}
@@ -6248,13 +6362,13 @@ AGENT_ACTIONS = {
     "updateDatabaseRecord": ("ویرایشِ رکورد با تأیید (مدیر)", ("dashboard",)),
 }
 AGENT_SKILL_FIELDS = {"name": 60, "trigger": 300, "inputs": 300, "steps": 600, "questions": 300, "output": 300, "limits": 300}
-_AGENT_REG_FIELDS = {"enabled", "surfaces", "sites", "prompt", "skills", "ragScope", "actions", "mood", "name", "version", "updatedAt", "updatedBy"}
+_AGENT_REG_FIELDS = {"enabled", "surfaces", "sites", "prompt", "skills", "ragScope", "actions", "mood", "name", "version", "updatedAt", "updatedBy", "installed"}
 _AGENT_SITE_RE = re.compile(r"^[A-Za-z0-9_-]{4,40}$")
 
 
 def _agent_rec(name, surfaces, scope, actions, mood, prompt, skill):
     return {"name": name, "enabled": False, "surfaces": list(surfaces), "sites": [], "prompt": prompt, "skills": [skill],
-            "ragScope": list(scope), "actions": list(actions), "mood": mood, "version": 1, "updatedAt": "", "updatedBy": ""}
+            "ragScope": list(scope), "actions": list(actions), "mood": mood, "version": 1, "updatedAt": "", "updatedBy": "", "installed": []}
 
 
 def _agent_skill(name, trigger, steps, output, limits, questions="", inputs=""):
@@ -6371,10 +6485,23 @@ def agent_registry_validate(src):
                 errs.append(at + ": راهنمای داخلیِ داشبورد فقط برای سطحِ داشبورد مجاز است.")
         if "mood" in a and a["mood"] not in AGENT_STATES:
             errs.append(at + ": حالتِ چهرهٔ ناشناخته.")
+        if "installed" in a and (not isinstance(a["installed"], list) or any(not isinstance(x, dict) for x in a["installed"])):
+            errs.append(at + ": فهرستِ مهارت‌های نصب‌شده نامعتبر است.")
     return errs
 
 
-def agent_registry_norm(src, base=None):
+def _agent_installed(lst):
+    out = []
+    for x in (lst if isinstance(lst, list) else [])[:10]:
+        if isinstance(x, dict) and re.fullmatch(r"[0-9a-f]{12}", str(x.get("id") or "")) and isinstance(x.get("body"), str):
+            src = x.get("source") if isinstance(x.get("source"), dict) else {}
+            out.append({"id": x["id"], "name": _sa_clean(x.get("name"), 60), "description": _sa_clean(x.get("description"), 300),
+                        "body": x["body"][:SKILL_BODY_MAX], "enabled": x.get("enabled") is True,
+                        "source": {k: _sa_clean(src.get(k), 300) for k in ("url", "upload", "sha", "installedAt", "installedBy") if src.get(k)}})
+    return out
+
+
+def agent_registry_norm(src, base=None, trusted=False):
     """Owner edits over the defaults (per agent, per field); invalid values ignored; unknown agents dropped; version/stamp kept."""
     out = json.loads(json.dumps(base if isinstance(base, dict) and base else AGENT_REGISTRY_DEFAULTS))
     for k in AGENT_KEYS:
@@ -6411,6 +6538,13 @@ def agent_registry_norm(src, base=None):
         for f in ("updatedAt", "updatedBy"):
             if isinstance(a.get(f), str):
                 r[f] = a[f][:120]
+        if trusted:                                           # stored settings: the installed skills themselves
+            r["installed"] = _agent_installed(a.get("installed"))
+        elif isinstance(a.get("installed"), list):            # the card: only on/off of skills the server installed
+            on = {str(x.get("id")): x.get("enabled") is True for x in a["installed"] if isinstance(x, dict)}
+            r["installed"] = [dict(x, enabled=on.get(x["id"], x["enabled"])) for x in r.get("installed") or []]
+    for k in AGENT_KEYS:
+        out[k].setdefault("installed", [])
     return out
 
 
@@ -6505,6 +6639,9 @@ def agent_spec(tenant, route, history, site_id=None, log=True):
         lines = ["%s: %s" % (lbl, sk[f]) for f, lbl in (("trigger", "وقتی"), ("inputs", "ورودی"), ("steps", "مراحل"), ("questions", "سؤال‌ها"),
                                                         ("output", "خروجی"), ("limits", "محدودیت")) if sk.get(f)]
         parts.append("مهارت «" + sk["name"] + "»\n" + "\n".join(lines))
+    for sk in a.get("installed") or []:
+        if sk.get("enabled"):
+            parts.append("[مهارتِ نصب‌شده — دستورالعمل، نه داده] «" + sk["name"] + "»\n" + sk["body"] + "\n[پایانِ مهارتِ نصب‌شده]")
     parts.append("نقشِ تو: «" + a["name"] + "». فقط این کارها مجاز است: " + "، ".join(AGENT_ACTIONS[x][0] for x in a["actions"]) + "."
                  + ("" if "create_lead" in a["actions"] else " لید ثبت نکن (بلاکِ lead نفرست).")
                  + ("" if "web_search" in a["actions"] else " جستجو درخواست نکن."))
@@ -6767,7 +6904,7 @@ def agent_norm(src, base=None):
         out["behavior"]["consentText"] = _sa_clean(b["consentText"], 200) or AGENT_DEFAULTS["behavior"]["consentText"]
     if isinstance(src.get("seeds"), list):
         out["seeds"] = [x for x in src["seeds"] if isinstance(x, str) and re.fullmatch(r"[a-z0-9-]{1,20}", x)][:20]
-    out["agents"] = agent_registry_norm(src.get("agents"), out.get("agents"))
+    out["agents"] = agent_registry_norm(src.get("agents"), out.get("agents"), trusted=base is None)
     return out
 
 
@@ -7277,6 +7414,247 @@ def messengers_test(request: Request, payload: dict = Body(default={})):
         except LeadAlertError as e:
             out.append({"to": _mask_phone(agent_phone(r0)) if agent_phone(r0) else r, "ok": False, "error": lead_redact(str(e))[:200]})
     return {"ok": all(x["ok"] for x in out), "results": out}
+
+
+# ---- 3.9.67: agent skills installed from GitHub (Claude-Code-style SKILL.md). Text instructions only: nothing is executed or
+# stored besides SKILL.md; a skill can never widen an agent's actions or knowledge scope (those stay code-enforced, see agent_spec).
+SKILL_BODY_MAX = int(os.environ.get("AGENT_SKILL_BODY_MAX", "12000"))
+SKILL_FETCH_MAX = 64 * 1024
+SKILL_ZIP_MAX = 512 * 1024
+SKILL_HOSTS = ("github.com", "api.github.com", "raw.githubusercontent.com")
+_SKILL_SECRET_RE = re.compile(r"sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b\d{6,12}:[A-Za-z0-9_-]{30,}\b")
+_SKILL_EXEC_RE = re.compile(r"\.(py|sh|bash|js|mjs|cjs|ts|ps1|bat|cmd|exe|rb|php|pl|go|rs|jar|bin)$|(^|/)scripts?/", re.I)
+_GH_PART = r"[A-Za-z0-9_.-]{1,100}"
+
+
+class SkillError(Exception):
+    pass
+
+
+class _SkillRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        host = urllib.parse.urlsplit(newurl).hostname or ""
+        if urllib.parse.urlsplit(newurl).scheme != "https" or host not in SKILL_HOSTS:
+            raise SkillError("تغییرِ مسیر به میزبانِ غیرمجاز (%s) رد شد." % host[:60])
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _skill_get(url, accept="*/*", limit=SKILL_FETCH_MAX):
+    sp = urllib.parse.urlsplit(url)
+    if sp.scheme != "https" or (sp.hostname or "") not in SKILL_HOSTS:
+        raise SkillError("فقط نشانیِ https از github.com پذیرفته می‌شود.")
+    req = urllib.request.Request(url, headers={"Accept": accept, "User-Agent": "aromin-skills"})
+    try:
+        with urllib.request.build_opener(_SkillRedirects).open(req, timeout=10) as r:
+            data = r.read(limit + 1)
+    except SkillError:
+        raise
+    except urllib.error.HTTPError as e:
+        raise SkillError("گیت‌هاب پاسخ نداد (HTTP %d)؛ نشانی یا دسترسیِ مخزن را بررسی کنید." % e.code)
+    except Exception as e:
+        raise SkillError("اتصال به گیت‌هاب برقرار نشد (%s)؛ اگر از سرور در دسترس نیست، فایلِ SKILL.md یا zip را بارگذاری کنید." % type(e).__name__)
+    if len(data) > limit:
+        raise SkillError("فایل بزرگ‌تر از حدِ مجاز است.")
+    return data
+
+
+def skill_resolve(url):
+    """GitHub URL (repo / tree / blob / raw) → (owner, repo, ref, folder). folder '' = repo root."""
+    u = str(url or "").strip()
+    m = re.fullmatch(r"https://github\.com/(%s)/(%s?)(?:\.git)?/?(?:(tree|blob)/(%s)(?:/(.*))?)?" % (_GH_PART, _GH_PART, _GH_PART), u)
+    if m:
+        owner, repo, kind, ref, path = m.group(1), m.group(2), m.group(3), m.group(4) or "HEAD", (m.group(5) or "").strip("/")
+        if kind == "blob" or path.lower().endswith(".md"):
+            path = path.rsplit("/", 1)[0] if "/" in path else ""
+        return owner, repo, ref, path
+    m = re.fullmatch(r"https://raw\.githubusercontent\.com/(%s)/(%s)/(%s)/(.*)" % (_GH_PART, _GH_PART, _GH_PART), u)
+    if m:
+        path = m.group(4).strip("/")
+        return m.group(1), m.group(2), m.group(3), path.rsplit("/", 1)[0] if "/" in path else ""
+    raise SkillError("نشانیِ گیت‌هاب شناخته نشد (مثال: https://github.com/owner/repo/tree/main/skills/my-skill).")
+
+
+def skill_parse(text, source):
+    """SKILL.md → {name, description, body} with the safety checks; source = {url, sha} or {upload}."""
+    t = str(text or "").replace("\r\n", "\n").lstrip("﻿")
+    meta, body = {}, t
+    m = re.match(r"---\n(.*?)\n---\n?(.*)", t, re.S)
+    if m:
+        for line in m.group(1).split("\n"):
+            km = re.match(r"([A-Za-z_-]+)\s*:\s*(.*)", line)
+            if km:
+                meta[km.group(1).lower()] = km.group(2).strip().strip("'\"")
+        body = m.group(2)
+    body = body.strip()
+    name = _sa_clean(meta.get("name") or "", 60)
+    if not name:
+        h = re.search(r"^#\s+(.+)$", body, re.M)
+        name = _sa_clean(h.group(1) if h else "", 60)
+    if not name or not body:
+        raise SkillError("SKILL.md نام یا متن ندارد.")
+    if len(body) > SKILL_BODY_MAX:
+        raise SkillError("متنِ مهارت بیش از %s نویسه است؛ نسخهٔ کوتاه‌تری بسازید." % fa_digits(SKILL_BODY_MAX))
+    if body.count("\n") > 800:
+        raise SkillError("مهارت بیش از ۸۰۰ خط است.")
+    if _SKILL_SECRET_RE.search(t):
+        raise SkillError("در متنِ مهارت چیزی شبیهِ کلید/توکن هست؛ نصب نمی‌شود.")
+    sid = hashlib.sha256(("%s|%s" % (source.get("url") or source.get("upload") or "", name)).encode()).hexdigest()[:12]
+    return {"id": sid, "name": name, "description": _sa_clean(meta.get("description") or "", 300), "body": body}
+
+
+def skill_fetch(url):
+    """Resolve, pin the commit SHA, read SKILL.md, list what is not read (scripts are never fetched or run)."""
+    owner, repo, ref, folder = skill_resolve(url)
+    sha = _skill_get("https://api.github.com/repos/%s/%s/commits/%s" % (owner, repo, urllib.parse.quote(ref)), "application/vnd.github.sha", 200).decode().strip()
+    if not re.fullmatch(r"[0-9a-f]{40}", sha):
+        raise SkillError("کامیتِ مخزن پیدا نشد.")
+    ignored = []
+    try:
+        listing = json.loads(_skill_get("https://api.github.com/repos/%s/%s/contents/%s?ref=%s" % (owner, repo, urllib.parse.quote(folder), sha),
+                                        "application/vnd.github+json", 256 * 1024))
+        ignored = sorted(str(x.get("path") or x.get("name"))[:120] for x in listing if isinstance(x, dict) and x.get("name") != "SKILL.md")[:50]
+    except SkillError:
+        pass
+    raw = "https://raw.githubusercontent.com/%s/%s/%s/%s" % (owner, repo, sha, (folder + "/" if folder else "") + "SKILL.md")
+    text = _skill_get(raw).decode("utf-8", "replace")
+    src = {"url": "https://github.com/%s/%s/tree/%s/%s" % (owner, repo, sha, folder) if folder else "https://github.com/%s/%s/tree/%s" % (owner, repo, sha), "sha": sha}
+    sk = skill_parse(text, {"url": "https://github.com/%s/%s/%s" % (owner, repo, folder)})
+    return dict(sk, source=src, ignored=ignored, notRun=[x for x in ignored if _SKILL_EXEC_RE.search(x)], size=len(text.encode()))
+
+
+def skill_from_upload(filename, data_b64):
+    """Fallback when GitHub is unreachable from the server: SKILL.md or a .zip of the skill folder (only SKILL.md is read)."""
+    try:
+        raw = base64.b64decode(str(data_b64 or ""), validate=True)
+    except Exception:
+        raise SkillError("فایلِ نامعتبر.")
+    name = os.path.basename(str(filename or "")).lower()
+    if name.endswith(".zip"):
+        if len(raw) > SKILL_ZIP_MAX:
+            raise SkillError("zip بزرگ‌تر از ۵۱۲ کیلوبایت است.")
+        import zipfile
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(raw))
+        except zipfile.BadZipFile:
+            raise SkillError("zip نامعتبر است.")
+        names = [n for n in zf.namelist() if not n.endswith("/")]
+        md = sorted((n for n in names if n.rsplit("/", 1)[-1] == "SKILL.md"), key=lambda n: n.count("/"))
+        if not md:
+            raise SkillError("در zip فایلِ SKILL.md نیست.")
+        info = zf.getinfo(md[0])
+        if info.file_size > SKILL_FETCH_MAX:
+            raise SkillError("SKILL.md بزرگ‌تر از حدِ مجاز است.")
+        text = zf.read(md[0]).decode("utf-8", "replace")
+        ignored = sorted(n[:120] for n in names if n != md[0])[:50]
+    elif name.endswith(".md"):
+        if len(raw) > SKILL_FETCH_MAX:
+            raise SkillError("SKILL.md بزرگ‌تر از حدِ مجاز است.")
+        text, ignored = raw.decode("utf-8", "replace"), []
+    else:
+        raise SkillError("فقط SKILL.md یا zip.")
+    sk = skill_parse(text, {"upload": name})
+    return dict(sk, source={"upload": name[:120], "sha": hashlib.sha256(raw).hexdigest()[:40]}, ignored=ignored,
+                notRun=[x for x in ignored if _SKILL_EXEC_RE.search(x)], size=len(text.encode()))
+
+
+def _skill_input(p):
+    return skill_fetch(p.get("url")) if p.get("url") else skill_from_upload(p.get("filename"), p.get("data"))
+
+
+def _skill_audit(tenant, agent, action, sid):
+    agent_event(tenant, None, "skill_" + action, {"agent": agent, "code": sid})
+
+
+@app.post("/api/agent/skills/preview")
+def agent_skill_preview(request: Request, payload: dict = Body(default={})):
+    """Show the skill exactly as it would be installed; nothing is saved. With replaceId, also a diff against the installed text."""
+    p = payload or {}
+    tenant = str(p.get("tenant") or "")
+    ident, err = _w_guard(request, tenant, True)
+    if err:
+        return err
+    try:
+        sk = _skill_input(p)
+    except SkillError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    out = {"ok": True, "skill": sk}
+    agent, rid = str(p.get("agent") or ""), str(p.get("replaceId") or "")
+    if agent in AGENT_KEYS and rid:
+        old = next((x for x in agent_cfg(tenant, fresh=True)["agents"][agent].get("installed") or [] if x.get("id") == rid), None)
+        if old:
+            import difflib
+            out["diff"] = "\n".join(difflib.unified_diff(old["body"].split("\n"), sk["body"].split("\n"), "نصب‌شده", "منبع", lineterm="", n=2))[:20000]
+    return out
+
+
+@app.post("/api/agent/skills/install")
+def agent_skill_install(request: Request, payload: dict = Body(default={})):
+    """Install (or replace, with replaceId) a skill into the chosen agents — admin + current password; installed disabled."""
+    p = payload or {}
+    tenant = str(p.get("tenant") or "")
+    ident, err = _w_guard(request, tenant, True)
+    if err:
+        return err
+    agents = [a for a in (p.get("agents") or []) if a in AGENT_KEYS]
+    if not agents:
+        return JSONResponse({"ok": False, "error": "ایجنتی انتخاب نشده."}, status_code=400)
+    if not _reauth_ok(ident, tenant, p.get("password")):
+        return JSONResponse({"ok": False, "error": "رمزِ فعلیِ حساب نادرست است."}, status_code=403)
+    try:
+        sk = _skill_input(p)                                   # fetched again here; the browser's preview is never trusted
+    except SkillError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    cfg = agent_cfg(tenant, fresh=True)
+    reg = json.loads(json.dumps(cfg["agents"]))
+    rid = str(p.get("replaceId") or "")
+    rec = {"id": rid or sk["id"], "name": sk["name"], "description": sk["description"], "body": sk["body"], "enabled": False,
+           "source": dict(sk["source"], installedAt=sa_fa_dt(_sa_now()), installedBy=_sa_clean(ident.get("name") or ident.get("user"), 120))}
+    for a in agents:
+        lst = [x for x in reg[a].get("installed") or [] if x.get("id") != rec["id"]]
+        if len(lst) >= 10:
+            return JSONResponse({"ok": False, "error": "هر ایجنت حداکثر ۱۰ مهارتِ نصب‌شده."}, status_code=400)
+        reg[a]["installed"] = lst + [dict(rec)]
+    if agent_save_installed(tenant, reg, ident.get("name") or ident.get("role")) is None:
+        return JSONResponse({"ok": False, "error": "دیتابیس در دسترس نیست."}, status_code=503)
+    for a in agents:
+        _skill_audit(tenant, a, "update" if rid else "install", rec["id"])
+    return {"ok": True, "skill": {k: rec[k] for k in ("id", "name", "description", "enabled", "source")}, "agents": agents}
+
+
+@app.post("/api/agent/skills/remove")
+def agent_skill_remove(request: Request, payload: dict = Body(default={})):
+    p = payload or {}
+    tenant = str(p.get("tenant") or "")
+    ident, err = _w_guard(request, tenant, True)
+    if err:
+        return err
+    agent, sid = str(p.get("agent") or ""), str(p.get("id") or "")
+    if agent not in AGENT_KEYS:
+        return JSONResponse({"ok": False, "error": "ایجنتِ نامعتبر."}, status_code=400)
+    reg = json.loads(json.dumps(agent_cfg(tenant, fresh=True)["agents"]))
+    before = len(reg[agent].get("installed") or [])
+    reg[agent]["installed"] = [x for x in reg[agent].get("installed") or [] if x.get("id") != sid]
+    if len(reg[agent]["installed"]) == before:
+        return {"ok": True, "removed": 0}
+    if agent_save_installed(tenant, reg, ident.get("name") or ident.get("role")) is None:
+        return JSONResponse({"ok": False, "error": "دیتابیس در دسترس نیست."}, status_code=503)
+    _skill_audit(tenant, agent, "remove", sid)
+    return {"ok": True, "removed": 1}
+
+
+def agent_save_installed(tenant, reg, by):
+    """Persist installed skills (server-side only path; PUT /api/agent/settings can only toggle them)."""
+    cfg = agent_cfg(tenant, fresh=True)
+    cfg = dict(cfg, agents=reg)
+    if not agent_tables():
+        return None
+    body, now = json.dumps(cfg, ensure_ascii=False), _sa_now()
+    if q("SELECT tenant FROM agent_settings WHERE tenant=%s", (tenant,)):
+        q("UPDATE agent_settings SET data=%s, updated_by=%s, updated_at=%s WHERE tenant=%s", (body, _sa_clean(by, 120), now, tenant))
+    else:
+        q("INSERT INTO agent_settings (tenant, data, updated_by, updated_at) VALUES (%s,%s,%s,%s)", (tenant, body, _sa_clean(by, 120), now))
+    _agent_cache.pop(tenant, None)
+    return agent_cfg(tenant, fresh=True)
 
 
 _bale_me = {"at": 0.0, "user": ""}

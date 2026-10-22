@@ -17,3 +17,5 @@ __pycache__/
 **/.env
 **/.env.*
 !**/.env.example
+
+deployment/.reopen_codes.json

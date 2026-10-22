@@ -14,9 +14,10 @@ export const SKILL_FIELDS: { key: keyof Skill; label: string; long?: boolean }[]
 	{ key: 'steps', label: 'مراحل', long: true }, { key: 'questions', label: 'سؤال‌هایی که بپرسد' }, { key: 'output', label: 'خروجی' }, { key: 'limits', label: 'محدودیت‌ها' },
 ]
 export type Skill = { name: string; trigger: string; inputs: string; steps: string; questions: string; output: string; limits: string }
+export type InstalledSkill = { id: string; name: string; description: string; enabled: boolean; source: { url?: string; upload?: string; sha?: string; installedAt?: string; installedBy?: string } }
 export type AgentRec = {
 	name: string; enabled: boolean; surfaces: string[]; sites: string[]; prompt: string; skills: Skill[]
-	ragScope: string[]; actions: string[]; mood: string; version: number; updatedAt: string; updatedBy: string
+	ragScope: string[]; actions: string[]; mood: string; version: number; updatedAt: string; updatedBy: string; installed?: InstalledSkill[]
 }
 export type AgentMeta = {
 	keys: string[]; surfaces: string[]; onlySurfaces: Record<string, string[]>; managerOnly: string[]; collections: string[]

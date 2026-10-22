@@ -8,6 +8,7 @@ import { authHeaders, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
 import { actionsFor, COLLECTION_FA, SKILL_FIELDS, SURFACE_FA, type AgentMeta, type AgentRec, type Skill } from '@/lib/agents'
 import { BTN_DANGER, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
+import SkillInstaller from './SkillInstaller'
 
 type Agents = Record<string, AgentRec>
 type Site = { siteId: string; name: string; domain: string }
@@ -114,6 +115,8 @@ export default function AgentsCard({ session }: { session: Session }) {
 								<label key={x.key} className="flex items-center gap-1"><input type="checkbox" checked={a.actions.includes(x.key)} onChange={(e) => patch(edit, { actions: toggleIn(a.actions, x.key, e.target.checked) })} className="size-3.5" />{x.label}</label>
 							))}
 						</fieldset>
+						<SkillInstaller session={session} agent={edit} installed={a.installed || []} onChanged={load}
+							onToggle={(id, on) => patch(edit, { installed: (a.installed || []).map((x) => (x.id === id ? { ...x, enabled: on } : x)) })} />
 						<label className="mt-3 grid gap-1 text-[12.5px] font-bold">چهرهٔ پیش‌فرض
 							<select className={INPUT} value={a.mood} onChange={(e) => patch(edit, { mood: e.target.value })}>{states.map((s) => <option key={s} value={s}>{MOOD_FA[s] || s}</option>)}</select></label>
 						<div className="mt-4 flex gap-2"><button type="button" className={BTN_PRIMARY} disabled={busy} onClick={async () => { await save(); setEdit(null) }}>ذخیره</button></div>
