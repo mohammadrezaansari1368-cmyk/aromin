@@ -77,7 +77,7 @@ export default function AgentSettingsCard({ session }: { session: Session }) {
 	const save = async () => {
 		setBusy(true); setMsg(null)
 		try {
-			const r = await call('PUT', '/settings', { settings: f })
+			const r = await call('PUT', '/settings', { settings: { ...f, agents: undefined } })   // «ایجنت‌ها» has its own card and save
 			setF(r.settings); setMsg({ ok: true, text: 'ذخیره شد.' }); load()
 		} catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
 	}

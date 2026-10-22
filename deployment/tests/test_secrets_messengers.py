@@ -214,11 +214,11 @@ class PreviewChat(unittest.TestCase):
             c = TestClient(server.app)
             r = c.post("/api/widget/public/%s/chat" % site["siteId"], json=body)
             self.assertEqual(r.status_code, 200)
-            self.assertIs(reply.call_args.args[-1], True)                       # dry_run: a proposed lead is not created
+            self.assertIs(reply.call_args.args[5], True)                     # dry_run: a proposed lead is not created
             ev.assert_not_called(); tr.assert_not_called(); lead.assert_not_called()
             body["preview"] = False
             c.post("/api/widget/public/%s/chat" % site["siteId"], json=body)
-            self.assertIs(reply.call_args.args[-1], False)
+            self.assertIs(reply.call_args.args[5], False)
             self.assertEqual(ev.call_args.args[2], "conversation_started")
 
 

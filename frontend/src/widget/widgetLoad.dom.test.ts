@@ -55,6 +55,21 @@ describe('widget.js loading', () => {
 		expect(SRC).not.toMatch(/BOT_V = '\d/)
 		expect(SRC.match(/__AROMIN_APP_VERSION__/g)?.length).toBe(1)
 	})
+	it('keeps the specialist chosen by the server and sends it back; a new conversation forgets it (3.9.64)', async () => {
+		const f = fetch as unknown as ReturnType<typeof vi.fn>
+		f.mockImplementation(async (url: string) => ({ status: 200, json: async () => (String(url).endsWith('/config') ? CFG : String(url).endsWith('/chat') ? { ok: true, text: 'سلام', agent: { key: 'sales', name: 'فروش' } } : { ok: true }) }))
+		const root = await boot()
+		;(root.querySelector('.btn') as HTMLButtonElement).click()
+		const say = async (t: string) => { (root.querySelector('textarea') as HTMLTextAreaElement).value = t; root.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true })); for (let i = 0; i < 4; i++) await flush() }
+		await say('قیمت؟')
+		await say('تخفیف؟')
+		const chats = f.mock.calls.filter(([u]) => String(u).endsWith('/chat')).map(([, i]) => JSON.parse(i.body))
+		expect(chats[0].agent).toBeUndefined()
+		expect(chats[1].agent).toBe('sales')
+		;(root.querySelector('.new') as HTMLButtonElement).click()
+		await say('سلام')
+		expect(JSON.parse(f.mock.calls.filter(([u]) => String(u).endsWith('/chat')).at(-1)![1].body).agent).toBeUndefined()
+	})
 	it('?aromin_preview=1 sends no telemetry and marks chat as preview', async () => {
 		const root = await boot('?aromin_preview=1')
 		const f = fetch as unknown as ReturnType<typeof vi.fn>

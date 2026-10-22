@@ -133,7 +133,7 @@
 		}
 		btn.onclick = function () { toggle() }
 		$('.x').onclick = function () { toggle(false); btn.focus() }
-		$('.new').onclick = function () { st.messages = []; st.conversationId = rid(); if (!preview) save(); render() }
+		$('.new').onclick = function () { st.messages = []; st.conversationId = rid(); st.agent = ''; if (!preview) save(); render() }
 		root.addEventListener('keydown', function (e) { if (e.key === 'Escape') { toggle(false); btn.focus() } })
 		ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('form').requestSubmit ? $('form').requestSubmit() : submit(e) } })
 		ta.addEventListener('input', function () { emit('typing'); ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 110) + 'px' })
@@ -147,10 +147,10 @@
 			if (preview) { bubble('a', 'این پیش‌نمایش است؛ پاسخِ واقعی بعد از نصب روی سایت نمایش داده می‌شود.'); return }
 			save(); busy = true; send.disabled = true; status('thinking'); emit('send')
 			var wait = bubble('a t', '…')
-			req('POST', '/chat', { conversationId: st.conversationId, visitorId: st.visitorId, messages: st.messages.slice(-12), consent: !!st.consent, preview: URL_PREVIEW || undefined, page: { url: location.href.slice(0, 500), title: D.title.slice(0, 200), landing: st.landing } })
+			req('POST', '/chat', { conversationId: st.conversationId, visitorId: st.visitorId, messages: st.messages.slice(-12), consent: !!st.consent, preview: URL_PREVIEW || undefined, agent: st.agent || undefined, page: { url: location.href.slice(0, 500), title: D.title.slice(0, 200), landing: st.landing } })
 				.then(function (d) {
 					wait.remove()
-					if (d.ok && d.text) { st.messages.push({ role: 'assistant', content: String(d.text) }); save(); bubble('a', String(d.text)); emit(d.lead && d.lead.ok ? 'lead' : 'reply', String(d.text)) }
+					if (d.ok && d.text) { st.messages.push({ role: 'assistant', content: String(d.text) }); if (d.agent && /^[a-z_]{2,20}$/.test(d.agent.key)) st.agent = d.agent.key; save(); bubble('a', String(d.text)); emit(d.lead && d.lead.ok ? 'lead' : 'reply', String(d.text)) }
 					else { bubble('e', d.error || 'ارسال نشد؛ دوباره امتحان کنید.'); emit(d.status === 429 ? 'rateLimit' : 'error') }
 				})
 				.catch(function () { wait.remove(); bubble('e', 'اتصال برقرار نشد؛ دوباره امتحان کنید.'); emit('offline') })

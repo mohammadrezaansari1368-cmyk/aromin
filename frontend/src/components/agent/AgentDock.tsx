@@ -169,7 +169,7 @@ export default function AgentDock({ role }: { role: string }) {
 						<header className="flex items-center gap-2 border-b border-border px-4 py-3">
 							<EmotionFace status={a.status} text={[...a.msgs].reverse().find((m) => m.role === 'assistant' && m.text)?.text} className="size-9 shrink-0" />
 							<div className="min-w-0 flex-1">
-								<h2 id="agent-h" className="text-[14px] font-extrabold leading-6">دستیارِ آرومین</h2>
+								<h2 id="agent-h" className="text-[14px] font-extrabold leading-6">دستیارِ آرومین{a.agent && <span className="mr-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary" data-testid="agent-name">{a.agent.name}</span>}</h2>
 								<p className="truncate text-[11.5px] text-muted-foreground">
 									{a.status === 'listening' ? 'در حالِ شنیدن…' : a.status === 'thinking' ? 'در حالِ فکر کردن…' : a.status === 'tool' ? 'در حالِ انجامِ کار…' : a.status === 'speaking' ? 'در حالِ صحبت…' : 'بنویس یا بگو چه کاری انجام بدهم'}
 								</p>
