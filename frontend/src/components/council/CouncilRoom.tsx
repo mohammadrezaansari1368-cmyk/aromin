@@ -25,15 +25,23 @@ async function api<T>(session: Session, path: string, body?: unknown, method?: s
 	return j as T
 }
 
-/** Mouth shape per word (Persian and Latin): open vowels → open, و/o/u → mid, lips (ب م پ ف / b m p f) → base */
+/** Persian visemes (Latin as a fallback): open ا آ ع and a final ه · round و ؤ ُ and wide ی ئ → mid · lips ب پ م ف → base.
+ * Other consonants add no shape; diacritics and ZWNJ are stripped first (damma ُ counts as round). Repeats collapse. */
 export function shapesFor(word: string): Shape[] {
+	const w = word.toLowerCase().replace(/‌/g, '').replace(/[ً-َِ-ْٰ]/g, '')
 	const out: Shape[] = []
-	for (const ch of word.toLowerCase()) {
-		const s: Shape | null = 'اآعaei'.includes(ch) ? 'open' : 'ویouwy'.includes(ch) ? 'mid' : 'بمپفmbpf'.includes(ch) ? 'base' : null
+	Array.from(w).forEach((ch, i, all) => {
+		const s: Shape | null = 'اآعaei'.includes(ch) || (ch === 'ه' && i === all.length - 1) ? 'open'
+			: 'وؤُیئouwy'.includes(ch) ? 'mid' : 'بپمفbmpf'.includes(ch) ? 'base' : null
 		if (s && s !== out[out.length - 1]) out.push(s)
-	}
+	})
 	return out.length ? out : ['mid']
 }
+/** Pause after a word that ends a clause */
+export const pauseAfter = (word: string) => (/[.!؟?،]$/.test(word) ? 340 : /[؛:]$/.test(word) ? 170 : 25)
+const ORDER_KEY = 'aromin.council.order'
+const readOrder = (): string[] => { try { const v = JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
+const saveOrder = (v: string[]) => { try { localStorage.setItem(ORDER_KEY, JSON.stringify(v)) } catch { /* private mode */ } }
 
 /** The original's drawn bust for a seat without a portrait — moving eyes and mouth in the seat's colour. */
 function DrawnBust({ seat, shape, cls }: { seat: Seat; shape: Shape; cls: string }) {
@@ -97,9 +105,65 @@ export default function CouncilRoom({ session }: { session: Session }) {
 
 	const load = useCallback(() => api<{ seats: Seat[]; default: string[]; chair: string }>(session, '/api/council/seats').then((j) => {
 		setSeats(j.seats); setChair(j.chair)
-		setPick((p) => (p.length ? p : j.default.filter((k) => j.seats.find((s) => s.key === k)?.ready)))
+		const ready = (k: string) => !!j.seats.find((s) => s.key === k)?.ready
+		const saved = readOrder().filter(ready).slice(0, 7)
+		setPick((p) => (p.length ? p : saved.length >= 2 ? saved : j.default.filter(ready)))
 	}, (e) => setErr((e as Error).message)), [session])
 	useEffect(() => { load() }, [load])
+	useEffect(() => { if (seats.length && pick.length) saveOrder(pick) }, [pick, seats.length])
+
+	// ---- drag and drop around the table (pointer events: mouse + touch); keyboard: Alt+←/→ moves, Delete unseats
+	const [drag, setDrag] = useState<{ key: string; from: 'seat' | 'chip'; x: number; y: number; slot: number; out: boolean; moved: boolean } | null>(null)
+	const [announce, setAnnounce] = useState('')
+	const slotAt = (clientX: number, n: number) => {
+		const r = stage.current?.getBoundingClientRect()
+		if (!r || n <= 1) return 0
+		const f = (clientX - r.left) / r.width
+		return Math.max(0, Math.min(n - 1, Math.round(((f - 0.1) / 0.8) * (n - 1))))
+	}
+	const outside = (x: number, y: number) => { const r = stage.current?.getBoundingClientRect(); return !r || x < r.left || x > r.right || y < r.top || y > r.bottom }
+	const nameOf = (k: string) => seats.find((s) => s.key === k)?.name || k
+	const startDrag = (e: React.PointerEvent, key: string, from: 'seat' | 'chip') => {
+		if (busy || (res && !done) || e.button > 0) return
+		;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
+		setDrag({ key, from, x: e.clientX, y: e.clientY, slot: pick.indexOf(key), out: false, moved: false })
+	}
+	const moveDrag = (e: React.PointerEvent) => {
+		if (!drag) return
+		const n = drag.from === 'chip' && !pick.includes(drag.key) ? pick.length + 1 : pick.length
+		setDrag({ ...drag, x: e.clientX, y: e.clientY, slot: slotAt(e.clientX, n), out: outside(e.clientX, e.clientY), moved: drag.moved || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6 })
+	}
+	const endDrag = () => {
+		const d = drag
+		setDrag(null)
+		if (!d || !d.moved) return false
+		setPick((p) => {
+			const rest = p.filter((k) => k !== d.key)
+			if (d.out) {
+				if (!p.includes(d.key) || p.length <= 2) return p
+				setAnnounce(nameOf(d.key) + ' از میز برخاست.')
+				return rest
+			}
+			if (!p.includes(d.key) && p.length >= 7) { setAnnounce('میز پر است (حداکثر ۷ صندلی).'); return p }
+			rest.splice(Math.min(d.slot, rest.length), 0, d.key)
+			setAnnounce(nameOf(d.key) + ' در جایگاهِ ' + (Math.min(d.slot, rest.length - 1) + 1).toLocaleString('fa-IR') + ' نشست.')
+			return rest
+		})
+		return true
+	}
+	const seatKey = (e: React.KeyboardEvent, key: string) => {
+		if (busy || (res && !done)) return
+		const i = pick.indexOf(key)
+		if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+			e.preventDefault()
+			const j = Math.max(0, Math.min(pick.length - 1, i + (e.key === 'ArrowRight' ? 1 : -1)))
+			if (j === i) return
+			setPick((p) => { const q = [...p]; q.splice(i, 1); q.splice(j, 0, key); return q })
+			setAnnounce(nameOf(key) + ' در جایگاهِ ' + (j + 1).toLocaleString('fa-IR') + ' نشست.')
+		} else if (e.key === 'Delete' && pick.length > 2) {
+			e.preventDefault(); setPick((p) => p.filter((k) => k !== key)); setAnnounce(nameOf(key) + ' از میز برخاست.')
+		}
+	}
 
 	const by = (k: string | null) => seats.find((s) => s.key === k)
 	const table = (pick.map(by).filter(Boolean) as Seat[])
@@ -134,30 +198,56 @@ export default function CouncilRoom({ session }: { session: Session }) {
 		return () => ro?.disconnect()
 	}, [pick.join(','), seats.length])     // eslint-disable-line react-hooks/exhaustive-deps
 
-	// idle blinking so the room feels alive
+	// idle blinking: every seat on its own random 2.4–6.6 s clock, never while that seat is mid-word (as in the original)
+	const speakingRef = useRef<string | null>(null)
+	speakingRef.current = speaker
 	useEffect(() => {
 		if (reduced()) return
-		const t = setInterval(() => {
-			const k = pick[Math.floor(Math.random() * pick.length)]
-			if (!k || k === speaker) return
-			setShapes((s) => ({ ...s, [k]: 'blink' })); setTimeout(() => setShapes((s) => ({ ...s, [k]: 'base' })), 130)
-		}, 1200)
-		return () => clearInterval(t)
-	}, [pick, speaker])
+		const timers: number[] = []
+		const blink = (k: string) => {
+			if (speakingRef.current !== k) {
+				setShapes((s) => ({ ...s, [k]: 'blink' }))
+				timers.push(window.setTimeout(() => setShapes((s) => (s[k] === 'blink' ? { ...s, [k]: 'base' } : s)), 130))
+			}
+			timers.push(window.setTimeout(() => blink(k), 2400 + Math.random() * 4200))
+		}
+		pick.forEach((k, i) => timers.push(window.setTimeout(() => blink(k), 600 + i * 530)))
+		return () => timers.forEach(clearTimeout)
+	}, [pick])
+
+	// optional Persian voice (Web Speech, fa-IR only; never a third-party TTS) — off by default
+	const [voice, setVoice] = useState(false)
+	const faVoice = () => (typeof speechSynthesis !== 'undefined' ? speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith('fa')) : undefined)
 
 	const wait = (ms: number) => (skip.current ? Promise.resolve() : sleep(ms / speedRef.current))
+	const mouthWord = async (seat: string, word: string) => {
+		const sh = shapesFor(word.replace(/[^\p{L}ُ]/gu, ''))
+		const per = Math.max(60, (Array.from(word).length * 55) / (sh.length + 1))
+		for (const x of sh) { setShapes((s) => ({ ...s, [seat]: x })); await wait(per) }
+		setShapes((s) => ({ ...s, [seat]: 'base' })); await wait(per + pauseAfter(word))
+	}
+	const speakVoice = (seat: string, words: string[], v: SpeechSynthesisVoice) => new Promise<void>((resolve) => {
+		const u = new SpeechSynthesisUtterance(words.join(' '))
+		u.voice = v; u.lang = v.lang; u.rate = speedRef.current
+		const starts = words.reduce<number[]>((a, w, i) => [...a, i ? a[i - 1] + words[i - 1].length + 1 : 0], [])
+		u.onboundary = (e) => {
+			const i = Math.max(0, starts.findIndex((s, j) => e.charIndex >= s && (j === starts.length - 1 || e.charIndex < starts[j + 1])))
+			setSaid({ seat, words, n: i + 1, tag: 'Opening' }); void mouthWord(seat, words[i])
+		}
+		u.onend = () => resolve(); u.onerror = () => resolve()
+		speechSynthesis.speak(u)
+	})
 	const play = async (r: Result) => {
 		skip.current = reduced()
 		setSaid({ seat: null, words: ['Openings:', 'each', 'seat', 'takes', 'a', 'position.'], n: 6, tag: 'The floor is open' }); await wait(1400)
 		for (const c of r.cards.filter((x) => x.ok && x.line)) {
 			const words = c.line!.split(/\s+/).filter(Boolean)
 			setSpeaker(c.seat)
-			for (let i = 0; i < words.length && !skip.current; i++) {
+			const v = voice && !skip.current ? faVoice() : undefined
+			if (v) await speakVoice(c.seat, words, v)
+			for (let i = 0; !v && i < words.length && !skip.current; i++) {
 				setSaid({ seat: c.seat, words, n: i + 1, tag: 'Opening' })
-				const sh = shapesFor(words[i].replace(/[^\p{L}]/gu, ''))
-				const per = Math.max(170, words[i].length * 52) / (sh.length + 1)
-				for (const x of sh) { setShapes((s) => ({ ...s, [c.seat]: x })); await wait(per) }
-				setShapes((s) => ({ ...s, [c.seat]: 'base' })); await wait(per + (/[.!؟?]$/.test(words[i]) ? 340 : 25))
+				await mouthWord(c.seat, words[i])
 			}
 			setSaid({ seat: c.seat, words, n: words.length, tag: 'Opening' }); setShapes((s) => ({ ...s, [c.seat]: 'base' }))
 			setHeard((h) => [...h, c.seat]); await wait(1300)
@@ -193,6 +283,7 @@ export default function CouncilRoom({ session }: { session: Session }) {
 					<li key={k} className={k === step ? 'active' : STEPS.findIndex((x) => x[0] === step) > i ? 'done' : ''}>{l}</li>))}</ol>
 				<div className="top-actions">
 					<span className="usage">Chair: {chair || 'Coach agent'}</span>
+					<button className="ghost" type="button" aria-pressed={voice} title="Persian voice (fa-IR) from this browser, if it has one" onClick={() => setVoice((v) => !v)}>Voice {voice ? 'on' : 'off'}</button>
 					{res && <button className="ghost" type="button" onClick={reset}>New question</button>}
 				</div>
 			</header>
@@ -205,6 +296,12 @@ export default function CouncilRoom({ session }: { session: Session }) {
 				</div>
 			)}
 			{err && <p role="alert" style={{ color: 'var(--dissent)', margin: '12px 24px 0', fontSize: 13 }}>{err}</p>}
+			<p className="sr-only" aria-live="polite" data-testid="council-announce">{announce}</p>
+			{drag?.moved && by(drag.key) && (
+				<div className={`drag-ghost ${drag.out ? 'out' : ''}`} style={{ left: drag.x, top: drag.y }} aria-hidden="true">
+					<img src={by(drag.key)!.portrait ? src(by(drag.key)!) : '/aromin-mark.svg'} alt="" />
+				</div>
+			)}
 
 			<main className="layout">
 				<section aria-label="The council table">
@@ -216,9 +313,11 @@ export default function CouncilRoom({ session }: { session: Session }) {
 							if (!g) return null
 							const on = speaker === s.key, c = cards[s.key]
 							return (
-								<button key={s.key} type="button" className={`seat ${on ? 'speaking' : ''} ${busy ? 'thinking' : ''}`} data-seat={s.key} aria-label={s.name}
+								<button key={s.key} type="button" className={`seat ${on ? 'speaking' : ''} ${busy ? 'thinking' : ''} ${drag?.key === s.key && drag.moved ? 'dragging' : ''}`} data-seat={s.key}
+									aria-label={s.name + ' — Alt+←/→ جابه‌جا، Delete برخاستن'}
 									style={{ left: g.x - g.size / 2, top: g.top, width: g.size, height: g.size, zIndex: 10 + Math.round(((g.x - box.gx) / box.gr) ** 2 * 10), transform: on ? 'scale(1.05)' : undefined }}
-									onClick={() => setTab('feed')}>
+									onPointerDown={(e) => startDrag(e, s.key, 'seat')} onPointerMove={moveDrag} onPointerUp={() => { if (!endDrag()) setTab('feed') }}
+									onPointerCancel={() => setDrag(null)} onKeyDown={(e) => seatKey(e, s.key)}>
 									<Bust seat={s} shape={shapes[s.key] || 'base'} />
 									<span className="think" aria-hidden="true"><i /><i /><i /></span>
 									{done && c?.stance && <span className={`vote ${STANCE[c.stance]}`}>{STANCE_EN[c.stance]}</span>}
@@ -226,6 +325,12 @@ export default function CouncilRoom({ session }: { session: Session }) {
 							)
 						})}
 						<Globe className="globe" style={{ left: box.gx - box.gr, top: box.gy - box.gr, width: box.gr * 2, height: box.gr * 2 }} />
+						{drag?.moved && !drag.out && (() => {
+							const n = drag.from === 'chip' && !pick.includes(drag.key) ? pick.length + 1 : pick.length
+							const x = box.W * (n === 1 ? 0.5 : 0.1 + (0.8 * drag.slot) / Math.max(1, n - 1))
+							const y = box.gy - Math.sqrt(Math.max(0, box.gr ** 2 - (x - box.gx) ** 2))
+							return <span className="drop-slot" style={{ left: x, top: y }} aria-hidden="true" />
+						})()}
 						{table.map((s) => {
 							const g = geo[s.key], c = cards[s.key]
 							return g && (
@@ -243,7 +348,9 @@ export default function CouncilRoom({ session }: { session: Session }) {
 									<textarea rows={3} dir="auto" minLength={10} required value={question} onChange={(e) => setQuestion(e.target.value)} aria-label="Decision"
 										placeholder="Give them the decision, your options, a few numbers (revenue, cash, team), and which way you're leaning." />
 									<div className="samples" aria-label="Seats">{seats.map((s) => (
-										<button key={s.key} type="button" aria-pressed={pick.includes(s.key)} disabled={!s.ready} title={s.ready ? s.question : 'Library is empty'} onClick={() => toggle(s.key)}>{s.short}</button>))}</div>
+										<button key={s.key} type="button" aria-pressed={pick.includes(s.key)} disabled={!s.ready} title={s.ready ? s.question + ' — drag onto the table' : 'Library is empty'}
+											onPointerDown={(e) => startDrag(e, s.key, 'chip')} onPointerMove={moveDrag} onPointerUp={() => { if (!endDrag()) toggle(s.key) }} onPointerCancel={() => setDrag(null)}
+											onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(s.key) } }}>{s.short}</button>))}</div>
 									<div className="composer-row">
 										<div className="mode" role="radiogroup" aria-label="Council size">
 											<label><input type="radio" name="rr-mode" checked={mode === 'full'} onChange={() => setMode('full')} /><span>Full council <small>{Math.min(7, pick.length)} seats</small></span></label>
