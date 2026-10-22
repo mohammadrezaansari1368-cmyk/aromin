@@ -1,11 +1,14 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import AppShell from '@/components/AppShell'
 import { LoginPage } from '@/components/LoginPage'
-import { changePassword, clearSession, type Session } from '@/lib/auth'
+import { changePassword, clearSession, resumeSession, type Session } from '@/lib/auth'
 
-// ورود → پوستهٔ چندتبی. نشست در حافظهٔ صفحه است (آمادهٔ اتصال به بک‌اند).
+// ورود → پوستهٔ چندتبی. پس از بارگذاریِ دوباره، توکنِ ذخیره‌شده یک‌بار با سرور تمدید می‌شود (resume)؛ رد → صفحهٔ ورود.
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
+  const [resuming, setResuming] = useState(true)
+  useEffect(() => { let live = true; resumeSession().then((s) => { if (live) { if (s) setSession(s); setResuming(false) } }); return () => { live = false } }, [])
+  if (resuming) return <main dir="rtl" className="grid min-h-screen place-items-center text-muted-foreground" aria-busy="true">در حالِ بارگذاری…</main>
   if (!session) return <LoginPage onLogin={setSession} />
   if (session.must_change_password) return <ChangePassword session={session} onChanged={setSession} />
   return <AppShell session={session} onLogout={() => { clearSession(); setSession(null) }} />

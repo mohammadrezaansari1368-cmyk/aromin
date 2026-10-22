@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authHeaders, isAdmin, type Session } from '@/lib/auth'
+import SecretField, { messengersApi, type SecretMeta } from '@/components/settings/SecretField'
 import { currentTenant } from '@/lib/data'
 import { BTN, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
 
@@ -147,6 +148,16 @@ export default function WidgetInstallCard({ session }: { session: Session }) {
 					)}
 				</>
 			)}
+			{admin && <UpdateTokenField session={session} />}
 		</section>
 	)
+}
+
+/** توکنِ به‌روزرسانی (UPDATE_TOKEN: OTA، spa-deploy، purge-cache) — همان قفل/۴ رقمِ آخر/جایگزینی با رمزِ فعلی؛ مقدارِ تازه فقط یک‌بار. */
+function UpdateTokenField({ session }: { session: Session }) {
+	const [d, setD] = useState<{ keyConfigured: boolean; secrets: Record<string, SecretMeta> } | null>(null)
+	const load = useCallback(() => { messengersApi<{ keyConfigured: boolean; secrets: Record<string, SecretMeta> }>(session, 'GET', '').then(setD, () => setD(null)) }, [session])
+	useEffect(() => { load() }, [load])
+	if (!d) return null
+	return <div className="mt-3"><SecretField session={session} name="update_token" meta={d.secrets.update_token} keyConfigured={d.keyConfigured} canGenerate onChange={load} /></div>
 }

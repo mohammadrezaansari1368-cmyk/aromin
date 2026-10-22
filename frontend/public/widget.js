@@ -13,8 +13,11 @@
 	var API = BASE + '/api/widget/public/' + encodeURIComponent(siteId)
 	var TEST = W.ArominWidgetTest || null // فقط صفحهٔ «تست ابزارک» داخلِ داشبورد
 	var STORE = 'aromin-widget:' + siteId
-	var BOT_V = '3.9.25' // با هر تغییرِ رباتِ سه‌بعدی بالا برود: نشانیِ تازه = بدونِ کشِ کهنهٔ CDN
-	var AGENT_V = '1.0.0' // «دستیارِ آرومین» (widget-agent.js): چهره، پاپ‌آپِ پیش‌فعال، سلامِ ساعت‌محور
+	// نسخهٔ همهٔ فایل‌های ابزارک از یک منبع: APP_VERSION (legacy.html) — tools/package_release.py این نشانه را هنگامِ بسته‌سازی می‌نشاند
+	var APP_V = '__AROMIN_APP_VERSION__'
+	if (APP_V.charAt(0) === '_') APP_V = 'dev'
+	var BOT_V = APP_V, AGENT_V = APP_V
+	var URL_PREVIEW = /[?&]aromin_preview=1(?:&|$)/.test(location.search) // پیش‌نمایشِ تریگر از تنظیمات: بدونِ رویداد و لید
 
 	function rid() {
 		var a = new Uint8Array(12); (W.crypto || W.msCrypto).getRandomValues(a)
@@ -96,7 +99,7 @@
 		btn.setAttribute('aria-label', 'گفت‌وگو با ' + c.title)
 		var busy = false, bot = null, ag = null
 		function emit(ev, t) { if (ag) try { ag.emit(ev, t) } catch { /* دستیار نباید ابزارک را خراب کند */ } }
-		function track(ev, props) { if (!preview && c.agent) req('POST', '/event', { event: ev, props: props || {} }).catch(function () { /* بی‌صدا */ }) }
+		function track(ev, props) { if (!preview && !URL_PREVIEW && c.agent) req('POST', '/event', { event: ev, props: props || {} }).catch(function () { /* بی‌صدا */ }) }
 		function status(v) { w.classList.toggle('busy', v !== 'idle'); if (bot) bot.setStatus(v) }
 		function loadBot() {
 			var still = W.matchMedia && W.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -109,7 +112,8 @@
 		// (اشاره‌گر، لمس، فوکوس یا کلید روی دکمه/پنل). اسکرول یا کلیک در جای دیگرِ صفحه آن را بار نمی‌کند؛ تا آن موقع جانگه‌دار.
 		var botWanted = false
 		function needBot() { if (botWanted) return; botWanted = true; loadBot() }
-		;['pointerenter', 'pointerdown', 'touchstart', 'focusin', 'keydown'].forEach(function (ev) { w.addEventListener(ev, needBot, { once: true, passive: true }) })
+		// فقط دکمه و پنل؛ حبابِ پاپ‌آپ (داخلِ .w) ربات را بار نمی‌کند — با «باز شدنِ پنل» بار می‌شود
+		;[btn, $('.panel')].forEach(function (el) { ['pointerenter', 'pointerdown', 'touchstart', 'focusin', 'keydown'].forEach(function (ev) { el.addEventListener(ev, needBot, { once: true, passive: true }) }) })
 
 		function bubble(role, text) {
 			var d = D.createElement('div'); d.className = 'm ' + role; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d
@@ -143,7 +147,7 @@
 			if (preview) { bubble('a', 'این پیش‌نمایش است؛ پاسخِ واقعی بعد از نصب روی سایت نمایش داده می‌شود.'); return }
 			save(); busy = true; send.disabled = true; status('thinking'); emit('send')
 			var wait = bubble('a t', '…')
-			req('POST', '/chat', { conversationId: st.conversationId, visitorId: st.visitorId, messages: st.messages.slice(-12), consent: !!st.consent, page: { url: location.href.slice(0, 500), title: D.title.slice(0, 200), landing: st.landing } })
+			req('POST', '/chat', { conversationId: st.conversationId, visitorId: st.visitorId, messages: st.messages.slice(-12), consent: !!st.consent, preview: URL_PREVIEW || undefined, page: { url: location.href.slice(0, 500), title: D.title.slice(0, 200), landing: st.landing } })
 				.then(function (d) {
 					wait.remove()
 					if (d.ok && d.text) { st.messages.push({ role: 'assistant', content: String(d.text) }); save(); bubble('a', String(d.text)); emit(d.lead && d.lead.ok ? 'lead' : 'reply', String(d.text)) }

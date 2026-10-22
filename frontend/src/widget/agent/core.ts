@@ -59,9 +59,12 @@ export function mood(text: string): EmotionState | null {
 
 // ---------------- تریگرها ----------------
 export type Cond = { path?: string; urlContains?: string; domain?: string; minSeconds?: number; minScroll?: number; visitor?: 'first' | 'returning'
-	click?: string; utmSource?: string; utmCampaign?: string; manual?: boolean }
+	click?: string; utmSource?: string; utmCampaign?: string; manual?: boolean; pathExact?: string; firstInteraction?: boolean }
 export type Trigger = { id: string; enabled?: boolean; when: Cond; message?: string; emotion?: EmotionState }
-export type Ctx = { url: string; seconds: number; scroll: number; returning: boolean; clicked?: string[]; manual?: string[] }
+export type Ctx = { url: string; seconds: number; scroll: number; returning: boolean; clicked?: string[]; manual?: string[]; interacted?: boolean }
+
+/** مسیرِ دقیق: بدونِ query و بدونِ «/» انتهایی (به‌جز ریشه) — «/» فقط صفحهٔ اول را می‌گیرد */
+export const normPath = (p: string) => { const x = (p || '/').split(/[?#]/)[0].replace(/\/+$/, ''); return x || '/' }
 
 function pathMatch(pattern: string, path: string) {
 	if (!pattern.includes('*')) return path.startsWith(pattern) || path.includes(pattern)
@@ -78,6 +81,8 @@ export function matches(t: Trigger, c: Ctx): boolean {
 	try { u = new URL(c.url) } catch { return false }
 	const host = u.hostname.replace(/^www\./, '')
 	if (w.path && !pathMatch(w.path, u.pathname)) return false
+	if (w.pathExact != null && w.pathExact !== '' && normPath(u.pathname) !== normPath(w.pathExact)) return false
+	if (w.firstInteraction && !c.interacted) return false
 	if (w.urlContains && !c.url.includes(w.urlContains)) return false
 	if (w.domain && host !== w.domain.replace(/^www\./, '') && !host.endsWith('.' + w.domain)) return false
 	if (w.minSeconds != null && c.seconds < w.minSeconds) return false
@@ -91,6 +96,14 @@ export function matches(t: Trigger, c: Ctx): boolean {
 	return true
 }
 export const firstMatch = (ts: Trigger[], c: Ctx, fired: Set<string>) => ts.find((t) => !fired.has(t.id) && matches(t, c)) || null
+
+/** «اولین تعامل» فقط وقتی شمرده می‌شود که کلیک/لمس/کلید روی پیوند یا دکمه‌ای نباشد که از صفحه خارج می‌کند */
+export const NAVIGATING = 'a[href],[role="link"],button[type="submit"],input[type="submit"],[data-aromin-ignore]'
+export function countsAsInteraction(target: { closest?: (s: string) => unknown } | null) {
+	try { return !target?.closest?.(NAVIGATING) } catch { return true }
+}
+/** پیش‌نمایش از تنظیمات: ?aromin_preview=1 → تریگرِ منطبق یک‌بار، بدونِ سقف، بدونِ رویداد و لید */
+export const isPreviewUrl = (search: string) => new URLSearchParams(search).get('aromin_preview') === '1'
 
 // ---------------- سلام با ساعتِ محلی ----------------
 export type Greetings = { morning?: string; noon?: string; afternoon?: string; night?: string; custom?: string }

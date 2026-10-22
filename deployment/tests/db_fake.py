@@ -72,6 +72,7 @@ def load_schema(path, database):
     schema = re.sub(r"UNIQUE KEY \w+", "UNIQUE", schema)
     schema = re.sub(r",\s*KEY \w+ \([^)]*\)", "", schema)
     schema = schema.replace("ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", "").replace("DATETIME", "TIMESTAMP")
+    schema = re.sub(r"\s*COLLATE=\w+", "", schema)
     cx = sqlite3.connect(database)
     try:
         cx.executescript(schema)

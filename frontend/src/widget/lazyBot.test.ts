@@ -13,7 +13,9 @@ describe('widget.js lazy 3D bot', () => {
 		expect(src).toMatch(/function needBot\(\) \{ if \(botWanted\) return; botWanted = true; loadBot\(\) \}/)
 	})
 	it('the triggers are widget-scoped interactions and opening the widget', () => {
-		expect(src).toMatch(/\['pointerenter', 'pointerdown', 'touchstart', 'focusin', 'keydown'\]\.forEach\(function \(ev\) \{ w\.addEventListener\(ev, needBot/)
+		// launcher button and panel only — not .w, which also holds the popup bubble (3.9.63)
+		expect(src).toMatch(/\[btn, \$\('\.panel'\)\]\.forEach\(function \(el\) \{ \['pointerenter', 'pointerdown', 'touchstart', 'focusin', 'keydown'\]\.forEach\(function \(ev\) \{ el\.addEventListener\(ev, needBot/)
+		expect(src).not.toMatch(/w\.addEventListener\([^)]*needBot/)
 		expect(src).toMatch(/if \(o\) needBot\(\)/)
 	})
 	it('no page-wide listener can load the bot (scroll/click elsewhere on the page)', () => {

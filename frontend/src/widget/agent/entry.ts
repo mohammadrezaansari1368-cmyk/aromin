@@ -2,7 +2,7 @@
  * widget-agent.js: لایهٔ «دستیارِ آرومین» روی ابزارکِ سایت (public/widget.js آن را تنبل و فقط وقتی دستیار در تنظیمات روشن است بار می‌کند).
  * چهرهٔ احساسی + پاپ‌آپِ پیش‌فعال + سلامِ ساعت‌محور + سقف/فاصله + تیکِ رضایت. هیچ PII/توکنی ذخیره یا ارسال نمی‌شود.
  */
-import { EmotionController, firstMatch, greetingFor, canShow, recordShow, recordDismiss, newGate, type AgentEvent, type Caps, type Ctx, type EmotionState, type Gate, type Greetings, type Trigger } from './core'
+import { EmotionController, firstMatch, greetingFor, canShow, recordShow, recordDismiss, newGate, countsAsInteraction, isPreviewUrl, type AgentEvent, type Caps, type Ctx, type EmotionState, type Gate, type Greetings, type Trigger } from './core'
 import { FACE_SVG, FACE_CSS, applyState } from './face'
 
 export type AgentCfg = { emotion: boolean; proactive: boolean; greetings: Greetings; caps: Caps; triggers: Trigger[]; consentText?: string }
@@ -71,6 +71,8 @@ export function start(h: Host) {
 	try { gate = { ...gate, ...JSON.parse(ls.get(GK) || '{}') } } catch { /* خراب */ }
 	const returning = ls.get(VK) === '1'; ls.set(VK, '1')
 	const t0 = Date.now(), fired = new Set<string>(), clicked: string[] = [], manual: string[] = []
+	const preview = isPreviewUrl(location.search)
+	let interacted = false
 	let pop: HTMLElement | null = null, timer = 0
 	// پنهان بودنِ تب: انیمیشنِ چهره متوقف، تریگرها بررسی نمی‌شوند و زمانِ پنهان در «ثانیه‌های حضور» شمرده نمی‌شود
 	let hiddenAt = document.hidden ? Date.now() : 0, hiddenMs = 0
@@ -84,21 +86,23 @@ export function start(h: Host) {
 	const ctx = (): Ctx => {
 		const de = document.documentElement, max = Math.max(1, de.scrollHeight - W.innerHeight)
 		const away = hiddenMs + (hiddenAt ? Date.now() - hiddenAt : 0)
-		return { url: location.href, seconds: (Date.now() - t0 - away) / 1000, scroll: Math.min(100, Math.round((W.scrollY / max) * 100)), returning, clicked, manual }
+		if (preview) return { url: location.href, seconds: 1e9, scroll: 100, returning, clicked, manual, interacted: true }
+		return { url: location.href, seconds: (Date.now() - t0 - away) / 1000, scroll: Math.min(100, Math.round((W.scrollY / max) * 100)), returning, clicked, manual, interacted }
 	}
 	const hide = (dismiss: boolean) => {
 		if (!pop) return
 		pop.classList.remove('on'); const p = pop; pop = null; setTimeout(() => p.remove(), 300)
-		if (dismiss) { gate = recordDismiss(gate, Date.now()); ls.set(GK, JSON.stringify(gate)); h.track('popup_dismissed'); emo.emit('dismiss') }
+		if (dismiss && !preview) { gate = recordDismiss(gate, Date.now()); ls.set(GK, JSON.stringify(gate)); h.track('popup_dismissed') }
+		if (dismiss) emo.emit('dismiss')
 	}
 	const show = (t: Trigger) => {
 		const now = Date.now()
-		if (pop || h.isOpen() || !canShow(gate, ss.get(SK), h.cfg.caps, now)) return false
-		gate = recordShow(gate, now); ls.set(GK, JSON.stringify(gate)); ss.set(SK, ss.get(SK) + 1)
+		if (pop || h.isOpen() || (!preview && !canShow(gate, ss.get(SK), h.cfg.caps, now))) return false
+		if (!preview) { gate = recordShow(gate, now); ls.set(GK, JSON.stringify(gate)); ss.set(SK, ss.get(SK) + 1) }
 		const box = $('.w') || R; if (!box) return false
 		pop = document.createElement('div'); pop.className = 'ag-pop'; pop.setAttribute('role', 'status')
 		const P = h.pos || {}
-		pop.style.setProperty(P.side === 'left' ? 'left' : 'right', (P.offset ?? 20) + 'px'); pop.style.bottom = (P.bottom ?? 20) + 84 + 'px'
+		pop.style.setProperty(P.side === 'left' ? 'left' : 'right', (P.offset ?? 20) + 'px'); pop.style.bottom = 'calc(' + Math.max((P.bottom ?? 20) + 84, W.innerWidth < 640 ? 85 : 0) + 'px + env(safe-area-inset-bottom, 0px))'   // بالای منوی پایینِ سایت
 		const p = document.createElement('p'); p.textContent = (t.message || '').trim() || greeting
 		const x = document.createElement('button'); x.type = 'button'; x.setAttribute('aria-label', 'بستن'); x.textContent = '×'
 		x.onclick = (e) => { e.stopPropagation(); hide(true) }
@@ -106,7 +110,7 @@ export function start(h: Host) {
 		box.appendChild(pop); mk(pop, true); pop.append(p, x)
 		requestAnimationFrame(() => pop?.classList.add('on'))
 		emo.set(t.emotion || 'curious')
-		h.track('trigger_fired', { trigger: t.id }); h.track('popup_shown', { trigger: t.id })
+		if (!preview) { h.track('trigger_fired', { trigger: t.id }); h.track('popup_shown', { trigger: t.id }) }
 		return true
 	}
 	const check = () => {
@@ -122,7 +126,15 @@ export function start(h: Host) {
 			const el = e.target as Element | null
 			sels.forEach((s) => { try { if (el?.closest?.(s) && !clicked.includes(s)) { clicked.push(s); check() } } catch { /* انتخابگرِ نامعتبر */ } })
 		}, true)
+		if (h.cfg.triggers.some((t) => t.when?.firstInteraction)) {
+			const once = (e: Event) => {
+				if (interacted || !countsAsInteraction(e.target as Element | null)) return
+				interacted = true; check()
+			}
+			;['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, once, { capture: true, passive: true }))
+		}
 	}
+	if (preview) setTimeout(check, 300)
 	return {
 		emit: (ev: AgentEvent, text?: string) => { if (ev === 'open') hide(false); emo.emit(ev, text) },
 		/** اجرای دستیِ تریگر از سایت: ArominAgent.trigger('id') */

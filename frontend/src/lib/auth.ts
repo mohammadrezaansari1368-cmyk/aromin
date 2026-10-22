@@ -30,7 +30,13 @@ export interface Session {
 
 /** هویت برای APIهای سمتِ سرور (دستیار، پایگاه دانش): سرور همان دفترِ کاربرانِ کسب‌وکار را راستی‌آزمایی می‌کند */
 let activeSession: Session | null = null
-export function clearSession() { activeSession = null }
+/* نگهداریِ توکن برای بارگذاریِ دوباره: فقط توکنِ امضاشدهٔ سرور (همان انقضای سرور)، هرگز رمز؛ با خروج یا ردِ سرور پاک می‌شود. */
+const SKEY = () => 'aromin-session:' + currentTenant()
+function storeToken(token: string | null) {
+	try { if (token) localStorage.setItem(SKEY(), token); else localStorage.removeItem(SKEY()) } catch { /* حالتِ خصوصی */ }
+}
+export function storedToken(): string | null { try { return localStorage.getItem(SKEY()) } catch { return null } }
+export function clearSession() { activeSession = null; storeToken(null) }
 export function activeManagerSession() { return !!activeSession && isAdmin(activeSession.role) && !activeSession.must_change_password && activeSession.tenant === currentTenant() }
 export function activeAuthHeaders(): Record<string, string> {
 	return activeSession?.tenant && activeSession.tenant !== currentTenant() ? {} : authHeaders(activeSession)
@@ -53,10 +59,21 @@ async function sessionRequest(payload: Record<string, string>, path = '/api/auth
 			return { ok: false, error: d.error || 'ورود معتبر نیست.', pending: !!d.pending }
 		const session: Session = { ...d.session, token: d.token, pass: '' }
 		activeSession = session
+		storeToken(d.token)
 		return { ok: true, session }
 	} catch {
 		return { ok: false, error: 'اتصال به سرور برقرار نشد.' }
 	}
+}
+
+/** پس از بارگذاریِ دوبارهٔ صفحه: توکنِ ذخیره‌شده را سرور (resume) راستی‌آزمایی و تمدید می‌کند؛ ردشده → پاک و صفحهٔ ورود. */
+export async function resumeSession(): Promise<Session | null> {
+	const token = storedToken()
+	if (!token) return null
+	const r = await sessionRequest({ resume: 'true' } as Record<string, string>, '/api/auth/session', { Authorization: `Bearer ${token}` })
+	if (r.ok) return r.session
+	if (!r.error.startsWith('اتصال')) storeToken(null)       // ردِ سرور → پاک؛ قطعیِ شبکه → نگه دار برای بارِ بعد
+	return null
 }
 
 export async function login(user: string, pass: string): Promise<Result> {
