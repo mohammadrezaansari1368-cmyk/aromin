@@ -148,9 +148,9 @@ function useChart() {
 	const c = useMemo(() => ({ primary: tokenHex('primary'), secondary: tokenHex('secondary'), accent: tokenHex('accent'), ok: tokenHex('success'), warn: tokenHex('warning'), err: tokenHex('error'), grid: tokenHex('border'), text: tokenHex('muted-foreground'), card: tokenHex('card'), fg: tokenHex('foreground') }), [th])
 	return {
 		c,
-		axis: { tick: { fill: c.text, fontSize: 11, fontFamily: 'Vazirmatn' }, tickLine: false, axisLine: false },
-		tip: { contentStyle: { background: c.card, border: '1px solid ' + c.grid, borderRadius: 10, fontFamily: 'Vazirmatn', fontSize: 12, color: c.fg, direction: 'rtl' as const }, labelStyle: { color: c.fg } },
-		legend: { wrapperStyle: { fontFamily: 'Vazirmatn', fontSize: 11, color: c.text } },
+		axis: { tick: { fill: c.text, fontSize: 11, fontFamily: 'PeydaWeb, Vazirmatn' }, tickLine: false, axisLine: false },
+		tip: { contentStyle: { background: c.card, border: '1px solid ' + c.grid, borderRadius: 10, fontFamily: 'PeydaWeb, Vazirmatn', fontSize: 12, color: c.fg, direction: 'rtl' as const }, labelStyle: { color: c.fg } },
+		legend: { wrapperStyle: { fontFamily: 'PeydaWeb, Vazirmatn', fontSize: 11, color: c.text } },
 	}
 }
 function ChartBox({ title, sub, children, empty, why }: { title: string; sub?: string; children: ReactNode; empty?: boolean; why?: string }) {

@@ -36,7 +36,7 @@ export default {
       },
       borderRadius: { lg: 'var(--radius)', md: 'calc(var(--radius) - 2px)', sm: 'calc(var(--radius) - 4px)' },
       boxShadow: { card: '0 1px 1px hsl(var(--shadow) / .03), 0 10px 30px -14px hsl(var(--shadow) / .14)' },
-      fontFamily: { sans: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'Peyda', 'PeydaWeb', 'Vazirmatn', 'system-ui', 'sans-serif'] },
+      fontFamily: { sans: ['PeydaWeb', 'Peyda', 'Vazirmatn', 'system-ui', 'sans-serif'] },
     },
   },
   plugins: [containerQueries],

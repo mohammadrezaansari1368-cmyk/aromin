@@ -18,8 +18,12 @@ type Check = { name: string; ok: boolean; note: string }
 const inCls = INPUT
 const btn = BTN
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+// 3.9.74: DNSِ دامنهٔ داشبورد برای بازدیدکنندهٔ تازه کُند است (نِیم‌سرورهای ابرآروان) → dns-prefetch/preconnect از همان ابتدای صفحه،
+// و اگر بارگذاری خطا داد تا ۳ بار دوباره (۳، ۶، ۹ ثانیه بعد) — بدونِ این، ابزارک و پاپ‌آپِ لید برای اولین بازدید نمی‌آمد.
 const installCode = (id: string) =>
-	`<script>(function(d){var s=d.createElement("script");s.async=1;s.src="${location.origin}/widget.js";s.setAttribute("data-site-id","${id}");(d.head||d.documentElement).appendChild(s)})(document);</script>`
+	`<link rel="dns-prefetch" href="${location.origin}"><link rel="preconnect" href="${location.origin}" crossorigin>` +
+	`<script>(function(d,n){function l(){var s=d.createElement("script");s.async=1;s.src="${location.origin}/widget.js";s.setAttribute("data-site-id","${id}");` +
+	`s.onerror=function(){s.parentNode&&s.parentNode.removeChild(s);if(++n<4)setTimeout(l,3e3*n)};(d.head||d.documentElement).appendChild(s)}l()})(document,0);</script>`
 
 export default function WidgetInstallCard({ session }: { session: Session }) {
 	const admin = isAdmin(session.role)

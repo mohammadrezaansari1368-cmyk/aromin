@@ -7,7 +7,7 @@ import { supportFixture } from '@/lib/calc/fixture'
 import { topPhone } from '@/lib/data/dashboard'
 
 const short = (n: string) => n.replace('آقای ', '').replace('خانم ', '')
-const AXIS = { fill: 'hsl(215 18% 62%)', fontSize: 11, fontFamily: 'Vazirmatn' }
+const AXIS = { fill: 'hsl(215 18% 62%)', fontSize: 11, fontFamily: 'PeydaWeb, Vazirmatn' }
 const TEAL = 'hsl(210 84% 52%)' // آبیِ برندِ آرومین (رنگِ غالب)
 const MUTED = 'hsl(215 25% 42%)'
 const GOLD = 'hsl(43 100% 50%)'
@@ -17,7 +17,7 @@ const ROSE = 'hsl(0 72% 60%)'
 const tip = {
   contentStyle: {
     background: 'hsl(222 40% 13%)', border: '1px solid hsl(222 25% 22%)',
-    borderRadius: 10, fontFamily: 'Vazirmatn', fontSize: 12, color: 'hsl(210 30% 92%)',
+    borderRadius: 10, fontFamily: 'PeydaWeb, Vazirmatn', fontSize: 12, color: 'hsl(210 30% 92%)',
   },
   labelStyle: { color: 'hsl(210 30% 92%)' },
 } as const
@@ -38,7 +38,7 @@ export function SlaCompareChart() {
             <XAxis dataKey="name" tick={AXIS} tickLine={false} axisLine={false} interval={0} height={38} angle={-12} textAnchor="end" />
             <YAxis tick={AXIS} tickLine={false} axisLine={false} width={28} allowDecimals={false} />
             <Tooltip {...tip} cursor={{ fill: 'hsl(222 25% 18% / 0.5)' }} />
-            <Legend wrapperStyle={{ fontFamily: 'Vazirmatn', fontSize: 11, color: 'hsl(215 18% 62%)' }} />
+            <Legend wrapperStyle={{ fontFamily: 'PeydaWeb, Vazirmatn', fontSize: 11, color: 'hsl(215 18% 62%)' }} />
             <Bar dataKey="نصب" fill={MUTED} radius={[4, 4, 0, 0]} maxBarSize={26} />
             <Bar dataKey="در‌مهلت" radius={[4, 4, 0, 0]} maxBarSize={26}>
               {data.map((d, i) => (

@@ -255,7 +255,7 @@ function ClusterBody({ data }: { data: StarlightData }) {
 					return (
 						<div key={tile.id} data-wide={tile.wide || undefined} dir="ltr" role="group" aria-label={`کاشی ${tile.code} — ${tile.logo ? 'لوگو' : tile.gauges.map(([k]) => CFG[k].fa).join('، ')}`}
 							className="relative overflow-hidden rounded-[14px] bg-black shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]"
-							style={{ width: '100%', aspectRatio: tile.wide ? '3 / 1' : '1 / 1', minHeight: 220, fontFamily: "'Outfit', Vazirmatn, sans-serif" }}>
+							style={{ width: '100%', aspectRatio: tile.wide ? '3 / 1' : '1 / 1', minHeight: 220, fontFamily: "'Outfit', PeydaWeb, Vazirmatn, sans-serif" }}>
 							<canvas ref={canvasRef(tile.id, i, tile.wide)} aria-hidden className="absolute inset-0 size-full" />
 							<div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 30%, rgba(0,0,0,0.8) 100%)' }} />
 							{tile.logo && (
