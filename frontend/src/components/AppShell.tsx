@@ -144,7 +144,7 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 		<LiveProvider>
 			<div dir="rtl" className="flex min-h-screen w-full bg-background text-foreground">
 				{/* سایدبار */}
-				<aside className="sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col gap-1 border-l border-border bg-surface p-4 lg:flex">
+				<aside className="sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col gap-1 border-l border-border/60 bg-surface/70 p-4 backdrop-blur-xl lg:flex">
 					<div className="mb-4 flex items-center gap-2 px-1">
 						<img src="/aromin-logo.webp" alt="آرومین" className="h-8 w-auto" />
 					</div>
@@ -185,7 +185,7 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 
 				{/* محتوا */}
 				<div className="flex min-w-0 flex-1 flex-col">
-					<header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border bg-background/80 px-4 py-3 backdrop-blur sm:px-6">
+					<header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/60 bg-background/70 px-4 py-3 backdrop-blur-xl backdrop-saturate-150 sm:px-6">
 						<h1 className="hidden min-w-0 truncate text-lg font-extrabold sm:block">{tab.label}</h1>
 						<div className="mr-auto flex items-center gap-2">
 							{isAdmin(session.role) && <SignupRequests beforeWrite={async () => { await host.current?.flush() }} afterWrite={() => host.current?.reload()} />}
