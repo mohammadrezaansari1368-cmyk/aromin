@@ -1130,7 +1130,11 @@ def api_ai(request: Request, payload: dict = Body(default={})):
     if not ident:
         return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=401)
     authorized_tenant = kb_tenant
-    system = assistant_system(kb_tenant)
+    # 3.9.65: retrieval needs the question; without a query kb_context falls back to the first KB_PROMPT_MAX chars of the oldest files
+    last_user = next((str(m.get("content") or "") for m in reversed(payload.get("messages") or [])
+                      if isinstance(m, dict) and m.get("role") == "user" and not str(m.get("content") or "").startswith("[tool_result")), "")
+    kb_query = (question.strip() or last_user.strip() or context.strip()[:500])[:1000]
+    system = assistant_system(kb_tenant, query=kb_query)
     if business or industry:
         system += "\n\nکسب‌وکار: " + business + " | صنعت: " + industry
 
