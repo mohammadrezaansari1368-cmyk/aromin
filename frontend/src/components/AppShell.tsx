@@ -28,6 +28,7 @@ const PerformancePage = lazy(() => import('@/components/performance/PerformanceP
 const ReportsPerf = lazy(() => import('@/components/performance/PerformancePage').then((m) => ({ default: m.ReportsPerf })))
 // دفتر فروش (C1…C6) — بومی؛ فقط وقتی تب باز شود بارگذاری می‌شود
 const LedgerPage = lazy(() => import('@/components/ledger/LedgerPage'))
+const CouncilRoom = lazy(() => import('@/components/council/CouncilRoom'))
 const StarlightCluster = lazy(() => import('@/components/analytics/StarlightCluster'))
 const WidgetInstallCard = lazy(() => import('@/components/WidgetInstallCard'))
 const SalesAgentCard = lazy(() => import('@/components/sales/SalesAgentCard'))
@@ -67,6 +68,7 @@ const TABS: Tab[] = [
 	{ id: 'performance', label: 'عملکرد', sub: 'Performance', icon: I('M22 12h-4l-3 8-4-16-3 8H2'), view: (s, go, setPanel) => <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><PerformancePage session={s} initial={takePerfView(['dash', 'people', 'recon', 'activity', 'data'] as const, 'dash')} go={go} setPanel={setPanel} /></Suspense> },
 	{ id: 'p-ticket', label: 'پشتیبانی و تیکتینگ', sub: 'Support', icon: I('M4 9V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6z'), panel: 'p-ticket' },
 	{ id: 'forecast', label: 'پیش‌بینی و بودجه', sub: 'Forecast', icon: I('M3 3v18h18|M7 16l3-3 3 2 5-6'), view: (s, go) => <ForecastPage session={s} goImport={() => go('import')} /> },
+	{ id: 'council', label: 'اتاق شورا', sub: 'Council', icon: I('M12 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z|M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z|M19 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z|M3 20c1-3 3-4 5-4h8c2 0 4 1 5 4'), view: (s) => (isAdmin(s.role) ? <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><CouncilRoom session={s} /></Suspense> : <p className="text-[13px] text-muted-foreground">فقط مدیر.</p>) },
 	{ id: 'p-ladder', label: 'نردبان پیشرفت', sub: 'Growth Ladder', icon: I('M7 3v18|M17 3v18|M7 7h10|M7 12h10|M7 17h10'), panel: 'p-ladder' },
 	{ id: 'import', label: 'مرکز ایمپورت', sub: 'Import Center', icon: I('M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4|M7 10l5 5 5-5|M12 15V3'), view: (s) => <ImportPage session={s} /> },
 	{ id: 'p-report', label: 'گزارش و بک‌آپ', sub: 'Reports', icon: I('M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z|M14 2v6h6|M9 15h6'), view: (s, go) => <Suspense fallback={null}>{(isAdmin(s.role) || s.role === 'finance') && <LeadsCard session={s} />}<ReportsPerf session={s} go={go} initial={takePerfView(['summary', 'lawyer'] as const, 'summary')} /></Suspense>, panel: 'p-report' },

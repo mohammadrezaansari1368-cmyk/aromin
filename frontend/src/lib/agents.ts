@@ -7,6 +7,7 @@ export const COLLECTION_FA: Record<string, string> = {
 	after_sales: 'پس از فروش',
 	marketing: 'مارکتینگ',
 	dashboard_help: 'راهنمای داشبورد (داخلی)',
+	council: 'دانشنامهٔ شورا',
 }
 export const SURFACE_FA: Record<string, string> = { website: 'سایت', dashboard: 'داشبورد', bale: 'بله', telegram: 'تلگرام' }
 export const SKILL_FIELDS: { key: keyof Skill; label: string; long?: boolean }[] = [
