@@ -2577,6 +2577,11 @@ def attendance_upload(request: Request, payload: dict = Body(default={})):
         return _att_deny(413, public_error(e))
     except ValueError as e:
         return _att_deny(400, public_error(e))
+    return _att_ingest(tenant, ident["user"], parsed, people)
+
+
+def _att_ingest(tenant, uploader, parsed, people):
+    """Upsert parsed sheets into attendance_days (one batch per file sha) + card aliases. Shared by the upload and Harikan."""
     sheet_cards = {s["sheet_name"]: s["card_no"] for s in parsed["sheets"]}
     days = [dict(d, card_no=s["card_no"], sheet_name=s["sheet_name"], person_name=s["person_name"]) for s in parsed["sheets"] for d in s["days"]]
     now = _att_now()
@@ -2595,7 +2600,7 @@ def attendance_upload(request: Request, payload: dict = Body(default={})):
                 plan["unchanged"] += len(plan["update"]); plan["update"] = []
             pf, pt = att.period(days)
             t.x("INSERT INTO attendance_batches (tenant,file_sha256,file_name,source,uploaded_by,period_from,period_to,sheets,days,inserted,updated,unchanged,skipped,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (tenant, parsed["sha256"], parsed["file_name"], parsed["source"], ident["user"], pf, pt, len(parsed["sheets"]), len(days),
+                (tenant, parsed["sha256"], parsed["file_name"], parsed["source"], uploader, pf, pt, len(parsed["sheets"]), len(days),
                  len(plan["insert"]), len(plan["update"]), plan["unchanged"], json.dumps(parsed["skipped"], ensure_ascii=False), now))
             bid = t.cur.lastrowid
             for d in plan["insert"]:
@@ -2626,6 +2631,142 @@ def attendance_upload(request: Request, payload: dict = Body(default={})):
         return {"ok": True, "duplicate": True, "batch": _att_batch(old[0]), "sheetCards": sheet_cards}
     return JSONResponse({"ok": True, "duplicate": False, "batch": _att_batch(batch), "skipped": parsed["skipped"], "unmapped": unmapped,
                          "sheetCards": sheet_cards}, status_code=201)
+
+
+ATT_ARCHIVE_MARK = os.environ.get("ATT_ARCHIVE_MARK") or os.path.join(HERE, ".attendance_archive_v1")
+
+
+def attendance_archive_files():
+    """Owner decision 3.9.68: attendance only from Harikan. Rows from device files (sources import-center/card/migration), their
+    overrides, batch membership and the attendance settings are MOVED to tenant '<tenant>~archive' — nothing is deleted;
+    restore = move them back. Runs once (marker file); returns the per-table counts."""
+    if os.path.exists(ATT_ARCHIVE_MARK):
+        return None
+    moved = {}
+    try:
+        with _SaTx() as t:
+            tenants = [r["tenant"] for r in t.x("SELECT DISTINCT tenant FROM attendance_batches WHERE source<>'harikan' AND tenant NOT LIKE %s", ("%~archive",)).fetchall()]
+            tenants += [r["tenant"] for r in t.x("SELECT tenant FROM attendance_settings WHERE tenant NOT LIKE %s", ("%~archive",)).fetchall() if r["tenant"] not in tenants]
+            for tn in tenants:
+                arc = (tn + "~archive")[:64]
+                ids = [r["id"] for r in t.x("SELECT id FROM attendance_batches WHERE tenant=%s AND source<>'harikan'", (tn,)).fetchall()]
+                if ids:
+                    moved["days"] = moved.get("days", 0) + t.x("UPDATE attendance_days SET tenant=%s WHERE tenant=%s AND batch_id IN (" + _in(ids) + ")", [arc, tn] + ids).rowcount
+                    moved["members"] = moved.get("members", 0) + t.x("UPDATE import_batch_rows SET tenant=%s WHERE tenant=%s AND domain='attendance' AND batch_id IN (" + _in(ids) + ")", [arc, tn] + ids).rowcount
+                    moved["batches"] = moved.get("batches", 0) + t.x("UPDATE attendance_batches SET tenant=%s WHERE tenant=%s AND id IN (" + _in(ids) + ")", [arc, tn] + ids).rowcount
+                moved["overrides"] = moved.get("overrides", 0) + t.x("UPDATE attendance_overrides SET tenant=%s WHERE tenant=%s", (arc, tn)).rowcount
+                t.x("DELETE FROM attendance_settings WHERE tenant=%s", (arc,))
+                moved["settings"] = moved.get("settings", 0) + t.x("UPDATE attendance_settings SET tenant=%s WHERE tenant=%s", (arc, tn)).rowcount
+        with open(ATT_ARCHIVE_MARK, "w", encoding="utf-8") as fh:
+            json.dump({"at": _att_iso(_att_now()), "moved": moved}, fh)
+        print("[ATT] file attendance archived:", json.dumps(moved))
+    except Exception as e:
+        print("[ATT] archive skipped:", type(e).__name__, public_error(e)[:120])
+        return None
+    return moved
+
+
+def harikan_status(tenant):
+    """What Harikan has sent: last day/month export, attendance days stored from it, codes still unmatched to a person."""
+    out = {"lastDay": None, "lastMonth": None, "days": 0, "unmatched": [], "archive": None}
+    try:
+        for kind in ("day", "month"):
+            r = q("SELECT export_key, people, updated_at FROM harikan_exports WHERE tenant=%s AND kind=%s ORDER BY export_key DESC LIMIT 1", (tenant, kind))
+            if r:
+                out["last" + kind.capitalize()] = {"key": r[0]["export_key"], "people": r[0]["people"], "at": _att_iso(r[0]["updated_at"])}
+        r = q("SELECT COUNT(*) AS n FROM attendance_days d JOIN attendance_batches b ON b.tenant=d.tenant AND b.id=d.batch_id WHERE d.tenant=%s AND b.source='harikan'", (tenant,))
+        out["days"] = int(r[0]["n"]) if r else 0
+        out["unmatched"] = [x["alias_key"] for x in q("SELECT alias_key FROM identity_aliases WHERE tenant=%s AND kind='card' AND status<>'confirmed' AND alias_key IN "
+                                                        "(SELECT DISTINCT d.card_no FROM attendance_days d JOIN attendance_batches b ON b.tenant=d.tenant AND b.id=d.batch_id "
+                                                        "WHERE d.tenant=%s AND b.source='harikan') ORDER BY alias_key LIMIT 50", (tenant, tenant))]
+    except Exception as e:
+        print("[HARIKAN] status:", type(e).__name__)
+    try:
+        with open(ATT_ARCHIVE_MARK, encoding="utf-8") as fh:
+            out["archive"] = json.load(fh)
+    except (OSError, ValueError):
+        pass
+    return out
+
+
+@app.get("/api/performance/harikan")
+def harikan_status_read(request: Request, tenant: str = "team"):
+    ident, full, people, err = _att_ctx(request, tenant, write=True)
+    if err:
+        return err
+    return dict({"ok": True}, **harikan_status(tenant))
+
+
+def _today_j():
+    """Today in Tehran as Jalali YYYY/MM/DD."""
+    d = (datetime.datetime.utcnow() + datetime.timedelta(hours=3, minutes=30)).date()
+    return "%04d/%02d/%02d" % _jalali(d.year, d.month, d.day)
+
+
+def dashboard_live(tenant, today=None):
+    """Server-side numbers for the live tiles (calls, tickets, website leads, Harikan attendance). Deal/budget numbers stay in the
+    browser engine. Every value is None when its source has no data (the tile then says «داده‌ای نیست»)."""
+    today = today or _today_j()
+    month = today[:7] if today else None
+    out = {"today": today, "calls": None, "tickets": None, "leads": None, "attendance": None, "sources": {}}
+    try:
+        if today:
+            rows = q("SELECT date_j, time_s, call_status FROM call_logs WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant, _shift_j(today, -13), today))
+            if rows:
+                days = {}
+                for r in rows:
+                    if r["call_status"] == "answered":
+                        days[r["date_j"]] = days.get(r["date_j"], 0) + 1
+                tod = [r for r in rows if r["date_j"] == today and r["call_status"] == "answered"]
+                hours = {int(r["time_s"]) // 3600 for r in tod if r.get("time_s") is not None}
+                total = sum(1 for r in rows if r["call_status"] in ("answered", "missed"))
+                out["calls"] = {"today": len(tod), "perHour": round(len(tod) / max(1, len(hours)), 1) if tod else 0,
+                                "byDay": [days.get(_shift_j(today, -i), 0) for i in range(13, -1, -1)],
+                                "answeredPct": round(100.0 * sum(days.values()) / total, 1) if total else None}
+                out["sources"]["calls"] = max(r["date_j"] for r in rows)
+        rows = q("SELECT status, sla_ok, date_j FROM ticket_logs WHERE tenant=%s", (tenant,))
+        if rows:
+            closed = re.compile(r"بسته|حل\s*شد|انجام\s*شد|closed|resolved|done", re.I)
+            known = [r for r in rows if r["sla_ok"] is not None]
+            out["tickets"] = {"open": sum(1 for r in rows if not closed.search(str(r["status"] or ""))),
+                              "slaPct": round(100.0 * sum(1 for r in known if r["sla_ok"]) / len(known), 1) if known else None}
+            out["sources"]["tickets"] = max(r["date_j"] for r in rows)
+        if month and lead_alert_tables():
+            r = q("SELECT COUNT(*) AS n, MAX(created_at) AS last FROM sa_leads WHERE tenant=%s AND created_at>=%s", (tenant, _sa_now() - datetime.timedelta(days=31)))
+            out["leads"] = {"month": int(r[0]["n"]) if r else 0}
+            out["sources"]["leads"] = _att_iso(r[0]["last"]) if r and r[0]["last"] else None
+        hk = q("SELECT payload FROM harikan_exports WHERE tenant=%s AND kind='day' ORDER BY export_key DESC LIMIT 1", (tenant,))
+        if hk:
+            d = json.loads(hk[0]["payload"])
+            pres, absn = len(d.get("present") or []), len(d.get("absent") or [])
+            out["attendance"] = {"day": d.get("key"), "present": pres, "absent": absn, "leave": len(d.get("leave") or []), "mission": len(d.get("mission") or []),
+                                 "pct": round(100.0 * pres / (pres + absn), 1) if pres + absn else None, "missionKm": None}
+            out["sources"]["attendance"] = d.get("key")
+            hm = q("SELECT payload FROM harikan_exports WHERE tenant=%s AND kind='month' ORDER BY export_key DESC LIMIT 1", (tenant,))
+            if hm:
+                m = json.loads(hm[0]["payload"])
+                out["attendance"]["missionKm"] = round(sum(float(p.get("missionKm") or 0) for p in m.get("people") or []), 1)
+                out["attendance"]["month"] = m.get("key")
+    except Exception as e:
+        print("[LIVE] dashboard metrics:", type(e).__name__, public_error(e)[:120])
+    return out
+
+
+def _shift_j(day, n):
+    """Jalali YYYY/MM/DD shifted by n days."""
+    y, m, d = (int(x) for x in day.split("/"))
+    g = datetime.date(*_j2g(y, m, d)) + datetime.timedelta(days=n)
+    return "%04d/%02d/%02d" % _jalali(g.year, g.month, g.day)
+
+
+@app.get("/api/dashboard/live")
+def dashboard_live_read(request: Request, tenant: str = "team"):
+    ident = kb_identity(request, tenant)
+    if not ident:
+        return JSONResponse({"ok": False, "error": "ورود معتبر نیست."}, status_code=401)
+    if ident["role"] not in ATT_ADMIN_ROLES:
+        return JSONResponse({"ok": False, "error": "فقط مدیران و مالی."}, status_code=403)
+    return dict({"ok": True}, **dashboard_live(tenant))
 
 
 @app.get("/api/performance/attendance")
@@ -3449,6 +3590,46 @@ def _mcp_export_check(ex):
     return kind, key, raw, count
 
 
+_HK_NOTE = {"absent": "غیبت", "leave": "مرخصی", "mission": "ماموریت"}
+
+
+def harikan_day_payload(ex, sha):
+    """HKE day export → POST /api/performance/attendance body (one device-style sheet per personnel code)."""
+    key = str(ex.get("key") or "")
+    rows = {}
+    for a in ex.get("attendance") or []:
+        if isinstance(a, dict) and str(a.get("code") or "").strip():
+            code = str(a["code"]).strip()
+            r = {"تاریخ": key, "شماره کارت": code}
+            if a.get("in"):
+                r["ورود 1"] = str(a["in"])
+            if a.get("out"):
+                r["خروج 1"] = str(a["out"])
+            rows[code] = r
+    for f, label in _HK_NOTE.items():
+        for c in ex.get(f) or []:
+            code = str(c).strip()
+            if code and code not in rows:
+                rows[code] = {"تاریخ": key, "شماره کارت": code, "حضور": label}
+    return {"fileName": "harikan-day-%s.json" % key.replace("/", "-"), "sha256": sha, "source": "harikan",
+            "sheets": {"هاریکان " + code: [r] for code, r in sorted(rows.items())}}
+
+
+def harikan_ingest_day(tenant, ex, sha):
+    """Feed one Harikan day export into attendance (idempotent by its sha). Never raises into the MCP call."""
+    try:
+        full = _tenant_full(tenant) or {}
+        parsed = att.parse_payload(harikan_day_payload(ex, sha))
+        if not parsed["sheets"]:
+            return {"ok": True, "days": 0}
+        r = _att_ingest(tenant, "harikan", parsed, idmap.people_of(full))
+        body = json.loads(r.body) if hasattr(r, "body") else r
+        return {"ok": bool(body.get("ok")), "days": (body.get("batch") or {}).get("days"), "unmapped": len(body.get("unmapped") or [])}
+    except Exception as e:
+        print("[HARIKAN] attendance ingest failed:", type(e).__name__, public_error(e)[:120])
+        return {"ok": False}
+
+
 def _mcp_save_export(tenant, args):
     kind, key, raw, count = _mcp_export_check(args.get("export"))
     sha, now = hashlib.sha256(raw.encode("utf-8")).hexdigest(), _att_now()
@@ -3466,7 +3647,10 @@ def _mcp_save_export(tenant, args):
                     t.x("INSERT INTO harikan_exports (tenant,kind,export_key,payload,payload_sha256,people,received_at,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                         (tenant, kind, key, raw, sha, count, now, now))
                     status = "inserted"
-            return {"ok": True, "kind": kind, "key": key, "status": status, "people": count}
+            out = {"ok": True, "kind": kind, "key": key, "status": status, "people": count}
+            if kind == "day" and status != "unchanged":       # 3.9.68: attendance comes from Harikan only
+                out["attendance"] = harikan_ingest_day(tenant, json.loads(raw), sha)
+            return out
         except pymysql.err.IntegrityError:
             continue
     raise _McpToolError("ثبت انجام نشد؛ دوباره بفرستید.")
@@ -9610,6 +9794,7 @@ def _startup():
         print("در حال بررسی و اعمالِ مهاجرت‌های دیتابیس…")
         n = run_migrations(CFG_DB)
         print(("مهاجرت‌ها اعمال شد (%d فایل)." % n) if n else "دیتابیس از قبل به‌روز بود.")
+        attendance_archive_files()      # 3.9.68, once: file-imported attendance → '<tenant>~archive' (Harikan is the only source)
         if tg_configured() or any(c.get("activated") and c.get("enabled") for c in _sa_all().values()) or q("SELECT tenant FROM pub_settings WHERE settings LIKE %s", ('%"enabled":true%',)):
             sa_start_worker()
     except Exception as e:

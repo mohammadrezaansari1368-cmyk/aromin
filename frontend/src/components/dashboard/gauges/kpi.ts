@@ -5,7 +5,6 @@
  * یک GaugeSource تازه (API/DB/موتور) بسازید و در `activeSource` جایگزین کنید — بدونِ هیچ تغییری در UI.
  */
 import { useEffect, useSyncExternalStore } from 'react'
-import { mockGaugeSource } from './gaugeMock'
 
 export type GaugeId = 'tach' | 'speed' | 'fuel' | 'temp' | 'power'
 
@@ -48,6 +47,11 @@ export interface GaugeSnapshot {
 	/** شمارندهٔ «تست سوییپ» — گیج‌ها با تغییرش یک دور کامل می‌زنند */
 	sweep: number
 	lastUpdate: number | null
+	/** 3.9.68: business label/scale per gauge (overrides GAUGE_SPECS) and gauges whose source has no data */
+	specs?: Partial<Record<GaugeId, GaugeSpec>>
+	empty?: Partial<Record<GaugeId, boolean>>
+	/** منبع و تاریخِ آخرین دادهٔ هر منبع (برای کاشیِ «فیدِ زنده») */
+	feeds?: { label: string; at: string | null }[]
 }
 /** رابطِ منبعِ داده — هر پیاده‌سازیِ واقعی همین را برآورده می‌کند */
 export interface GaugeSource {
@@ -77,8 +81,27 @@ export function gaugeStatus(spec: GaugeSpec, r: GaugeReading | undefined): Gauge
 	return 'ok'
 }
 
-/** ← نقطهٔ اتصال: منبعِ واقعی را این‌جا بگذارید */
-const activeSource: GaugeSource = mockGaugeSource
+/** 3.9.68: the live source — Board pushes real numbers here (setLiveGauges); until then every gauge is «داده‌ای نیست». */
+const zero = (): GaugeReading => ({ value: 0, trend: null, updatedAt: null })
+let liveSnap: GaugeSnapshot = {
+	readings: { tach: zero(), speed: zero(), fuel: zero(), temp: zero(), power: zero() }, mode: 'offline', simulating: false, sweep: 0, lastUpdate: null,
+	empty: { tach: true, speed: true, fuel: true, temp: true, power: true },
+}
+const liveSubs = new Set<() => void>()
+export function setLiveGauges(p: Pick<GaugeSnapshot, 'readings' | 'specs' | 'empty' | 'feeds'>) {
+	const same = JSON.stringify([p.readings, p.empty, p.feeds, Object.keys(p.specs || {}).map((k) => p.specs![k as GaugeId]!.max)]) ===
+		JSON.stringify([liveSnap.readings, liveSnap.empty, liveSnap.feeds, Object.keys(liveSnap.specs || {}).map((k) => liveSnap.specs![k as GaugeId]!.max)])
+	if (same) return
+	liveSnap = { ...liveSnap, ...p, mode: 'live', lastUpdate: Date.now() }
+	liveSubs.forEach((f) => f())
+}
+export const liveGaugeSource: GaugeSource = {
+	subscribe(cb) { liveSubs.add(cb); return () => { liveSubs.delete(cb) } },
+	get: () => liveSnap,
+	sweepTest() { liveSnap = { ...liveSnap, sweep: liveSnap.sweep + 1 }; liveSubs.forEach((f) => f()) },
+}
+/** ← نقطهٔ اتصال: منبعِ واقعی */
+const activeSource: GaugeSource = liveGaugeSource
 
 export function useGaugeReadings() {
 	useEffect(() => activeSource.start?.(), [])

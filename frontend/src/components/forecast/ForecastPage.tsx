@@ -6,7 +6,7 @@
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { sanitizeForecastHtml } from '@/lib/sanitizeForecastHtml'
 import { isAdmin, type Session } from '@/lib/auth'
@@ -65,6 +65,8 @@ const TierMark = ({ tier, className = 'h-4 w-5' }: { tier: Tier; className?: str
 )
 
 /* ---------------- بلوک‌های طراحی ---------------- */
+const ForecastBento = lazy(() => import('./ForecastBento'))
+
 function Card({ title, sub, children, id, tone }: { title: ReactNode; sub?: ReactNode; children: ReactNode; id?: string; tone?: string }) {
 	return (
 		<section id={id} className={`@container ${CARD} ${CARD_PAD} ${tone || ''}`}>
@@ -539,8 +541,28 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 		},
 	]
 
+	// 3.9.68: نمای بنتو — فقط نمایشِ همان خروجی‌های compute و معاملاتِ همین صفحه
+	const bento = (() => {
+		const ch: Record<string, number> = {}, st = { cash: 0, check: 0, hold: 0 }
+		for (const p of ctx.people || []) for (const d of (p as { inv?: Record<string, unknown>[] }).inv || []) {
+			if ((d.funnel || 'won') !== 'won') continue
+			const a = parseFloat(String(d.amount ?? '').replace(/[^\d.-]/g, '')) || 0
+			const c = d.channel === 'unofficial' ? 'غیررسمی' : 'رسمی'
+			ch[c] = (ch[c] || 0) + a
+			if (d.settle === 'hold') st.hold += a
+			else if (d.settle === 'check' || d.settle === 'cash_after_check') st.check += a
+			else st.cash += a
+		}
+		const today = new Intl.DateTimeFormat('en-US-u-ca-persian-nu-latn', { timeZone: 'Asia/Tehran', month: 'numeric' }).format(new Date())
+		return { channels: Object.entries(ch).map(([name, value]) => ({ name, value })), settle: st, month: Math.max(0, Math.min(11, (parseInt(today, 10) || 1) - 1)) }
+	})()
+
 	return (
 		<div dir="rtl" className="fc-root flex flex-col gap-6 pb-24 selection:bg-primary/15" style={VARS}>
+			<Suspense fallback={null}>
+				<ForecastBento year={r.ty} target={r.R} safeTarget={r.safeT} forecast={r.monthlyBlended && r.monthlyBlended.length ? r.monthlyBlended.slice(0, 12) : null}
+					actual={r.act} channels={bento.channels} settle={bento.settle} month={bento.month} readiness={r.ready} />
+			</Suspense>
 			<PyramidOverview tiers={pyramid} badge={saveBadge} />
 
 			{/* ۲) راهنما */}

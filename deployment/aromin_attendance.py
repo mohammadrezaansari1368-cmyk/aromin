@@ -14,7 +14,7 @@ EDIT_KEYS = {'code', 'entry', 'exit', 'present', 'overtime', 'excuse', 'note'}
 DEFAULT_SETTINGS = {'workStart': '10:00', 'workEnd': '18:00', 'dailyWork': '07:30', 'restDuration': 30, 'lateThreshold': 15,
                     'lateDeduct': '08:00', 'meetingDefault': 60, 'taskKeywords': 'حضوری', 'overtimeByLateExit': False}
 LIMITS = dict(sheets=200, rows_per_sheet=400, keys_per_row=40, key_len=64, value_len=300)
-SOURCES = ('import-center', 'card', 'migration')
+SOURCES = ('import-center', 'card', 'migration', 'harikan')
 SHA_RE = re.compile(r'^[0-9a-f]{64}$')
 _DIGITS = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
 _HEADER = str.maketrans({'ي': 'ی', 'ى': 'ی', 'ك': 'ک', 'أ': 'ا', 'آ': 'ا', '‌': ' ', ' ': ' ', '‎': ' ', '‏': ' '})

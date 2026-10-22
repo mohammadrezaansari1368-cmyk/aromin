@@ -3,14 +3,15 @@
 /**
  * آمپرهای دیجیتالِ «Starlight Cluster» (بستهٔ طراحی) — بالای تبِ «تحلیل مدیریتی»، کدهای B22–B32.
  * یک کاشیِ لوگو، یک کاشیِ سه‌گیج (توان · سرعت · باتری) و ۹ گیجِ تکی؛ هر کاشی آسمانِ پرستارهٔ خودش و «فیلمِ» ورود دارد.
- * همهٔ گیج‌ها فقط `useStarlightData()` را می‌خوانند (فعلاً شبیه‌ساز؛ به داده وصل نیست).
+ * همهٔ گیج‌ها فقط `useStarlightData()` را می‌خوانند — 3.9.68: دادهٔ واقعیِ سیستم (معنای هر آمپر در starlightData.ts).
  * هندسه، رنگ و زمان‌بندی عیناً از README بسته؛ کاشی‌ها با دستگیرهٔ ⠿ جابه‌جا می‌شوند.
  */
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import Sortable from '@/components/ui/sortable'
 import logoUrl from '@/assets/starlight-logo.png'
-import { useStarlightData, type StarlightData } from './starlightData'
+import { useStarlightData, type StarlightData, type StarlightKey } from './starlightData'
+import type { Session } from '@/lib/auth'
 import { BTN_GHOST, CARD, CARD_PAD, CARD_TITLE } from '@/components/ui/tokens'
 
 const ACC = '#e8eeff', WARN = 'oklch(0.8 0.13 70)'
@@ -25,17 +26,17 @@ type Label = { x: number; y: number; txt: string; f: number }
 type Cfg = { label: string; fa: string; unit: string; min: number; max: number; major: number; minor: number; get: (s: StarlightData) => number; txt: (v: number, s: StarlightData) => string; warn?: (s: StarlightData) => boolean; lab?: (v: number) => string; ticks?: Tick[]; labels?: Label[] }
 
 const CFG = {
-	speed: { label: 'SPEED', fa: 'سرعت', unit: 'KM/H', min: 0, max: 280, major: 40, minor: 4, get: (s) => s.speed, txt: (v) => String(Math.round(v)) },
-	rpm: { label: 'ENGINE', fa: 'دورِ موتور', unit: 'RPM × 1000', min: 0, max: 7, major: 1, minor: 5, get: (s) => s.rpm / 1000, txt: (v) => v.toFixed(1), warn: (s) => s.rpm > 6000 },
-	power: { label: 'POWER', fa: 'توان', unit: '%', min: 0, max: 100, major: 20, minor: 4, get: (s) => s.power, txt: (v) => String(Math.round(v)) },
-	battery: { label: 'BATTERY', fa: 'باتری', unit: '%', min: 0, max: 100, major: 25, minor: 5, get: (s) => s.battery, txt: (v) => String(Math.round(v)), warn: (s) => s.battery < 20 },
-	range: { label: 'RANGE', fa: 'پیمایش', unit: 'KM', min: 0, max: 900, major: 150, minor: 3, get: (s) => s.range, txt: (v) => String(Math.round(v)), warn: (s) => s.range < 80 },
-	motor: { label: 'MOTOR TEMP', fa: 'دمای موتور', unit: '°C', min: 20, max: 120, major: 20, minor: 4, get: (s) => s.motorTemp, txt: (v) => String(Math.round(v)), warn: (s) => s.motorTemp > 95 },
-	fuel: { label: 'FUEL', fa: 'سوخت', unit: '%', min: 0, max: 100, major: 25, minor: 5, get: (s) => s.fuel, txt: (v) => String(Math.round(v)), lab: (v) => (v === 0 ? 'E' : v === 100 ? 'F' : v === 50 ? '½' : ''), warn: (s) => s.fuel < 15 },
-	cabin: { label: 'CABIN', fa: 'دمای کابین', unit: '°C', min: 10, max: 30, major: 5, minor: 5, get: (s) => s.cabin, txt: (v) => v.toFixed(1) },
+	speed: { label: 'SALES TODAY', fa: 'فروشِ امروز', unit: 'M TOMAN', min: 0, max: 100, major: 20, minor: 4, get: (s) => s.speed, txt: (v) => (v >= 10 ? String(Math.round(v)) : v.toFixed(1)) },
+	rpm: { label: 'CALLS / HOUR', fa: 'تماسِ پاسخ‌داده در ساعت', unit: 'CALLS', min: 0, max: 10, major: 2, minor: 5, get: (s) => s.rpm, txt: (v) => v.toFixed(1) },
+	power: { label: 'CONVERSION', fa: 'نرخِ تبدیل', unit: '%', min: 0, max: 100, major: 20, minor: 4, get: (s) => s.power, txt: (v) => String(Math.round(v)) },
+	battery: { label: 'ATTENDANCE', fa: 'حضورِ امروز', unit: '%', min: 0, max: 100, major: 25, minor: 5, get: (s) => s.battery, txt: (v) => String(Math.round(v)), warn: (s) => s.has.battery === true && s.battery < 70 },
+	range: { label: 'MISSION KM', fa: 'کیلومترِ مأموریتِ ماه', unit: 'KM', min: 0, max: 500, major: 100, minor: 3, get: (s) => s.range, txt: (v) => String(Math.round(v)) },
+	motor: { label: 'DEALS 40D+', fa: 'معاملاتِ بیش از ۴۰ روز', unit: 'DEALS', min: 0, max: 10, major: 2, minor: 4, get: (s) => s.motorTemp, txt: (v) => String(Math.round(v)), warn: (s) => s.motorTemp > 5 },
+	fuel: { label: 'TARGET LEFT', fa: 'باقی‌ماندهٔ تارگتِ ماه', unit: '%', min: 0, max: 100, major: 25, minor: 5, get: (s) => s.fuel, txt: (v) => String(Math.round(v)) },
+	cabin: { label: 'OPEN TICKETS', fa: 'تیکت‌های باز', unit: 'TICKETS', min: 0, max: 10, major: 2, minor: 5, get: (s) => s.cabin, txt: (v) => String(Math.round(v)) },
 	clock: { label: 'TIME', fa: 'ساعت', unit: '', min: 0, max: 24, major: 3, minor: 3, get: (s) => s.now.getHours() + s.now.getMinutes() / 60, txt: (_v, s) => `${pad(s.now.getHours())}:${pad(s.now.getMinutes())}` },
 } as Record<Key, Cfg>
-for (const c of Object.values(CFG)) {
+function buildTicks(c: Cfg) {
 	const steps = Math.round(((c.max - c.min) / c.major) * c.minor)
 	const ticks: Tick[] = [], labels: Label[] = []; c.ticks = ticks; c.labels = labels
 	for (let i = 0; i <= steps; i++) {
@@ -44,6 +45,15 @@ for (const c of Object.values(CFG)) {
 		ticks.push({ x1, y1, x2, y2, w: maj ? 1.1 : 0.5, base: maj ? 0.9 : 0.35, f: i / steps })
 		if (maj) { const [x, y] = pt(62, a); labels.push({ x, y, txt: c.lab ? c.lab(v) : String(+v.toFixed(1)), f: i / steps }) }
 	}
+}
+for (const c of Object.values(CFG)) buildTicks(c)
+/** 3.9.68: scales of the unbounded metrics follow the data (5 major steps); returns a key that changes with the scale */
+function applyScale(scale: StarlightData['scale']): string {
+	for (const [k, max] of Object.entries(scale) as [StarlightKey, number][]) {
+		const c = CFG[k]
+		if (max && c.max !== max) { c.max = max; c.major = max / 5; buildTicks(c) }
+	}
+	return JSON.stringify(scale)
 }
 
 type TileDef = { id: string; code: string; title: string; wide: boolean; logo?: boolean; gauges: [Key, string][] }
@@ -91,12 +101,13 @@ const Labels = memo(function Labels({ k, p }: { k: Key; p: number }) {
 	))}</>
 })
 function gaugeView(key: Key, lt: number, s: StarlightData, big: boolean) {
-	const c = CFG[key], val = c.get(s), frac = clamp((val - c.min) / (c.max - c.min), 0, 1)
+	const none = key !== 'clock' && s.has[key as StarlightKey] !== true
+	const c = CFG[key], val = none ? c.min : c.get(s), frac = clamp((val - c.min) / (c.max - c.min), 0, 1)
 	const up = ease((lt - 2.2) / 1.1), down = ease((lt - 3.4) / 1.2)
 	const f = lt < 3.4 ? up : 1 + (frac - 1) * down
-	const warn = c.warn ? c.warn(s) : false
+	const warn = !none && c.warn ? c.warn(s) : false
 	return {
-		c, value: c.txt(val, s), frac, f, warn,
+		c, value: none ? '—' : c.txt(val, s), frac, f, warn, none,
 		font: key === 'clock' ? '15cqw' : big ? '20cqw' : '18cqw',
 		color: warn ? WARN : ACC, text: warn ? WARN : '#f4f6ff',
 		needleOp: clamp((lt - 2) / 0.3, 0, 1), textOp: clamp((lt - 3.9) / 0.7, 0, 1),
@@ -107,7 +118,7 @@ function Dial({ k, size, lt, s, big }: { k: Key; size: string; lt: number; s: St
 	const warnFa = g.warn ? ' — هشدار' : ''
 	const p = tickPhase(lt), dash = `${(424.1 * g.f).toFixed(1)} 565.5`
 	return (
-		<div role="img" aria-label={`${g.c.fa}: ${g.value} ${g.c.unit}${warnFa}`} className="relative aspect-square max-h-full" style={{ width: size, containerType: 'inline-size' }}>
+		<div role="img" aria-label={g.none ? `${g.c.fa}: داده‌ای نیست` : `${g.c.fa}: ${g.value} ${g.c.unit}${warnFa}`} className="relative aspect-square max-h-full" style={{ width: size, containerType: 'inline-size' }}>
 			<svg viewBox="0 0 200 200" className="absolute inset-0 size-full overflow-visible" aria-hidden>
 				<circle cx="100" cy="100" r="90" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="0.6" strokeLinecap="round" transform="rotate(135 100 100)" style={{ strokeDasharray: '424.1 565.5' }} />
 				{/* درخشش با خطِ پهنِ کم‌رنگ زیرِ خطِ اصلی (به‌جای filter که در هر به‌روزرسانی گران است) */}
@@ -125,8 +136,8 @@ function Dial({ k, size, lt, s, big }: { k: Key; size: string; lt: number; s: St
 			<Labels k={k} p={p} />
 			<div aria-hidden className="absolute inset-0 flex flex-col items-center justify-center" style={{ gap: '1cqw', opacity: g.textOp }}>
 				<div className="tabular-nums" style={{ fontSize: g.font, fontWeight: 200, lineHeight: 1, color: g.text, textShadow: '0 0 14px rgba(220,230,255,0.55)' }}>{g.value}</div>
-				<div style={{ fontSize: '3.4cqw', letterSpacing: '0.2em', color: '#8d93a1' }}>{g.c.unit}</div>
-				<div style={{ fontSize: '3.2cqw', letterSpacing: '0.2em', color: '#b4b9c4', marginTop: '1cqw' }}>{Math.round(g.frac * 100)}%</div>
+				<div style={{ fontSize: '3.4cqw', letterSpacing: g.none ? 0 : '0.2em', color: '#8d93a1' }}>{g.none ? 'داده‌ای نیست' : g.c.unit}</div>
+				{!g.none && <div style={{ fontSize: '3.2cqw', letterSpacing: '0.2em', color: '#b4b9c4', marginTop: '1cqw' }}>{Math.round(g.frac * 100)}%</div>}
 			</div>
 			<div aria-hidden className="absolute inset-x-0 text-center" style={{ bottom: '12%', fontSize: '3.6cqw', letterSpacing: '0.3em', color: '#b4b9c4', opacity: g.textOp }}>{g.c.label}</div>
 		</div>
@@ -137,7 +148,7 @@ function Dial({ k, size, lt, s, big }: { k: Key; size: string; lt: number; s: St
 const OPEN_KEY = 'aromin.starlight.open'
 const REDUCED = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
 
-export default function StarlightCluster() {
+export default function StarlightCluster({ session }: { session?: Session | null }) {
 	const [open, setOpen] = useState(() => { try { return localStorage.getItem(OPEN_KEY) !== '0' } catch { return true } })
 	const toggle = () => setOpen((o) => { try { localStorage.setItem(OPEN_KEY, o ? '0' : '1') } catch { /* خصوصی */ } return !o })
 	return (
@@ -145,20 +156,24 @@ export default function StarlightCluster() {
 			<header className="flex flex-wrap items-center justify-between gap-2 px-1 pb-3">
 				<div className="min-w-0">
 					<h2 id="sl-title" className={CARD_TITLE}>آمپرهای دیجیتال <span className="font-medium text-muted-foreground" dir="ltr">· Starlight</span></h2>
-					<p className="text-[11.5px] text-muted-foreground">B22–B32 · دادهٔ شبیه‌سازی‌شده؛ هنوز به دادهٔ سیستم وصل نیست.</p>
+					<p className="text-[11.5px] text-muted-foreground">B22–B32 · فروش، تماس، تیکت و حضورِ هاریکان؛ آمپرِ بی‌داده «—» نشان می‌دهد.</p>
 				</div>
 				<div className="flex items-center gap-2">
-					<span title="دادهٔ نمونه — در انتظارِ اتصال به منبعِ واقعی" className="rounded-full bg-accent/15 px-2 py-0.5 text-[10.5px] font-bold text-accent-ink ring-1 ring-accent/35">نمونه</span>
 					<button type="button" onClick={toggle} aria-expanded={open} aria-controls="sl-body" className={`${BTN_GHOST} min-h-8 px-3 text-[12px]`}>{open ? 'جمع کردن' : 'نمایش'}</button>
 				</div>
 			</header>
-			{open && <ClusterBody />}
+			{open && <LiveBody session={session ?? null} />}
 		</section>
 	)
 }
 
-function ClusterBody() {
-	const data = useStarlightData()
+function LiveBody({ session }: { session: Session | null }) {
+	const data = useStarlightData(session)
+	const key = applyScale(data.scale)          // a new scale remounts the dials so ticks/labels are rebuilt
+	return <ClusterBody key={key} data={data} />
+}
+
+function ClusterBody({ data }: { data: StarlightData }) {
 	const reduced = useRef(REDUCED()).current
 	const t0 = useRef(performance.now())
 	const now = useCallback(() => (performance.now() - t0.current) / 1000, [])
@@ -231,7 +246,7 @@ function ClusterBody() {
 	return (
 		<div id="sl-body">
 			<div className="mb-2 flex items-center justify-end gap-4 px-1 text-[11px] text-muted-foreground" dir="ltr">
-				<span className="flex items-center gap-2" dir="rtl"><span className="size-1.5 rounded-full" style={{ background: data.live ? '#8fe3b0' : '#7d8391' }} />{data.live ? 'دادهٔ زنده' : 'دادهٔ شبیه‌سازی‌شده'}</span>
+				<span className="flex items-center gap-2" dir="rtl"><span className="size-1.5 rounded-full" style={{ background: data.live ? '#8fe3b0' : '#7d8391' }} />{data.live ? 'دادهٔ زنده' : 'در انتظارِ داده'}</span>
 				{!reduced && <button type="button" onClick={replayAll} className="rounded-lg px-2 py-1 font-bold transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25">پخشِ دوبارهٔ همه</button>}
 			</div>
 			<Sortable id="analytics.starlight" className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3" itemClass={(c) => ((c.props as { 'data-wide'?: boolean })['data-wide'] ? 'col-span-full' : '')}>

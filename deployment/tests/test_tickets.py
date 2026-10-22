@@ -217,7 +217,7 @@ class DomainLock(unittest.TestCase):
     def test_every_import_writer_locks_its_domain_before_any_statement(self):   # R01-01
         import inspect
         import server
-        writers = {'attendance': (server.attendance_upload, server.attendance_delete),
+        writers = {'attendance': (server._att_ingest, server.attendance_delete),   # 3.9.68: the upload and Harikan both write through _att_ingest
                    'calls': (server.calls_log_upload, server.calls_summary_upload, server.calls_delete),
                    'tickets': (server.tickets_upload, server.tickets_delete)}
         for lock, fns in writers.items():

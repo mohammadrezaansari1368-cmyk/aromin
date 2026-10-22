@@ -19,3 +19,4 @@ __pycache__/
 !**/.env.example
 
 deployment/.reopen_codes.json
+deployment/.attendance_archive_v1

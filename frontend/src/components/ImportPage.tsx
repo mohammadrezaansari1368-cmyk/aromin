@@ -13,11 +13,11 @@ import { useAromin, dataTag, ensureTenant, currentTenant, type ImportLogItem } f
 import { KINDS, kindOf, detectImportType, type ImportKind } from '@/lib/importTypes'
 import { authHeaders, isAdmin, type Session } from '@/lib/auth'
 import KnowledgeTile from '@/components/KnowledgeTile'
-import { canSeeAll, ingestAttendanceFile } from '@/lib/performance'
+import { canSeeAll } from '@/lib/performance'
 import Sortable from '@/components/ui/sortable'
 import { CARD } from '@/components/ui/tokens'
 import DealImport, { importSummary } from '@/components/ledger/DealImport'
-const AttendanceStatus = lazy(() => import('@/components/performance/PerformancePage').then((m) => ({ default: m.AttendanceStatus })))
+const HarikanStatus = lazy(() => import('@/components/performance/HarikanStatus'))
 const IdentityReview = lazy(() => import('@/components/identity/IdentityReview'))
 import CallSummaryOptions from '@/components/import/CallSummaryOptions'
 import { callOptsError, ingestCallFile, resetCallsCache, type CallDetailItem, type CallOpts } from '@/lib/callsApi'
@@ -170,21 +170,9 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		if (ok) reload()
 	}
 
-	/** فایلِ حضور و غیاب مستقیم به سرورِ «عملکرد» می‌رود (موتورِ قبلی آن را نمی‌شناسد)؛ فقط مدیران و مالی */
-	const importAttendance = async (items: QItem[]): Promise<Result[]> => {
-		const out: Result[] = []
-		for (const q of items) {
-			try {
-				if (!session || !canSeeAll(session)) throw new Error('فقط مدیران و مالی فایلِ حضور را وارد می‌کنند')
-				const r = await ingestAttendanceFile(session, q.buf, q.name, 'import-center')   // آداپتورِ واحدِ حضور در lib/performance.ts
-				const note = r.duplicate ? 'این فایل قبلاً ثبت شده است (تکراری)' : r.unmapped.length ? `${faNum(r.unmapped.length)} کارت نیازمند تأیید نگاشت` : ''
-				out.push({ name: q.name, type: 'attendance', rows: q.rows, dup: r.duplicate, routed: true, err: '', note })
-			} catch (e) {
-				out.push({ name: q.name, type: 'attendance', rows: q.rows, dup: false, routed: false, err: (e as Error).message })
-			}
-		}
-		return out
-	}
+	/** 3.9.68: حضور و غیاب فقط از اپِ هاریکان می‌آید (MCP)؛ فایلِ حضور دیگر وارد نمی‌شود */
+	const importAttendance = async (items: QItem[]): Promise<Result[]> =>
+		items.map((q) => ({ name: q.name, type: 'attendance' as const, rows: q.rows, dup: false, routed: false, err: 'حضور و غیاب از اپِ هاریکان می‌آید؛ فایلِ حضور دیگر وارد نمی‌شود.' }))
 	/** ریز/عملکردِ تماس برای مدیران و مالی علاوه بر موتورِ قبلی به سرور هم می‌رود (WP-C)؛ داشبوردهای فعلی همچنان از موتورِ قبلی‌اند */
 	const importCalls = async (items: QItem[]): Promise<Result[]> => {
 		const out: Result[] = []
@@ -312,10 +300,10 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 							className={`flex min-h-[150px] w-full flex-1 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-6 text-center transition ${over ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'}`}>
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-9 text-primary-ink"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M17 8l-5-5-5 5" /><path d="M12 3v12" /></svg>
 							<span className="text-[14px] font-bold text-foreground">اکسل‌ها را این‌جا بکش یا کلیک کن</span>
-							<span className="text-[12px] text-muted-foreground">چند فایل با هم · نوعِ هر فایل خودکار تشخیص داده و رنگی می‌شود · خروجیِ دستگاهِ حضور (هر نفر یک شیت) هم همین‌جا</span>
+							<span className="text-[12px] text-muted-foreground">چند فایل با هم · نوعِ هر فایل خودکار تشخیص داده و رنگی می‌شود · حضور و غیاب از اپِ هاریکان می‌آید (فایلِ حضور لازم نیست)</span>
 						</button>
 						<input ref={input} type="file" multiple accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
-						{session && canSeeAll(session) && <Suspense fallback={null}><AttendanceStatus session={session} /></Suspense>}
+						{session && canSeeAll(session) && <Suspense fallback={null}><HarikanStatus session={session} /></Suspense>}
 					</Shell>
 				</Card>
 

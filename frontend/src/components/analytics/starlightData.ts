@@ -1,42 +1,43 @@
 /**
- * منبعِ دادهٔ آمپرهای «استارلایت» (B22–B32).
- * فعلاً فقط شبیه‌ساز (مطابقِ بستهٔ طراحی)؛ اتصال به دادهٔ واقعی = عوض کردنِ بدنهٔ useStarlightData — نه کاشی‌ها.
+ * منبعِ دادهٔ آمپرهای «استارلایت» (B23–B31) — 3.9.68: دادهٔ واقعی (نقشهٔ تأییدشده در docs/TILE-MAP.md).
+ * اسم‌های فیلدها همان بستهٔ طراحی است؛ معنای هرکدام:
+ * speed = فروشِ امروز (میلیون تومان) · rpm = تماسِ پاسخ‌داده در ساعت · power = نرخِ تبدیل ٪ · battery = حضورِ امروز ٪ (هاریکان)
+ * range = کیلومترِ مأموریتِ ماه (هاریکان) · motorTemp = معاملاتِ بازِ بیش از ۴۰ روز · fuel = باقی‌ماندهٔ تارگتِ ماه ٪ · cabin = تیکت‌های باز
+ * has[key] = آن منبع داده دارد؛ وگرنه آمپر «—» نشان می‌دهد. scale[key] = سقفِ صفحه برای کمیت‌های بی‌سقف.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { Session } from '@/lib/auth'
+import { useAromin } from '@/lib/data'
+import { niceScale, useServerLive } from '@/lib/liveKpis'
 
-export type StarlightData = { speed: number; rpm: number; power: number; battery: number; range: number; motorTemp: number; fuel: number; cabin: number; now: Date; live: boolean }
-
-const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
-const INITIAL: StarlightData = { speed: 0, rpm: 800, battery: 82, range: 0, motorTemp: 38, fuel: 64, cabin: 21.5, power: 0, now: new Date(), live: false }
-
-/** شبیه‌سازِ بستهٔ طراحی: هر ۲۵۰ میلی‌ثانیه یک گام */
-function step(s: StarlightData, target: number): StarlightData {
-	const speed = clamp(s.speed + clamp(target - s.speed, -3, 2.2) + (Math.random() - 0.5), 0, 250)
-	const accel = target > s.speed ? 1 : 0.2
-	const gear = speed < 20 ? 1 : speed < 45 ? 2 : speed < 75 ? 3 : speed < 110 ? 4 : speed < 150 ? 5 : 6
-	const rpm = speed < 1 ? 800 : clamp(800 + (speed / [0, 20, 45, 75, 110, 150, 250][gear]) * 4200 + accel * 600, 800, 6800)
-	const battery = clamp(s.battery - 0.004 * accel - speed * 0.00002, 5, 100)
-	return {
-		now: new Date(), live: false, speed, rpm, battery,
-		power: clamp(s.power + (accel * 60 + speed * 0.25 - s.power) * 0.15, 0, 100),
-		range: battery * 4.6 + s.fuel * 6.5,
-		fuel: clamp(s.fuel - speed * 0.00003, 0, 100),
-		motorTemp: s.motorTemp + (45 + speed * 0.18 + accel * 8 - s.motorTemp) * 0.01,
-		cabin: s.cabin + (21 - s.cabin) * 0.01 + (Math.random() - 0.5) * 0.02,
-	}
+export type StarlightKey = 'speed' | 'rpm' | 'power' | 'battery' | 'range' | 'motor' | 'fuel' | 'cabin'
+export type StarlightData = {
+	speed: number; rpm: number; power: number; battery: number; range: number; motorTemp: number; fuel: number; cabin: number
+	now: Date; live: boolean; has: Partial<Record<StarlightKey, boolean>>; scale: Partial<Record<StarlightKey, number>>
 }
 
-export function useStarlightData(): StarlightData {
-	const [d, setD] = useState(INITIAL)
-	const target = useRef(60)
-	useEffect(() => {
-		const id = setInterval(() => {
-			if (document.hidden) return
-			if (Math.random() < 0.02) target.current = [0, 40, 70, 110, 140][Math.floor(Math.random() * 5)]
-			setD((s) => step(s, target.current))
-		}, 250)
-		return () => clearInterval(id)
-	}, [])
-	return d
+export function useStarlightData(session?: Session | null): StarlightData {
+	const { m } = useAromin()
+	const live = useServerLive(session ?? null)
+	const [now, setNow] = useState(() => new Date())
+	useEffect(() => { const id = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(id) }, [])
+	return useMemo(() => {
+		const x = m.real ? m.live : undefined
+		const sales = x?.salesByDayM || []
+		return {
+			speed: x?.salesTodayM ?? 0, rpm: live?.calls?.perHour ?? 0, power: m.real ? m.conversion : 0,
+			battery: live?.attendance?.pct ?? 0, range: live?.attendance?.missionKm ?? 0, motorTemp: x?.stale40 ?? 0,
+			fuel: x?.remainingBudgetPct ?? 0, cabin: live?.tickets?.open ?? 0, now, live: !!(x || live),
+			has: { speed: !!x, rpm: !!live?.calls, power: m.real && m.totalDeals > 0, battery: live?.attendance?.pct != null,
+				range: live?.attendance?.missionKm != null, motor: !!x, fuel: x?.remainingBudgetPct != null, cabin: !!live?.tickets },
+			scale: {
+				speed: niceScale(Math.max(x?.salesTodayM || 0, ...sales) * 1.2, 10).max,
+				rpm: niceScale((live?.calls?.perHour || 0) * 1.5, 5).max,
+				range: niceScale((live?.attendance?.missionKm || 0) * 1.3, 100).max,
+				motor: niceScale((x?.stale40 || 0) * 1.5, 10).max,
+				cabin: niceScale((live?.tickets?.open || 0) * 1.5, 10).max,
+			},
+		}
+	}, [m, live, now])
 }
