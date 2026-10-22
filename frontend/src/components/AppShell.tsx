@@ -8,6 +8,8 @@
 
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { LiveProvider } from '@/components/ui/kit'
+import KidGuide from '@/components/ui/KidGuide'
+import { useTabReveal } from '@/lib/motion'
 import Board from '@/components/dashboard/Board'
 import ImportPage from '@/components/ImportPage'
 import ForecastPage from '@/components/forecast/ForecastPage'
@@ -82,6 +84,8 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 	const [reload, setReload] = useState(false)
 	const [busy, setBusy] = useState(false)
 	const host = useRef<LegacyHostHandle>(null)
+	const mainRef = useRef<HTMLElement>(null)
+	useTabReveal(mainRef, active)
 	const tab = TABS.find((t) => t.id === active) ?? TABS[0]
 	// پنلِ موتورِ قبلی برای تبِ یکی‌شدهٔ «عملکرد» پویاست (فقط در بخشِ «فعالیت، امتیاز و ردیاب»)
 	const [subPanel, setSubPanel] = useState<string | null>(null)
@@ -203,7 +207,8 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 							{TABS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
 						</select>
 					</header>
-					<main className="mx-auto w-full max-w-[1180px] flex-1 p-4 sm:p-6">
+					<main ref={mainRef} className="mx-auto w-full max-w-[1180px] flex-1 p-4 sm:p-6">
+						<KidGuide tab={active} />
 						{tab.view && tab.view(session, go, setPanel)}
 						<LegacyHost ref={host} session={session} panel={panel} reload={reload} />
 					</main>
