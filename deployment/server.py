@@ -3713,8 +3713,61 @@ def _rpc(mid, result=None, error=None):
     return JSONResponse(out)
 
 
-def _mcp_dispatch(tenant, method, params):
-    """→ (result, None) or (None, (code, message))."""
+API_SCOPES = {   # scope → MCP tools it opens
+    "attendance:write": ("save_attendance_export",),
+    "attendance:read": ("get_attendance_export", "list_attendance_exports"),
+    "agent:ask": ("ask_aromin_agent",),
+}
+API_SCOPE_FA = {"attendance:write": "ثبتِ خروجیِ کارکرد (هاریکان)", "attendance:read": "خواندنِ خروجیِ کارکرد", "agent:ask": "پرسش از ایجنتِ آرومین"}
+API_KEY_DDL = """CREATE TABLE IF NOT EXISTS api_keys (
+ id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant VARCHAR(64) NOT NULL, name VARCHAR(80) NOT NULL, prefix VARCHAR(16) NOT NULL,
+ key_hash CHAR(64) NOT NULL, scopes VARCHAR(200) NOT NULL, created_by VARCHAR(120) NULL, created_at DATETIME NOT NULL,
+ last_used_at DATETIME NULL, revoked_at DATETIME NULL, revoked_by VARCHAR(120) NULL,
+ UNIQUE KEY uq_api_key_hash (key_hash), KEY ix_api_keys_tenant (tenant)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"""
+_api_ready = {"ok": False}
+_api_seen = {}       # key hash → last time last_used_at was written (throttle)
+
+
+def api_tables():
+    if _api_ready["ok"]:
+        return True
+    try:
+        q(API_KEY_DDL)
+        _api_ready["ok"] = True
+    except Exception as e:
+        print("[API] table:", type(e).__name__)
+    return _api_ready["ok"]
+
+
+def _api_hash(key):
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def api_key_lookup(key):
+    """Bearer value → {id, tenant, name, scopes} of an active key, else None. Updates last_used_at at most once a minute."""
+    if not key or not key.startswith("ark_") or len(key) > 120 or not api_tables():
+        return None
+    h = _api_hash(key)
+    rows = q("SELECT id, tenant, name, scopes FROM api_keys WHERE key_hash=%s AND revoked_at IS NULL", (h,))
+    if not rows:
+        return None
+    r = rows[0]
+    if time.time() - _api_seen.get(h, 0) > 60:
+        _api_seen[h] = time.time()
+        try:
+            q("UPDATE api_keys SET last_used_at=%s WHERE id=%s", (_sa_now(), r["id"]))
+        except Exception:
+            pass
+    return {"id": r["id"], "tenant": r["tenant"], "name": r["name"], "scopes": [x for x in str(r["scopes"]).split(",") if x in API_SCOPES]}
+
+
+def _mcp_allowed(scopes):
+    return {t for sc in scopes for t in API_SCOPES.get(sc, ())}
+
+
+def _mcp_dispatch(tenant, method, params, allowed=None):
+    """→ (result, None) or (None, (code, message)). allowed = tool names an API key may use (None = the legacy MCP token: all)."""
     if method == "initialize":
         want = params.get("protocolVersion")
         return {"protocolVersion": want if want in MCP_PROTOCOLS else MCP_PROTOCOLS[0], "capabilities": {"tools": {"listChanged": False}},
@@ -3723,10 +3776,12 @@ def _mcp_dispatch(tenant, method, params):
     if method == "ping":
         return {}, None
     if method == "tools/list":
-        return {"tools": [{k: v for k, v in t.items() if k != "handler"} for t in MCP_TOOLS]}, None
+        return {"tools": [{k: v for k, v in t.items() if k != "handler"} for t in MCP_TOOLS if allowed is None or t["name"] in allowed]}, None
     if method == "tools/call":
         name = params.get("name")
         tool = _MCP_BY_NAME.get(name) if isinstance(name, str) else None
+        if tool and allowed is not None and name not in allowed:
+            return None, (-32001, "این کلید به ابزارِ «%s» دسترسی ندارد." % name)
         args = params.get("arguments") if params.get("arguments") is not None else {}
         if not tool or not isinstance(args, dict):
             return None, (-32602, "ابزارِ ناشناخته یا آرگومانِ نامعتبر")
@@ -3746,15 +3801,30 @@ def _mcp_dispatch(tenant, method, params):
 @app.post("/api/mcp")
 async def mcp_endpoint(request: Request):
     cfg = _mcp_config()
-    if len(cfg["token"]) < 32:
-        return JSONResponse({"error": "MCP پیکربندی نشده است (/etc/aromin/mcp.env)."}, status_code=503)
     auth = request.headers.get("authorization") or ""
-    if not (auth[:7].lower() == "bearer " and _hmac.compare_digest(auth[7:].strip().encode("utf-8"), cfg["token"].encode("utf-8"))):
-        return JSONResponse({"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
+    bearer = auth[7:].strip() if auth[:7].lower() == "bearer " else ""
+    tenant, allowed = cfg["tenant"], None
+    if bearer.startswith("ark_"):                              # 3.9.69: a «وب سرویس» API key (scoped)
+        key = await _in_pool(api_key_lookup, bearer)
+        if not key:
+            return JSONResponse({"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
+        tenant, allowed = key["tenant"], _mcp_allowed(key["scopes"])
+    else:                                                      # the legacy MCP token: every tool; fails closed when not configured
+        if len(cfg["token"]) < 32:
+            return JSONResponse({"error": "MCP پیکربندی نشده است (/etc/aromin/mcp.env)."}, status_code=503)
+        if not (bearer and _hmac.compare_digest(bearer.encode("utf-8"), cfg["token"].encode("utf-8"))):
+            return JSONResponse({"error": "unauthorized"}, status_code=401, headers={"WWW-Authenticate": "Bearer"})
     try:
         msg = json.loads(await request.body())
     except ValueError:
         return _rpc(None, error=(-32700, "parse error"))
+    if isinstance(msg, dict) and "jsonrpc" not in msg and msg.get("kind") in ("day", "month") and msg.get("key"):
+        # 3.9.69: the Harikan bridge posts the export itself (no JSON-RPC wrapper) — same as tools/call save_attendance_export
+        result, error = await _in_pool(_mcp_dispatch, tenant, "tools/call", {"name": "save_attendance_export", "arguments": {"export": msg}}, allowed)
+        if error:
+            return JSONResponse({"ok": False, "error": error[1]}, status_code=403 if error[0] == -32001 else 400)
+        body = (result or {}).get("structuredContent") or {"ok": False, "error": ((result or {}).get("content") or [{}])[0].get("text")}
+        return JSONResponse(body, status_code=200 if body.get("ok") else 400)
     if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0" or not isinstance(msg.get("method"), str):
         return _rpc(msg.get("id") if isinstance(msg, dict) else None, error=(-32600, "invalid request (batch is not supported)"))
     if "id" not in msg:   # notification
@@ -3762,8 +3832,73 @@ async def mcp_endpoint(request: Request):
     params = msg.get("params", {})
     if not isinstance(params, dict):
         return _rpc(msg["id"], error=(-32602, "params must be an object"))
-    result, error = await _in_pool(_mcp_dispatch, cfg["tenant"], msg["method"], params)
+    result, error = await _in_pool(_mcp_dispatch, tenant, msg["method"], params, allowed)
     return _rpc(msg["id"], result, error)
+
+
+# ---- «وب سرویس» (Settings): API keys — admins; creating needs the current password; the key is shown once.
+def _api_ident(request, tenant):
+    ident, err = _w_guard(request, tenant, True)
+    return ident, err
+
+
+@app.get("/api/settings/api-keys")
+def api_keys_list(request: Request, tenant: str = Query(default="")):
+    ident, err = _api_ident(request, tenant)
+    if err:
+        return err
+    if not api_tables():
+        return JSONResponse({"ok": False, "error": "دیتابیس در دسترس نیست."}, status_code=503)
+    rows = q("SELECT id, name, prefix, scopes, created_by, created_at, last_used_at, revoked_at FROM api_keys WHERE tenant=%s ORDER BY id DESC LIMIT 100", (tenant,))
+    fmt = lambda v: sa_fa_dt(v) if isinstance(v, datetime.datetime) else (str(v) if v else None)
+    return {"ok": True, "endpoint": "/api/mcp", "scopes": [{"key": k, "label": API_SCOPE_FA[k], "tools": list(API_SCOPES[k])} for k in API_SCOPES],
+            "legacyToken": len(_mcp_config()["token"]) >= 32,
+            "keys": [{"id": r["id"], "name": r["name"], "prefix": r["prefix"], "scopes": [x for x in str(r["scopes"]).split(",") if x],
+                      "createdBy": r["created_by"], "createdAt": fmt(r["created_at"]), "lastUsedAt": fmt(r["last_used_at"]),
+                      "revoked": bool(r["revoked_at"]), "revokedAt": fmt(r["revoked_at"])} for r in rows]}
+
+
+@app.post("/api/settings/api-keys")
+def api_keys_create(request: Request, payload: dict = Body(default={})):
+    p = payload or {}
+    tenant = str(p.get("tenant") or "")
+    ident, err = _api_ident(request, tenant)
+    if err:
+        return err
+    name = _sa_clean(p.get("name"), 80)
+    scopes = [x for x in (p.get("scopes") or []) if x in API_SCOPES]
+    if not name or not scopes:
+        return JSONResponse({"ok": False, "error": "نام و دست‌کم یک دسترسی را انتخاب کنید."}, status_code=400)
+    if not _reauth_ok(ident, tenant, p.get("password")):
+        return JSONResponse({"ok": False, "error": "رمزِ فعلیِ حساب نادرست است."}, status_code=403)
+    if not api_tables():
+        return JSONResponse({"ok": False, "error": "دیتابیس در دسترس نیست."}, status_code=503)
+    if (q("SELECT COUNT(*) AS n FROM api_keys WHERE tenant=%s AND revoked_at IS NULL", (tenant,)) or [{"n": 0}])[0]["n"] >= 20:
+        return JSONResponse({"ok": False, "error": "حداکثر ۲۰ کلیدِ فعال."}, status_code=400)
+    key = "ark_" + secrets.token_urlsafe(30).replace("-", "x").replace("_", "y")
+    q("INSERT INTO api_keys (tenant, name, prefix, key_hash, scopes, created_by, created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+      (tenant, name, key[:12], _api_hash(key), ",".join(scopes), _sa_clean(ident.get("name") or ident.get("user"), 120), _sa_now()))
+    print("[API] key created:", key[:12], "scopes", ",".join(scopes))
+    return JSONResponse({"ok": True, "key": key, "prefix": key[:12], "scopes": scopes}, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/settings/api-keys/revoke")
+def api_keys_revoke(request: Request, payload: dict = Body(default={})):
+    p = payload or {}
+    tenant = str(p.get("tenant") or "")
+    ident, err = _api_ident(request, tenant)
+    if err:
+        return err
+    if not api_tables():
+        return JSONResponse({"ok": False, "error": "دیتابیس در دسترس نیست."}, status_code=503)
+    try:
+        kid = int(p.get("id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "شناسهٔ نامعتبر."}, status_code=400)
+    active = q("SELECT id FROM api_keys WHERE id=%s AND tenant=%s AND revoked_at IS NULL", (kid, tenant))
+    if active:
+        q("UPDATE api_keys SET revoked_at=%s, revoked_by=%s WHERE id=%s AND tenant=%s", (_sa_now(), _sa_clean(ident.get("name") or ident.get("user"), 120), kid, tenant))
+    return {"ok": True, "revoked": bool(active)}
 
 
 @app.api_route("/api/mcp", methods=["GET", "DELETE"])

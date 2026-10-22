@@ -24,7 +24,7 @@ files = [p for p in deploy.rglob('*') if p.is_file() and '__pycache__' not in p.
 for required in ('aromin_performance.py', 'aromin_identity.py', 'aromin_attendance.py', 'aromin_calls.py', 'aromin_tickets.py', 'aromin_stage.py', 'aromin_security.py', 'aromin_sessions.py', 'fix_stage_dates.py', 'validate_ledger.py', 'aromin_publish.py', 'assets/aromin-logo.webp', 'assets/fonts/Vazirmatn-Regular.ttf',
                  'assets/fonts/Vazirmatn-Bold.ttf', 'assets/fonts/OFL.txt', 'assets/kb/dashboard_help.md', 'migrations/005_publishing.sql',
                  'migrations/005_publishing.down.sql.txt', 'migrations/006_identity_attendance.sql', 'migrations/007_calls.sql', 'migrations/008_tickets.sql', 'migrations/009_batch_rows.sql', 'migrations/009_batch_rows.down.sql.txt', 'migrations/010_harikan_exports.sql', 'migrations/010_harikan_exports.down.sql.txt',
-                 'migrations/006_identity_attendance.sql', 'migrations/006_identity_attendance.down.sql.txt', 'migrations/011_aromin_agent.sql', 'migrations/011_aromin_agent.down.sql.txt', 'migrations/012_app_secrets.sql', 'migrations/012_app_secrets.down.sql.txt'):
+                 'migrations/006_identity_attendance.sql', 'migrations/006_identity_attendance.down.sql.txt', 'migrations/011_aromin_agent.sql', 'migrations/011_aromin_agent.down.sql.txt', 'migrations/012_app_secrets.sql', 'migrations/012_app_secrets.down.sql.txt', 'migrations/013_api_keys.sql', 'migrations/013_api_keys.down.sql.txt'):
     assert deploy / required in files, 'Missing publishing package file: ' + required
 manifest = '\n'.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.relative_to(deploy).as_posix() for p in sorted(files)) + '\n'
 output = root / 'releases' / f'aromin-deploy-{version}.zip'
