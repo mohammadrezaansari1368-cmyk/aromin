@@ -4081,7 +4081,7 @@ def ota_update(payload: dict = Body(default={}), x_update_token: str = Header(de
         return JSONResponse({"ok": False, "error": "bad_request"}, status_code=400)
     if len(html) < APP_MIN or len(html) > APP_MAX:
         return JSONResponse({"ok": False, "error": "bad_size"}, status_code=400)
-    if 'APP_VERSION="' not in html or "آرومین" not in html:
+    if not app_version_of(html) or "آرومین" not in html:
         return JSONResponse({"ok": False, "error": "not_app"}, status_code=400)
     target = app_target_file()
     r = backup_and_write_app(target, html)
@@ -4210,6 +4210,16 @@ def _release_auth(tok):
     return None
 
 
+def _tgz_version(path):
+    """APP_VERSION inside the package (aromin-deploy/legacy.html), or None."""
+    try:
+        with tarfile.open(path, "r:gz") as tf:
+            m = tf.extractfile("aromin-deploy/legacy.html")
+            return app_version_of(m.read()) if m else None
+    except Exception:
+        return None
+
+
 def _tgz_ok(path):
     try:
         with tarfile.open(path, "r:gz") as tf:
@@ -4260,13 +4270,22 @@ def release_chunk(payload: dict = Body(default={}), x_update_token: str = Header
                     shutil.copyfileobj(fh, out)
         for x in parts:
             os.unlink(x)
-        good, why = _tgz_ok(whole)
-        if not good:
+        h = hashlib.sha256()
+        with open(whole, "rb") as fh:
+            for blk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(blk)
+        want = str((payload or {}).get("sha256") or "").strip().lower()
+        if want and want != h.hexdigest():                 # 3.9.66: what the browser hashed is exactly what gets installed
             os.unlink(whole)
-            return JSONResponse({"ok": False, "error": "bad_package", "detail": why}, status_code=400)
+            return JSONResponse({"ok": False, "error": "sha_mismatch", "detail": "SHA-256 بسته با فایلِ ارسالی یکی نیست؛ دوباره بفرستید."}, status_code=400)
+        good, why = _tgz_ok(whole)
+        version = _tgz_version(whole) if good else None
+        if not good or not version:
+            os.unlink(whole)
+            return JSONResponse({"ok": False, "error": "bad_package", "detail": why or "نسخه (APP_VERSION) در بسته پیدا نشد"}, status_code=400)
         os.makedirs(inc, exist_ok=True)
         os.rename(whole, os.path.join(inc, "aromin-" + rid + ".tgz"))   # اتمیک؛ واچرِ systemd بیدار می‌شود
-        return {"ok": True, "complete": True, "file": "aromin-" + rid + ".tgz"}
+        return {"ok": True, "complete": True, "file": "aromin-" + rid + ".tgz", "version": version, "sha256": h.hexdigest()}
     except Exception as e:
         return JSONResponse({"ok": False, "error": "write_failed", "detail": public_error(e)}, status_code=500)
 
@@ -4285,7 +4304,7 @@ def release_status():
     except Exception:
         pass
     return {"ok": True, "enabled": bool(secret_get("update_token")), "watcher": os.path.isdir(os.path.join(RELEASE_DIR, "incoming")),
-            "last": st, "pending": pending}
+            "last": st, "pending": pending, "current": app_version_of_target()}
 
 
 
@@ -5559,7 +5578,9 @@ def lead_link_claim(channel, chat_id, code):
     col = LEAD_LINK_COL[channel]
     q("UPDATE sa_chat_links SET " + col + "=%s, " + col.replace("_chat_id", "_linked_at") + "=%s WHERE code=%s", (int(chat_id), _sa_now(), code))
     t, pid = rows[0]["tenant"], rows[0]["person_id"]
-    name = next((p["name"] for p in _lead_people(t) if p["id"] == pid), pid)
+    name = (next((p["name"] for p in _lead_people(t) if p["id"] == pid), None)
+            or next((str(p.get("name") or "") for p in _sa_people(t) if str(p.get("id") or p.get("name")) == pid), None)
+            or ("گیرندهٔ اعلان" if str(pid).startswith("phone:") else pid))
     print("[SA] link", channel, "person", pid, "linked")
     return name
 
@@ -6557,10 +6578,20 @@ def agent_tables():
     return _agent_ready["ok"]
 
 
+_FA_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+
+def agent_phone(x):
+    """A recipient written as a mobile number (09…, +989…, 00989…, Persian digits) → normalised 09…; anything else → ''.
+    Bare digits without a leading 0/+ stay a chat id (Bale/Telegram user ids never start with 0)."""
+    t = re.sub(r"[\s\-]", "", str(x or "").strip().translate(_FA_DIGITS))
+    return sa_norm_phone(t) if re.fullmatch(r"(?:0|\+98|0098)9\d{9}", t) else ""
+
+
 def _agent_ids(v, n=10):
     out = []
     for x in (v if isinstance(v, list) else str(v or "").replace("،", ",").split(",")):
-        x = str(x).strip()
+        x = agent_phone(x) or str(x).strip()
         if re.fullmatch(r"-?\d{3,20}|@[A-Za-z][A-Za-z0-9_]{3,63}", x) and x not in out:
             out.append(x)
     return out[:n]
@@ -6585,9 +6616,9 @@ def _agent_bad_ids(v, where, errs):
         errs.append(where + ": فهرستِ شناسه‌ها باید آرایه یا متنِ جداشده با ویرگول باشد.")
         return
     items = [str(x).strip() for x in items if str(x).strip()]
-    bad = [x for x in items if not _AGENT_ID_RE.fullmatch(x)]
+    bad = [x for x in items if not _AGENT_ID_RE.fullmatch(x) and not agent_phone(x)]
     if bad:
-        errs.append(where + ": شناسهٔ نامعتبر «" + "، ".join(bad[:3])[:80] + "» (عددِ chat_id یا @نام‌کاربری).")
+        errs.append(where + ": شناسهٔ نامعتبر «" + "، ".join(bad[:3])[:80] + "» (عددِ chat_id، ‎@نام‌کاربری یا موبایلِ ۰۹…).")
     if len(items) > 10:
         errs.append(where + ": حداکثر ۱۰ گیرنده.")
 
@@ -6916,6 +6947,30 @@ def agent_lead_hook(tx, tenant, lid, data, info):
     return {"score": score, "intent": intent, "queued": n}
 
 
+def _mask_phone(ph):
+    return ph[:4] + "…" + ph[-3:] if len(ph) >= 7 else ph
+
+
+def agent_resolve_chat(tenant, ch, rcpt):
+    """Recipient → (chat, None) or (None, Persian reason). A chat id/@name is used as is; a mobile is resolved to the chat id its
+    owner linked once with «/start <code>» (team member with that mobile first, else the link keyed "phone:<mobile>")."""
+    ph = agent_phone(rcpt)
+    if not ph:
+        return str(rcpt), None
+    col = LEAD_LINK_COL["bale" if ch == "bale" else "tg"]
+    pids = [str(p.get("id") or p.get("name")) for p in _sa_people(tenant) if sa_norm_phone(p.get("mobile")) == ph] + ["phone:" + ph]
+    try:
+        if lead_alert_tables():
+            for pid in pids:
+                rows = q("SELECT " + col + " AS c FROM sa_chat_links WHERE tenant=%s AND person_id=%s", (tenant, pid))
+                if rows and rows[0].get("c"):
+                    return str(rows[0]["c"]), None
+    except Exception as e:
+        print("[AGENT] resolve error:", type(e).__name__)
+    return None, "شمارهٔ %s هنوز به ربات %s وصل نشده؛ لینکِ اتصال را از کارتِ دستیار برایش بفرستید." % (
+        _mask_phone(ph), "بله" if ch == "bale" else "تلگرام")
+
+
 def agent_deliver(n):
     """ارسالِ ارجاع با همان انتقال‌های موجود (lead_send: تلگرامِ @arominagent_bot / Composio، بلهٔ BALE_LEADS_BOT_TOKEN).
     دستیار یا کانال خاموش → cancelled (ارسال متوقف؛ لید در داشبورد می‌ماند)."""
@@ -6924,6 +6979,10 @@ def agent_deliver(n):
     if not cfg["enabled"] or not cfg["routing"]["bale" if ch == "bale" else "telegram"]:
         return False, "cancelled: دستیار یا این کانال خاموش است", True
     chat = str(n.get("recipient") or "")
+    if agent_phone(chat):
+        chat, why = agent_resolve_chat(n.get("tenant") or "", ch, chat)
+        if not chat:
+            return False, why, True                          # final: no retry until the person links
     if not re.fullmatch(r"-?\d{3,20}|@[A-Za-z][A-Za-z0-9_]{3,63}", chat):
         return False, "گیرنده تنظیم نشده یا نامعتبر است (تنظیمات ← دستیارِ آرومین ← مسیریابی)", True
     try:
@@ -7206,13 +7265,58 @@ def messengers_test(request: Request, payload: dict = Body(default={})):
         return {"ok": False, "error": "گیرنده‌ای برای این کانال ثبت نشده (تنظیمات دستیار ← گیرنده‌ها)."}
     text = "🔥 لید آزمایشی آرومین\nپیامِ آزمایشیِ اتصال؛ پاسخ ندهید."
     out = []
-    for r in rcpts[:10]:
+    for r0 in rcpts[:10]:
+        r, why = agent_resolve_chat(tenant, ch, r0)
+        if not r:
+            out.append({"to": _mask_phone(agent_phone(r0)), "ok": False, "error": why})
+            continue
         try:
             res = lead_send("bale" if ch == "bale" else "tg", int(r) if re.fullmatch(r"-?\d+", str(r)) else r, text)
-            out.append({"to": r, "ok": True, "messageId": (res or {}).get("message_id") if isinstance(res, dict) else None})
+            out.append({"to": _mask_phone(agent_phone(r0)) if agent_phone(r0) else r, "ok": True,
+                        "messageId": (res or {}).get("message_id") if isinstance(res, dict) else None})
         except LeadAlertError as e:
-            out.append({"to": r, "ok": False, "error": lead_redact(str(e))[:200]})
+            out.append({"to": _mask_phone(agent_phone(r0)) if agent_phone(r0) else r, "ok": False, "error": lead_redact(str(e))[:200]})
     return {"ok": all(x["ok"] for x in out), "results": out}
+
+
+_bale_me = {"at": 0.0, "user": ""}
+
+
+def _bale_bot_username():
+    """Username of the bot behind the current Bale token (getMe, cached 10 min); env BALE_LEADS_BOT_USERNAME as fallback."""
+    if secret_get("bale_leads") and time.time() - _bale_me["at"] > 600:
+        try:
+            _bale_me["user"] = str((lead_bale_call("getMe", {}) or {}).get("username") or "")
+        except Exception:
+            _bale_me["user"] = ""
+        _bale_me["at"] = time.time()
+    return _bale_me["user"] or LEADS_BALE_BOT
+
+
+@app.get("/api/agent/recipient-links")
+def agent_recipient_links(request: Request, tenant: str = Query(default="")):
+    """Phone recipients of the agent card: linked or not + the one-time «/start» link for that person (admins only)."""
+    ident, err = _w_guard(request, tenant, True)
+    if err:
+        return err
+    if not lead_alert_tables():
+        return JSONResponse({"ok": False, "error": "جدول‌های اعلان آماده نیست."}, status_code=503)
+    r = agent_cfg(tenant, fresh=True)["routing"]
+    phones = []
+    for x in r["recipients"]["bale"] + r["recipients"]["telegram"] + [y for rule in r["rules"] for y in rule["bale"] + rule["telegram"]]:
+        ph = agent_phone(x)
+        if ph and ph not in phones:
+            phones.append(ph)
+    out, bot = [], _bale_bot_username() if phones else LEADS_BALE_BOT
+    for ph in phones[:40]:
+        person = next((p for p in _sa_people(tenant) if sa_norm_phone(p.get("mobile")) == ph), None)
+        pid = str(person.get("id") or person.get("name")) if person else "phone:" + ph
+        code = lead_link_code(tenant, pid)
+        row = (q("SELECT bale_chat_id, telegram_chat_id FROM sa_chat_links WHERE tenant=%s AND person_id=%s", (tenant, pid)) or [{}])[0]
+        out.append({"phone": ph, "name": str((person or {}).get("name") or ""), "baleLinked": bool(row.get("bale_chat_id")),
+                    "telegramLinked": bool(row.get("telegram_chat_id")), "baleLink": "https://ble.ir/%s?start=%s" % (bot, code),
+                    "telegramLink": "https://t.me/%s?start=%s" % (LEADS_TG_BOT, code), "startCommand": "/start " + code})
+    return {"ok": True, "recipients": out}
 
 
 @app.put("/api/agent/settings")

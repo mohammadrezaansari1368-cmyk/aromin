@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { authHeaders, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
 import { BTN_GHOST, BTN_PRIMARY, BTN_DANGER, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
+import RecipientLinks from './RecipientLinks'
 
 type Ids = { telegram: string[]; bale: string[] }
 type CondKey = 'path' | 'pathExact' | 'urlContains' | 'domain' | 'minSeconds' | 'minScroll' | 'visitor' | 'click' | 'utmSource' | 'utmCampaign' | 'manual' | 'firstInteraction'
@@ -57,6 +58,7 @@ export default function AgentSettingsCard({ session }: { session: Session }) {
 	const [busy, setBusy] = useState(false)
 	const [ft, setFt] = useState<FtItem[] | null>(null)
 	const [ftBusy, setFtBusy] = useState(false)
+	const [saved, setSaved] = useState(0)
 	const call = useCallback(async (method: string, path: string, body?: unknown) => {
 		const r = await fetch(`/api/agent${path}?tenant=${encodeURIComponent(currentTenant())}`, { method, headers: { 'Content-Type': 'application/json', ...authHeaders(session) }, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' })
 		const j = await r.json().catch(() => ({ ok: false, error: 'پاسخِ نامعتبر (' + r.status + ')' }))
@@ -78,7 +80,7 @@ export default function AgentSettingsCard({ session }: { session: Session }) {
 		setBusy(true); setMsg(null)
 		try {
 			const r = await call('PUT', '/settings', { settings: { ...f, agents: undefined } })   // «ایجنت‌ها» has its own card and save
-			setF(r.settings); setMsg({ ok: true, text: 'ذخیره شد.' }); load()
+			setF(r.settings); setMsg({ ok: true, text: 'ذخیره شد.' }); setSaved((n) => n + 1); load()
 		} catch (e) { setMsg({ ok: false, text: (e as Error).message }) } finally { setBusy(false) }
 	}
 	const exportFt = async (approvedOnly: boolean) => {
@@ -204,8 +206,9 @@ export default function AgentSettingsCard({ session }: { session: Session }) {
 					<Tog on={f.routing.telegram} label={'تلگرام' + (info.transports.telegram ? '' : ' (توکن تنظیم نشده)')} onChange={(v) => set('routing', { ...f.routing, telegram: v })} />
 					<Tog on={f.routing.bale} label={'بله' + (info.transports.bale ? '' : ' (توکن تنظیم نشده)')} onChange={(v) => set('routing', { ...f.routing, bale: v })} />
 				</div>
-				<label className="grid gap-1 text-[12px]">گیرنده‌های تلگرام (chat id یا ‎@channel، با کاما)<input dir="ltr" className={inCls} value={f.routing.recipients.telegram.join(', ')} onChange={(e) => set('routing', { ...f.routing, recipients: { ...f.routing.recipients, telegram: ids(e.target.value) } })} /></label>
-				<label className="grid gap-1 text-[12px]">گیرنده‌های بله (chat id، با کاما)<input dir="ltr" className={inCls} value={f.routing.recipients.bale.join(', ')} onChange={(e) => set('routing', { ...f.routing, recipients: { ...f.routing.recipients, bale: ids(e.target.value) } })} /></label>
+				<label className="grid gap-1 text-[12px]">گیرنده‌های تلگرام (chat id، ‎@channel یا موبایلِ ۰۹…، با کاما)<input dir="ltr" className={inCls} value={f.routing.recipients.telegram.join(', ')} onChange={(e) => set('routing', { ...f.routing, recipients: { ...f.routing.recipients, telegram: ids(e.target.value) } })} /></label>
+				<label className="grid gap-1 text-[12px]">گیرنده‌های بله (chat id یا موبایلِ ۰۹…، با کاما)<input dir="ltr" className={inCls} value={f.routing.recipients.bale.join(', ')} onChange={(e) => set('routing', { ...f.routing, recipients: { ...f.routing.recipients, bale: ids(e.target.value) } })} /></label>
+				<RecipientLinks session={session} version={saved} />
 				<div className="grid gap-2 sm:col-span-2">
 					<p className="text-[12px] font-bold">قاعده‌های مسیریابیِ تکمیلی بر اساسِ محصول/صفحه</p>
 					{f.routing.rules.map((r, i) => (
