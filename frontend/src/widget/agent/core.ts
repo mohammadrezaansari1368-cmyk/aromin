@@ -3,7 +3,7 @@
  * تصمیم‌ها قطعی‌اند؛ LLM فقط متنِ گفت‌وگو را می‌سازد.
  */
 export const STATES = ['neutral', 'idle', 'listening', 'thinking', 'speaking', 'happy', 'laugh', 'curious', 'surprised', 'concerned', 'confused',
-	'serious', 'annoyed', 'angry', 'success', 'error', 'sleeping'] as const
+	'serious', 'annoyed', 'angry', 'success', 'error', 'sleeping', 'sad', 'fear', 'disgust', 'smug'] as const
 export type EmotionState = (typeof STATES)[number]
 export type AgentEvent = 'open' | 'close' | 'typing' | 'send' | 'reply' | 'error' | 'lead' | 'handoff' | 'trigger' | 'dismiss' | 'greet'
 	| 'rateLimit' | 'offline' | 'wake' | 'idle' | 'sleep' | 'warn' | 'abuse'
@@ -15,7 +15,8 @@ export const EVENT_STATE: Record<AgentEvent, EmotionState> = {
 	sleep: 'sleeping', warn: 'serious', abuse: 'angry',
 }
 /** حالت‌های گذرا پس از این مدت (ms) به neutral برمی‌گردند */
-const TRANSIENT: Partial<Record<EmotionState, number>> = { speaking: 2600, happy: 2200, laugh: 2200, success: 3000, surprised: 1200, curious: 4000, error: 3500, annoyed: 3000, confused: 3000, concerned: 3000 }
+const TRANSIENT: Partial<Record<EmotionState, number>> = { speaking: 2600, happy: 2200, laugh: 2200, success: 3000, surprised: 1200, curious: 4000, error: 3500, annoyed: 3000, confused: 3000, concerned: 3000,
+	angry: 3000, sad: 3500, fear: 2600, disgust: 2600, smug: 3200 }
 
 type Timers = { set: (f: () => void, ms: number) => unknown; clear: (h: unknown) => void }
 const realTimers: Timers = { set: (f, ms) => setTimeout(f, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) }
@@ -50,6 +51,12 @@ export class EmotionController {
 
 /** لحنِ پاسخ ← حالت (کلیدواژه‌ای و قطعی) */
 export function mood(text: string): EmotionState | null {
+	if (/عصبانی|غیرقابل قبول|غیر قابل قبول|اصلاً قبول نیست/.test(text)) return 'angry'
+	if (/چندش|حال به هم|اسپم|زننده/.test(text)) return 'disgust'
+	if (/خطر|هشدار|مراقب باشید|ترسناک/.test(text)) return 'fear'
+	if (/غمگین|ناراحت‌کننده|ناراحت کننده|حیف|افسوس/.test(text)) return 'sad'
+	if (/وای|عجب|باورنکردنی|شگفت/.test(text)) return 'surprised'
+	if (/البته که|بدیهی است|واضح است/.test(text)) return 'smug'
 	if (/متأسف|متاسف|عذر|ببخشید/.test(text)) return 'concerned'
 	if (/😂|🤣|خنده/.test(text)) return 'laugh'
 	if (/عالی|خوشحال|ممنون|🙏|😊|!/.test(text)) return 'happy'

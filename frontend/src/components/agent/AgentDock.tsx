@@ -11,9 +11,18 @@ import {
 	clearChat, hasPersianVoice, markVoiceInput, openAgent, send, setFeature, setStatus, stopSpeaking, useAgent, type Msg,
 } from '@/lib/agent'
 import { isAdmin } from '@/lib/auth'
-import EmotionFace from './EmotionFace'
+import { EmotionController, type AgentEvent, type EmotionState } from '@/widget/agent/core'
 
 const SmartAssistant3D = lazy(() => import('./SmartAssistant3D'))
+const STATUS_EVENT: Record<string, AgentEvent> = { idle: 'idle', listening: 'typing', thinking: 'send', tool: 'send', speaking: 'reply' }
+/** The assistant's current emotion (3.9.79): the same EmotionController as the website widget, fed by the agent status and the reply text. */
+function useEmotion(status: string, text?: string): EmotionState {
+	const [emo, setEmo] = useState<EmotionState>('neutral')
+	const ctrl = useRef<EmotionController | null>(null)
+	useEffect(() => { ctrl.current = new EmotionController(setEmo); return () => ctrl.current?.destroy() }, [])
+	useEffect(() => { ctrl.current?.emit(STATUS_EVENT[status] || 'idle', status === 'speaking' ? text : undefined) }, [status, text])
+	return emo
+}
 
 const P = (d: string) => d.split('|').map((x, i) => <path key={i} d={x} />)
 const Ico = ({ d, className = 'size-[18px]' }: { d: string; className?: string }) => (
@@ -30,6 +39,8 @@ const I = {
 	check: 'M20 6L9 17l-5-5',
 	alert: 'M12 9v4|M12 17h.01|M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
 	tool: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z',
+	up: 'M12 19V5|M5 12l7-7 7 7',
+	edit: 'M12 20h9|M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
 }
 const FOCUS = 'outline-none focus-visible:ring-4 focus-visible:ring-focus/30'
 
@@ -50,10 +61,18 @@ function Bubble({ m }: { m: Msg }) {
 		)
 	}
 	if (m.role === 'assistant' && !m.text && !m.streaming) return null
-	const me = m.role === 'user'
+	if (m.role === 'user') {
+		return (
+			<div className="flex justify-start" data-role="user">
+				<div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-muted px-4 py-2.5 text-[14px] leading-7 text-foreground">{m.text}</div>
+			</div>
+		)
+	}
+	// assistant: no bubble, full-width prose with the brand mark at the start (Claude-style)
 	return (
-		<div className={`flex ${me ? 'justify-start' : 'justify-end'}`}>
-			<div className={`max-w-[86%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-[13px] leading-7 ${me ? 'rounded-br-md bg-primary text-primary-foreground' : 'rounded-bl-md bg-muted text-foreground'}`}>
+		<div className="flex items-start gap-2.5" data-role="assistant">
+			<img src="/aromin-mark.svg" alt="" aria-hidden className={`mt-1.5 size-[18px] shrink-0 ${m.streaming ? 'animate-pulse' : ''}`} />
+			<div className="min-w-0 flex-1 whitespace-pre-wrap text-[14.5px] leading-8 text-foreground">
 				{m.text}
 				{m.streaming && <span className="mr-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current align-middle opacity-60" aria-hidden />}
 			</div>
@@ -74,6 +93,8 @@ export default function AgentDock({ role }: { role: string }) {
 	const rec = useRef<SR | null>(null)
 	const meter = useRef<{ stop: () => void } | null>(null)
 	const listening = a.status === 'listening'
+	const lastReply = [...a.msgs].reverse().find((m) => m.role === 'assistant' && m.text)?.text
+	const emotion = useEmotion(a.status, lastReply)
 
 	useEffect(() => { list.current?.scrollTo({ top: list.current.scrollHeight }) }, [a.msgs])
 	useEffect(() => {
@@ -165,31 +186,34 @@ export default function AgentDock({ role }: { role: string }) {
 						role="dialog" aria-modal="false" aria-labelledby="agent-h"
 						initial={reduce ? false : { opacity: 0, y: 16, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={reduce ? { opacity: 0 } : { opacity: 0, y: 12, scale: 0.98 }}
 						transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }} style={{ transformOrigin: 'bottom left' }}
-						className="pointer-events-auto relative flex h-[min(640px,calc(100dvh-8rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-[0_30px_80px_-28px_hsl(var(--shadow)/.55)]">
-						<header className="flex items-center gap-2 border-b border-border px-4 py-3">
-							<EmotionFace status={a.status} text={[...a.msgs].reverse().find((m) => m.role === 'assistant' && m.text)?.text} className="size-9 shrink-0" />
+						data-testid="agent-panel"
+						className="pointer-events-auto relative flex h-[min(720px,calc(100dvh-7rem))] w-[min(460px,calc(100vw-2rem))] flex-col overflow-hidden rounded-[22px] border border-border/70 bg-background text-foreground shadow-[0_30px_80px_-28px_hsl(var(--shadow)/.55)] max-sm:fixed max-sm:inset-0 max-sm:h-[100dvh] max-sm:w-screen max-sm:rounded-none max-sm:border-0">
+						<header className="flex items-center gap-2 px-3 py-2.5">
+							<span className="relative size-9 shrink-0" aria-hidden><Suspense fallback={null}><SmartAssistant3D status={a.status} pulse={a.pulse} still={still} anchor={btn} emotion={emotion} /></Suspense></span>
 							<div className="min-w-0 flex-1">
-								<h2 id="agent-h" className="text-[14px] font-extrabold leading-6">دستیارِ آرومین{a.agent && <span className="mr-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary" data-testid="agent-name">{a.agent.name}</span>}</h2>
-								<p className="truncate text-[11.5px] text-muted-foreground">
-									{a.status === 'listening' ? 'در حالِ شنیدن…' : a.status === 'thinking' ? 'در حالِ فکر کردن…' : a.status === 'tool' ? 'در حالِ انجامِ کار…' : a.status === 'speaking' ? 'در حالِ صحبت…' : 'بنویس یا بگو چه کاری انجام بدهم'}
+								<h2 id="agent-h" className="truncate text-[14px] font-semibold leading-6">دستیارِ آرومین{a.agent && <span className="mr-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary-ink" data-testid="agent-name">{a.agent.name}</span>}</h2>
+								<p className="truncate text-[11.5px] text-muted-foreground" data-testid="agent-emotion" data-emotion={emotion}>
+									{a.status === 'listening' ? 'در حالِ شنیدن…' : a.status === 'thinking' ? 'در حالِ فکر کردن…' : a.status === 'tool' ? 'در حالِ انجامِ کار…' : a.status === 'speaking' ? 'در حالِ صحبت…' : 'آماده'}
 								</p>
 							</div>
 							<button type="button" onClick={() => { setFeature('voiceReplies', !a.features.voiceReplies); if (a.features.voiceReplies) stopSpeaking() }}
 								aria-pressed={a.features.voiceReplies} aria-label="پاسخِ صوتی" title={a.features.voiceReplies ? (hasPersianVoice() ? 'پاسخِ صوتی روشن' : 'پاسخِ صوتی روشن (صدای فارسی روی این دستگاه نیست)') : 'پاسخِ صوتی خاموش'}
-								className={`grid size-8 place-items-center rounded-lg transition hover:bg-muted ${a.features.voiceReplies ? 'text-primary-ink' : 'text-muted-foreground'} ${FOCUS}`}>
+								className={`grid size-9 place-items-center rounded-lg transition-colors hover:bg-foreground/[.06] ${a.features.voiceReplies ? 'text-primary-ink' : 'text-muted-foreground'} ${FOCUS}`}>
 								<Ico d={a.features.voiceReplies ? I.vol : I.mute} />
 							</button>
-							<button type="button" onClick={clearChat} aria-label="پاک کردنِ گفت‌وگو" title="پاک کردنِ گفت‌وگو" className={`grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted ${FOCUS}`}><Ico d={I.trash} /></button>
-							<button type="button" onClick={() => { openAgent(false); btn.current?.focus() }} aria-label="بستن" className={`grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-muted ${FOCUS}`}><Ico d={I.x} /></button>
+							<button type="button" onClick={clearChat} aria-label="گفت‌وگوی تازه" title="گفت‌وگوی تازه" className={`grid size-9 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[.06] ${FOCUS}`}><Ico d={I.edit} /></button>
+							<button type="button" onClick={() => { openAgent(false); btn.current?.focus() }} aria-label="بستن" className={`grid size-9 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[.06] ${FOCUS}`}><Ico d={I.x} /></button>
 						</header>
 
-						<div ref={list} aria-live="polite" className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-4">
+						<div ref={list} aria-live="polite" className="flex flex-1 flex-col gap-5 overflow-y-auto px-5 py-4">
 							{a.msgs.length === 0 ? (
-								<div className="m-auto flex max-w-[300px] flex-col items-center gap-3 text-center">
-									<p className="text-[13px] leading-7 text-muted-foreground">می‌توانم بین تب‌ها جابه‌جایت کنم{isAdmin(role) ? '، عددهای فروش را بخوانم، تم را عوض کنم و با تأییدِ تو یک رکورد را ویرایش کنم' : ''}.</p>
-									<div className="flex flex-wrap justify-center gap-1.5">
+								<div className="m-auto flex w-full max-w-[360px] flex-col items-center gap-4 text-center" data-testid="agent-welcome">
+									<span className="relative size-24" aria-hidden><Suspense fallback={null}><SmartAssistant3D status={a.status} pulse={a.pulse} still={still} anchor={btn} emotion={emotion === 'neutral' || emotion === 'idle' ? 'happy' : emotion} /></Suspense></span>
+									<h3 className="text-[21px] font-semibold leading-9 tracking-tight">سلام! امروز چطور کمکت کنم؟</h3>
+									<p className="text-[13px] leading-7 text-muted-foreground">بین تب‌ها جابه‌جایت می‌کنم{isAdmin(role) ? '، عددهای فروش را می‌خوانم، تم را عوض می‌کنم و با تأییدِ تو رکورد را ویرایش می‌کنم' : ''}.</p>
+									<div className="grid w-full gap-2">
 										{suggest.map((s) => (
-											<button key={s} type="button" onClick={() => send(s)} className={`rounded-full border border-border px-3 py-1.5 text-[12px] font-semibold transition hover:bg-muted ${FOCUS}`}>{s}</button>
+											<button key={s} type="button" onClick={() => send(s)} className={`rounded-xl border border-border/80 bg-card px-3.5 py-2.5 text-right text-[13px] transition-colors hover:bg-foreground/[.04] ${FOCUS}`}>{s}</button>
 										))}
 									</div>
 								</div>
@@ -197,57 +221,60 @@ export default function AgentDock({ role }: { role: string }) {
 								a.msgs.map((m) => <Bubble key={m.id} m={m} />)
 							)}
 							{busy && (
-								<div className="flex justify-end" aria-label="در حالِ فکر کردن">
-									<span className="flex gap-1 rounded-2xl rounded-bl-md bg-muted px-3.5 py-3">
-										{[0, 1, 2].map((i) => <span key={i} className="size-1.5 animate-bounce rounded-full bg-muted-foreground" style={{ animationDelay: i * 0.12 + 's' }} />)}
-									</span>
+								<div className="flex items-center gap-2.5 text-[13px] text-muted-foreground" aria-label="در حالِ فکر کردن">
+									<img src="/aromin-mark.svg" alt="" aria-hidden className={`size-[18px] ${still ? '' : 'animate-spin [animation-duration:2.4s]'}`} />
+									{a.status === 'tool' ? 'در حالِ انجامِ کار…' : 'در حالِ فکر کردن…'}
 								</div>
 							)}
 						</div>
 
 						{a.confirm && (
 							<div className="absolute inset-0 z-10 grid place-items-center bg-overlay/40 p-4">
-								<div role="alertdialog" aria-labelledby="agent-cf" className="w-full rounded-xl border border-border bg-card p-4 shadow-xl">
-									<h3 id="agent-cf" className="text-[13.5px] font-extrabold">{a.confirm.title}</h3>
+								<div role="alertdialog" aria-labelledby="agent-cf" className="w-full rounded-2xl border border-border bg-card p-4 shadow-xl">
+									<h3 id="agent-cf" className="text-[13.5px] font-semibold">{a.confirm.title}</h3>
 									<ul className="my-3 space-y-1 text-[12.5px]">{a.confirm.lines.map((l) => <li key={l} className="rounded-lg bg-muted px-2.5 py-1.5 font-semibold">{l}</li>)}</ul>
 									<p className="mb-3 text-[11.5px] text-muted-foreground">قبل از نوشتن، از داده بک‌آپ گرفته می‌شود.</p>
 									<div className="flex gap-2">
-										<button type="button" autoFocus onClick={() => a.confirm?.resolve(true)} className={`h-9 flex-1 rounded-lg bg-primary text-[12.5px] font-bold text-primary-foreground transition hover:bg-hover ${FOCUS}`}>تأیید و ذخیره</button>
-										<button type="button" onClick={() => a.confirm?.resolve(false)} className={`h-9 flex-1 rounded-lg border border-border text-[12.5px] font-bold transition hover:bg-muted ${FOCUS}`}>لغو</button>
+										<button type="button" autoFocus onClick={() => a.confirm?.resolve(true)} className={`h-9 flex-1 rounded-lg bg-primary text-[12.5px] font-semibold text-primary-foreground transition hover:bg-hover ${FOCUS}`}>تأیید و ذخیره</button>
+										<button type="button" onClick={() => a.confirm?.resolve(false)} className={`h-9 flex-1 rounded-lg border border-border text-[12.5px] font-semibold transition hover:bg-muted ${FOCUS}`}>لغو</button>
 									</div>
 								</div>
 							</div>
 						)}
 
-						<form onSubmit={submit} className="border-t border-border p-3">
+						<form onSubmit={submit} className="px-3 pb-3 pt-1">
 							{a.pageActions.length > 0 && (
 								<div className="-mx-1 mb-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5" aria-label="اقدام‌های همین صفحه">
 									{a.pageActions.map((p) => (
 										<button key={p.label} type="button" onClick={p.run} disabled={busy}
-											className={`shrink-0 whitespace-nowrap rounded-full bg-primary/10 px-3 py-1.5 text-[12px] font-bold text-primary-ink transition hover:bg-primary/15 disabled:opacity-50 ${FOCUS}`}>{p.label}</button>
+											className={`shrink-0 whitespace-nowrap rounded-full border border-border/80 bg-card px-3 py-1.5 text-[12px] font-semibold transition-colors hover:bg-foreground/[.04] disabled:opacity-50 ${FOCUS}`}>{p.label}</button>
 									))}
 								</div>
 							)}
 							{voiceErr && <p role="alert" className="mb-2 text-[11.5px] font-semibold text-error">{voiceErr}</p>}
-							<div className="flex items-end gap-2">
-								<button type="button" onClick={toggleVoice} aria-pressed={listening} aria-label={listening ? 'توقفِ شنیدن' : 'گفتن با صدا'}
-									className={`relative grid size-10 shrink-0 place-items-center rounded-xl transition ${listening ? 'bg-error text-card' : 'bg-muted text-foreground hover:bg-muted/70'} ${FOCUS}`}>
-									{listening ? (
-										<span className="flex h-4 items-center gap-[3px]" aria-hidden>
-											{[0, 1, 2, 3, 4].map((i) => <span key={i} ref={(el) => { bars.current[i] = el }} className="h-4 w-[3px] origin-center rounded-full bg-current transition-transform duration-75" style={{ transform: 'scaleY(0.3)' }} />)}
-										</span>
-									) : <Ico d={I.mic} />}
-								</button>
-								<textarea ref={input} value={text} onChange={(e) => setText(e.target.value)} rows={1} placeholder={listening ? 'در حالِ شنیدن…' : 'مثلاً: برو به تنظیمات'}
+							<div className="rounded-[22px] border border-border/80 bg-card px-3 pb-2 pt-2.5 shadow-[0_2px_10px_-4px_hsl(var(--shadow)/.18)] transition-shadow focus-within:shadow-[0_4px_18px_-6px_hsl(var(--shadow)/.3)]" data-testid="agent-composer">
+								<textarea ref={input} value={text} onChange={(e) => setText(e.target.value)} rows={1} placeholder={listening ? 'در حالِ شنیدن…' : 'به دستیار پیام بده…'}
 									onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
 									aria-label="پیام به دستیار"
-									className="max-h-28 min-h-10 flex-1 resize-none rounded-xl border border-border bg-background px-3 py-2 text-[13px] leading-6 outline-none transition placeholder:text-muted-foreground focus:border-primary focus:ring-4 focus:ring-primary/15" />
-								{a.status === 'speaking' ? (
-									<button type="button" onClick={stopSpeaking} aria-label="توقفِ صحبت" className={`grid size-10 shrink-0 place-items-center rounded-xl bg-muted ${FOCUS}`}><Ico d={I.stop} /></button>
-								) : (
-									<button type="submit" disabled={!text.trim() || busy} aria-label="ارسال" className={`grid size-10 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground transition hover:bg-hover disabled:opacity-40 ${FOCUS}`}><Ico d={I.send} className="size-[17px] -scale-x-100" /></button>
-								)}
+									style={{ outline: 'none', boxShadow: 'none', border: 0 }} className="max-h-36 min-h-[28px] w-full resize-none bg-transparent px-1 text-[14.5px] leading-7 outline-none placeholder:text-muted-foreground" />
+								<div className="mt-1 flex items-center gap-1.5">
+									<button type="button" onClick={toggleVoice} aria-pressed={listening} aria-label={listening ? 'توقفِ شنیدن' : 'گفتن با صدا'}
+										className={`relative grid size-8 shrink-0 place-items-center rounded-lg transition-colors ${listening ? 'bg-error text-card' : 'text-muted-foreground hover:bg-foreground/[.06] hover:text-foreground'} ${FOCUS}`}>
+										{listening ? (
+											<span className="flex h-4 items-center gap-[3px]" aria-hidden>
+												{[0, 1, 2, 3, 4].map((i) => <span key={i} ref={(el) => { bars.current[i] = el }} className="h-4 w-[3px] origin-center rounded-full bg-current transition-transform duration-75" style={{ transform: 'scaleY(0.3)' }} />)}
+											</span>
+										) : <Ico d={I.mic} />}
+									</button>
+									<span className="flex-1" />
+									{a.status === 'speaking' ? (
+										<button type="button" onClick={stopSpeaking} aria-label="توقفِ صحبت" className={`grid size-8 shrink-0 place-items-center rounded-lg bg-foreground text-background ${FOCUS}`}><Ico d={I.stop} className="size-4" /></button>
+									) : (
+										<button type="submit" disabled={!text.trim() || busy} aria-label="ارسال" className={`grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground transition hover:bg-hover disabled:opacity-35 ${FOCUS}`}><Ico d={I.up} className="size-[17px]" /></button>
+									)}
+								</div>
 							</div>
+							<p className="mt-1.5 text-center text-[10.5px] text-muted-foreground">دستیار ممکن است اشتباه کند؛ عددهای مهم را بررسی کنید.</p>
 						</form>
 					</motion.section>
 				)}
@@ -258,7 +285,7 @@ export default function AgentDock({ role }: { role: string }) {
 				{/* هالهٔ وضعیت: فکر/ابزار/شنیدن */}
 				<span aria-hidden className={`absolute inset-1 rounded-full bg-primary/25 blur-md transition-opacity duration-300 ${a.status === 'idle' ? 'opacity-0' : 'opacity-100'} ${a.status !== 'idle' && !still ? 'animate-pulse' : ''}`} />
 				<Suspense fallback={<span aria-hidden className="absolute inset-2 rounded-full bg-primary shadow-lg" />}>
-					<span className="absolute inset-0"><SmartAssistant3D status={a.status} pulse={a.pulse} still={still} anchor={btn} /></span>
+					<span className="absolute inset-0"><SmartAssistant3D status={a.status} pulse={a.pulse} still={still} anchor={btn} emotion={emotion} /></span>
 				</Suspense>
 			</button>
 		</div>

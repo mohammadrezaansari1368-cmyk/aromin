@@ -45,7 +45,7 @@ const LeadsCard = lazy(() => import('@/components/sales/LeadsCard'))
 import { TAB_ALIASES, setPerfView, takePerfView } from '@/components/performance/perfNav'
 import { takeDeepLink } from '@/lib/deepLink'
 import { isAdmin, roleLabel, type Session } from '@/lib/auth'
-import { FOCUS, INPUT } from '@/components/ui/tokens'
+import { FOCUS } from '@/components/ui/tokens'
 
 interface Tab {
 	id: string
@@ -88,6 +88,19 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 	const [busy, setBusy] = useState(false)
 	const host = useRef<LegacyHostHandle>(null)
 	const mainRef = useRef<HTMLElement>(null)
+	const [drawer, setDrawer] = useState(false)
+	const menuBtn = useRef<HTMLButtonElement>(null)
+	const drawerClose = useRef<HTMLButtonElement>(null)
+	const closeDrawer = useCallback(() => { setDrawer(false); menuBtn.current?.focus() }, [])
+	useEffect(() => {
+		if (!drawer) return
+		drawerClose.current?.focus()
+		const prev = document.body.style.overflow
+		document.body.style.overflow = 'hidden'
+		const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') closeDrawer() }
+		window.addEventListener('keydown', esc)
+		return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', esc) }
+	}, [drawer, closeDrawer])
 	const [rail, setRail] = useState(() => { try { return localStorage.getItem('aromin.sidebar.collapsed') === '1' } catch { return false } })
 	const toggleRail = useCallback(() => setRail((v) => { try { localStorage.setItem('aromin.sidebar.collapsed', v ? '0' : '1') } catch { /* private mode */ } return !v }), [])
 	useEffect(() => {
@@ -207,20 +220,16 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 				{/* محتوا */}
 				<div className="flex min-w-0 flex-1 flex-col">
 					<header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/60 bg-background/70 px-4 py-3 backdrop-blur-xl backdrop-saturate-150 sm:px-6">
-						<h1 className="hidden min-w-0 truncate text-lg font-extrabold sm:block">{tab.label}</h1>
+						{/* 3.9.79: موبایل — دکمهٔ منو و کشوی کناری به سبکِ اپِ Claude (به‌جای فهرستِ کشویی) */}
+						<button ref={menuBtn} type="button" onClick={() => setDrawer(true)} aria-label="منو" aria-expanded={drawer} aria-controls="mobile-drawer"
+							className={`grid size-10 shrink-0 place-items-center rounded-lg text-foreground transition-colors hover:bg-foreground/[.06] lg:hidden ${FOCUS}`}>
+							<svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" /></svg>
+						</button>
+						<h1 className="min-w-0 truncate text-[15px] font-semibold sm:text-lg sm:font-extrabold">{tab.label}</h1>
 						<div className="mr-auto flex items-center gap-2">
 							{isAdmin(session.role) && <SignupRequests beforeWrite={async () => { await host.current?.flush() }} afterWrite={() => host.current?.reload()} />}
 							<ThemeSwitcher />
 						</div>
-						<img src="/aromin-logo.webp" alt="آرومین" className="h-7 w-auto lg:hidden" />
-						{/* ناوبریِ موبایل */}
-						<select
-							value={active}
-							onChange={(e) => go(e.target.value)}
-							className={`${INPUT} min-h-9 min-w-0 max-w-[44vw] px-2 lg:hidden`}
-							aria-label="تب">
-							{TABS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-						</select>
 					</header>
 					<main ref={mainRef} className="mx-auto w-full max-w-[1180px] flex-1 p-4 sm:p-6">
 						<KidGuide tab={active} />
@@ -228,6 +237,38 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 						<LegacyHost ref={host} session={session} panel={panel} reload={reload} />
 					</main>
 				</div>
+				{drawer && (
+					<div className="fixed inset-0 z-50 lg:hidden" data-testid="mobile-drawer-root">
+						<button type="button" aria-label="بستنِ منو" tabIndex={-1} onClick={closeDrawer} className="absolute inset-0 bg-overlay/45 backdrop-blur-[2px] motion-safe:animate-[fadein_.2s_ease-out]" />
+						<nav id="mobile-drawer" aria-label="بخش‌ها" className="absolute inset-y-0 right-0 flex w-[min(300px,86vw)] flex-col bg-background px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-[max(12px,env(safe-area-inset-top))] shadow-2xl motion-safe:animate-[drawer-in_.24s_cubic-bezier(.16,1,.3,1)]">
+							<div className="mb-3 flex items-center justify-between px-1">
+								<img src="/aromin-logo.webp" alt="آرومین" className="h-7 w-auto" />
+								<button ref={drawerClose} type="button" onClick={closeDrawer} aria-label="بستنِ منو" className={`grid size-10 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[.06] ${FOCUS}`}>
+									<svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg>
+								</button>
+							</div>
+							<div className="-mx-1 flex flex-1 flex-col gap-0.5 overflow-y-auto px-1">
+								{TABS.map((t) => {
+									const on = t.id === active
+									return (
+										<button key={t.id} type="button" disabled={busy} aria-current={on ? 'page' : undefined} onClick={() => { go(t.id); closeDrawer() }}
+											className={`flex min-h-11 items-center gap-3 rounded-lg px-2.5 text-right transition-colors disabled:opacity-60 ${FOCUS} ${on ? 'bg-foreground/[.07] font-semibold text-foreground' : 'text-foreground/85 hover:bg-foreground/[.04]'}`}>
+											<span className={`shrink-0 ${on ? 'text-primary-ink' : 'text-muted-foreground'}`}>{t.icon}</span>
+											<span className="truncate text-[14.5px]">{t.label}</span>
+										</button>
+									)
+								})}
+							</div>
+							<div className="mt-2 flex items-center gap-2.5 border-t border-border/60 px-1 pt-3">
+								<span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-[13px] font-bold text-primary-foreground">{(session.name || 'ک').slice(0, 1)}</span>
+								<div className="min-w-0 flex-1"><div className="truncate text-[13.5px] font-semibold">{session.name}</div><div className="truncate text-[11.5px] text-muted-foreground">{roleLabel(session.role)}</div></div>
+								<button type="button" onClick={logout} aria-label="خروج" className={`grid size-10 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[.06] hover:text-error ${FOCUS}`}>
+									<svg viewBox="0 0 24 24" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" /><path d="M10 8l-4 4 4 4" /><path d="M6 12h10" /></svg>
+								</button>
+							</div>
+						</nav>
+					</div>
+				)}
 				<Suspense fallback={null}><AgentDock role={session.role} /></Suspense>
 			</div>
 		</LiveProvider>

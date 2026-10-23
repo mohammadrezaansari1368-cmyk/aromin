@@ -22,8 +22,8 @@ function fakeTimers() {
 const caps: Caps = { perSession: 1, perDay: 3, cooldownMin: 30, dismissCooldownMin: 240 }
 
 describe('EmotionController', () => {
-	it('has a face look for all 17 states and maps every event', () => {
-		expect(STATES).toHaveLength(17)
+	it('has a face look for all 21 states and maps every event', () => {
+		expect(STATES).toHaveLength(21)   // 3.9.79: + sad, fear, disgust, smug
 		STATES.forEach((s) => expect(LOOKS[s]).toBeTruthy())
 		Object.values(EVENT_STATE).forEach((s) => expect(STATES).toContain(s))
 	})

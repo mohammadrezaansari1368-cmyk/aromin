@@ -298,3 +298,7 @@ select:not([multiple]):not([size]):disabled { opacity: .6; cursor: not-allowed; 
   --chart-tooltip-foreground: hsl(var(--text));
   --chart-tooltip-muted: hsl(var(--muted-foreground));
 }
+
+/* 3.9.79: mobile drawer (RTL: slides in from the right) */
+@keyframes drawer-in { from { transform: translateX(100%); } }
+@keyframes fadein { from { opacity: 0; } }

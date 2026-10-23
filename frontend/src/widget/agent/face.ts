@@ -21,6 +21,10 @@ export const LOOKS: Record<EmotionState, Look> = {
 	success: { m: SMILE, bl: -6, br: 6, eye: 0.9, cls: 'cheek star' },
 	error: { m: FROWN, bl: 10, br: -10, eye: 1, cls: 'err' },
 	sleeping: { m: 'M27 43 Q32 45 37 43', bl: 0, br: 0, eye: 0.1, cls: 'zz' },
+	sad: { m: FROWN, bl: -14, br: 14, eye: 0.75, by: 1 },
+	fear: { m: O, bl: -16, br: 16, eye: 1.25, by: -3 },
+	disgust: { m: 'M23 44 Q30 40 35 44 Q38 46 41 42', bl: 10, br: -4, eye: 0.6 },
+	smug: { m: 'M25 43 Q34 45 41 40', bl: 4, br: -8, eye: 0.45, by: 1 },
 }
 
 export const FACE_SVG = '<svg class="af" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g class="af-b">' +
