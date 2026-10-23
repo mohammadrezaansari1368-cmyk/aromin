@@ -45,7 +45,7 @@ const LeadsCard = lazy(() => import('@/components/sales/LeadsCard'))
 import { TAB_ALIASES, setPerfView, takePerfView } from '@/components/performance/perfNav'
 import { takeDeepLink } from '@/lib/deepLink'
 import { isAdmin, roleLabel, type Session } from '@/lib/auth'
-import { BTN_GHOST, FOCUS, INPUT } from '@/components/ui/tokens'
+import { FOCUS, INPUT } from '@/components/ui/tokens'
 
 interface Tab {
 	id: string
@@ -88,6 +88,13 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 	const [busy, setBusy] = useState(false)
 	const host = useRef<LegacyHostHandle>(null)
 	const mainRef = useRef<HTMLElement>(null)
+	const [rail, setRail] = useState(() => { try { return localStorage.getItem('aromin.sidebar.collapsed') === '1' } catch { return false } })
+	const toggleRail = useCallback(() => setRail((v) => { try { localStorage.setItem('aromin.sidebar.collapsed', v ? '0' : '1') } catch { /* private mode */ } return !v }), [])
+	useEffect(() => {
+		const k = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key === '.') { e.preventDefault(); toggleRail() } }
+		window.addEventListener('keydown', k)
+		return () => window.removeEventListener('keydown', k)
+	}, [toggleRail])
 	useTabReveal(mainRef, active)
 	const tab = TABS.find((t) => t.id === active) ?? TABS[0]
 	// پنلِ موتورِ قبلی برای تبِ یکی‌شدهٔ «عملکرد» پویاست (فقط در بخشِ «فعالیت، امتیاز و ردیاب»)
@@ -153,20 +160,19 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 		<LiveProvider>
 			<div dir="rtl" className="flex min-h-screen w-full bg-background text-foreground">
 				{/* سایدبار */}
-				<aside className="sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col gap-1 border-l border-border/60 bg-surface/70 p-4 backdrop-blur-xl lg:flex">
-					<div className="mb-4 flex items-center gap-2 px-1">
-						<img src="/aromin-logo.webp" alt="آرومین" className="h-8 w-auto" />
+				{/* 3.9.78: سایدبار به سبکِ Claude — باز (۲۶۰px، آیکون + نام) یا بسته (ریلِ ۵۶px، فقط آیکون با راهنمای شناور)؛ دکمهٔ پنل بالا، Ctrl+. ، وضعیت در این مرورگر می‌ماند */}
+				<aside data-testid="sidebar" data-collapsed={rail ? 'true' : 'false'}
+					className={`sticky top-0 hidden h-screen shrink-0 flex-col border-l border-border/60 bg-surface/70 backdrop-blur-xl transition-[width] duration-200 ease-out motion-reduce:transition-none lg:flex ${rail ? 'w-14 px-2 py-3' : 'w-[260px] px-3 py-3'}`}>
+					<div className={`mb-3 flex items-center ${rail ? 'flex-col gap-2' : 'justify-between gap-2 px-1'}`}>
+						{rail ? <img src="/aromin-mark.svg" alt="آرومین" className="size-7" /> : <img src="/aromin-logo.webp" alt="آرومین" className="h-7 w-auto" />}
+						<button type="button" onClick={toggleRail} aria-label={rail ? 'باز کردنِ سایدبار' : 'بستنِ سایدبار'} aria-expanded={!rail} title={(rail ? 'باز کردن' : 'بستن') + ' (Ctrl+.)'}
+							className={`grid size-9 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[.06] hover:text-foreground ${FOCUS}`}>
+							<svg viewBox="0 0 24 24" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+								<rect x="3" y="4" width="18" height="16" rx="3" /><path d="M15 4v16" />{rail ? <path d="M9 10l-2 2 2 2" /> : <path d="M7 10l2 2-2 2" />}
+							</svg>
+						</button>
 					</div>
-					<div className="mb-2 flex items-center gap-3 rounded-lg bg-muted/60 p-3">
-						<span className="grid size-9 place-items-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
-							{(session.name || 'ک').slice(0, 1)}
-						</span>
-						<div className="min-w-0">
-							<div className="truncate text-sm font-bold">{session.name}</div>
-							<div className="truncate text-[11px] text-muted-foreground">{roleLabel(session.role)}</div>
-						</div>
-					</div>
-					<nav className="-mx-1 flex flex-1 flex-col gap-0.5 overflow-y-auto px-1">
+					<nav className="-mx-1 flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden px-1" aria-label="بخش‌ها">
 						{TABS.map((t) => {
 							const on = t.id === active
 							return (
@@ -175,21 +181,27 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 									onClick={() => go(t.id)}
 									disabled={busy}
 									aria-current={on ? 'page' : undefined}
-									className={`flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-right transition disabled:cursor-wait disabled:opacity-60 ${FOCUS} ${
-										on ? 'bg-gradient-to-l from-primary to-active text-primary-foreground shadow-card' : 'text-foreground hover:bg-muted'
+									aria-label={rail ? t.label : undefined}
+									title={rail ? t.label : undefined}
+									className={`group flex min-h-10 items-center rounded-lg text-right transition-colors disabled:cursor-wait disabled:opacity-60 ${FOCUS} ${rail ? 'justify-center px-0' : 'gap-3 px-2.5'} ${
+										on ? 'bg-foreground/[.07] font-semibold text-foreground' : 'text-foreground/80 hover:bg-foreground/[.04] hover:text-foreground'
 									}`}>
-									<span className={on ? 'text-primary-foreground' : 'text-muted-foreground'}>{t.icon}</span>
-									<span className="flex min-w-0 flex-col leading-tight">
-										<span className="truncate text-[13px] font-bold">{t.label}</span>
-										<span className={`truncate text-[10px] ${on ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>{t.sub}</span>
-									</span>
+									<span className={`shrink-0 ${on ? 'text-primary-ink' : 'text-muted-foreground group-hover:text-foreground'}`}>{t.icon}</span>
+									{!rail && <span className="truncate text-[13.5px]">{t.label}</span>}
 								</button>
 							)
 						})}
 					</nav>
-					<button type="button" onClick={logout} className={`mt-2 w-full ${BTN_GHOST}`}>
-						خروج
-					</button>
+					<div className={`mt-2 flex items-center border-t border-border/60 pt-3 ${rail ? 'flex-col gap-2' : 'gap-2.5 px-1'}`}>
+						<span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-[13px] font-bold text-primary-foreground" title={rail ? session.name + ' · ' + roleLabel(session.role) : undefined}>
+							{(session.name || 'ک').slice(0, 1)}
+						</span>
+						{!rail && <div className="min-w-0 flex-1"><div className="truncate text-[13px] font-semibold">{session.name}</div><div className="truncate text-[11px] text-muted-foreground">{roleLabel(session.role)}</div></div>}
+						<button type="button" onClick={logout} aria-label="خروج" title="خروج"
+							className={`grid size-9 shrink-0 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[.06] hover:text-error ${FOCUS}`}>
+							<svg viewBox="0 0 24 24" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" /><path d="M10 8l-4 4 4 4" /><path d="M6 12h10" /></svg>
+						</button>
+					</div>
 				</aside>
 
 				{/* محتوا */}
