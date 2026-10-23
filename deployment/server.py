@@ -10016,7 +10016,7 @@ def _council_json(text):
 
 
 COUNCIL_SEAT_MODEL = os.environ.get("COUNCIL_SEAT_MODEL", "GPT-5.6-Sol")          # ChatGPT flagship via the AI gateway (direct OpenAI/Anthropic is blocked from Iran)
-COUNCIL_CHAIR_MODEL = os.environ.get("COUNCIL_CHAIR_MODEL", "Claude-Fable-5-1")    # Claude chairs; either falls back to AI_MODEL on error
+COUNCIL_CHAIR_MODEL = os.environ.get("COUNCIL_CHAIR_MODEL", "Claude-Fable-5")       # Claude chairs; either falls back to AI_MODEL on error
 
 
 def _council_ai(system, user, max_tokens, temperature, tenant, model):
