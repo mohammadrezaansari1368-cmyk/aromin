@@ -7540,6 +7540,42 @@ def agent_ft_export(tenant, approved_only=False):
     return "\n".join(lines) + ("\n" if lines else "")
 
 
+@app.post("/api/widget/public/{site_id}/lead")
+async def widget_public_lead(request: Request, site_id: str = PathParam(...)):
+    """3.9.80: the website popup asks first for the business name and mobile and hands them straight to a sales rep (sa_create_lead,
+    round-robin + Bale/Telegram alert). Same origin/site checks as /chat; 5 submissions per IP per hour."""
+    site, origin, err = _w_site_for(request, site_id)
+    if err:
+        return err
+    if not _w_public_cfg(site)["enabled"]:
+        return _w_json({"ok": False, "error": "ابزارک غیرفعال است."}, origin, 403)
+    raw = await _w_body(request, 4000)
+    try:
+        p = json.loads(raw.decode("utf-8")) if raw else {}
+    except Exception:
+        return _w_json({"ok": False, "error": "درخواست نامعتبر است."}, origin, 400)
+    phone, business = sa_norm_phone(p.get("phone")), _sa_clean(p.get("business"), 120)
+    if not business:
+        return _w_json({"ok": False, "error": "اسمِ مجموعه را بنویسید."}, origin, 400)
+    if not phone:
+        return _w_json({"ok": False, "error": "شمارهٔ موبایل را درست وارد کنید (۰۹…)."}, origin, 400)
+    sid, ip = site["siteId"], _w_ip(request)
+    if not _w_allow(("lead", sid, ip), 5, 3600):
+        return _w_json({"ok": False, "error": "چند دقیقهٔ دیگر دوباره امتحان کنید."}, origin, 429)
+    page = str((p.get("page") or {}).get("url") or "") if isinstance(p.get("page"), dict) else ""
+    r = sa_create_lead(site["tenant"], {"name": business, "phone": phone, "businessType": _sa_clean(p.get("type"), 120), "source": "website",
+                                        "summary": "پاپ‌آپِ سایت — مجموعه: " + business, "sourceUrl": page[:500] if re.match(r"^https?://", page) else None,
+                                        "conversationId": str(p.get("conversationId") or "")[:40] if _W_ID_RE.match(str(p.get("conversationId") or "")) else None,
+                                        "siteId": sid}, by="widget")
+    try:
+        agent_event(site["tenant"], sid, "lead_form", {"ok": bool(r.get("ok")), "duplicate": bool(r.get("duplicate"))})
+    except Exception:
+        pass
+    if not r.get("ok"):
+        return _w_json({"ok": False, "error": r.get("error") or "ثبت نشد؛ دوباره امتحان کنید."}, origin, 400)
+    return _w_json({"ok": True, "duplicate": bool(r.get("duplicate"))}, origin)
+
+
 @app.post("/api/widget/public/{site_id}/event")
 async def widget_public_event(request: Request, site_id: str = PathParam(...)):
     site, origin, err = _w_site_for(request, site_id)
@@ -9941,15 +9977,13 @@ _COUNCIL_ROWS = (
     ("garyvee", "Gary Vaynerchuk", "Gary V", "GV", "gary-vaynerchuk", "Marketing and attention", "Where does the attention come from, and is it underpriced?", "#9b5de5"),
     ("martell", "Dan Martell", "Martell", "DM", "dan-martell", "People, hiring, and founder time", "Who does this, and what does it cost the founder's calendar?", "#3d8bfd"),
     ("buffett", "Warren Buffett", "Buffett", "WB", "warren-buffett", "Money and capital", "What does it do to cash, risk, and long-term value?", "#4c6a92"),
-    ("naval", "Naval Ravikant", "Naval", "NR", "naval-ravikant", "Leverage and wealth", "Does this build leverage and equity you own, or does it just rent out your time?", "#22b8a0"),
-    ("sanchez", "Codie Sanchez", "Codie", "CS", "codie-sanchez", "Buying and owning small businesses", "Should you build this, or buy something that already works?", "#e05d9b"),
-    ("blakely", "Sara Blakely", "Sara", "SB", "sara-blakely", "Consumer product and brand from zero", "Will customers love it enough to sell it for you, without outside money?", "#c9a227"),
-    ("leila", "Leila Hormozi", "Leila", "LH", "leila-hormozi", "Leadership and scaling teams", "Can your team and your leadership carry this, and who has to change?", "#8fbf3a"),
+    ("khosrowshahi", "Dara Khosrowshahi", "Khosrowshahi", "DK", "", "Scaling and turnarounds", "Can this scale profitably, and what has to be fixed first?", "#1fa67a"),
+    ("freud", "Sigmund Freud", "Freud", "SF", "", "Psychology of the customer", "What does the customer really want, and what fear or desire drives the decision?", "#8a6bd1"),
     ("musk", "Elon Musk", "Elon", "EM", "elon-musk", "First principles and execution speed", "What is the real constraint here, and can we cut steps and build it faster?", "#c0392b"),
 )
 COUNCIL_SEATS = {r[0]: dict(zip(("key", "name", "short", "initials", "slug", "pillar", "question", "color"), r)) for r in _COUNCIL_ROWS}
-COUNCIL_DEFAULT = ("alavi", "sadeghin", "raftari", "bezos", "buffett", "graham", "garyvee")
-COUNCIL_PORTRAITS = {"alavi", "sadeghin", "raftari", "bezos", "graham", "garyvee", "martell", "buffett", "naval", "sanchez", "blakely", "leila", "musk"}
+COUNCIL_DEFAULT = ("alavi", "bezos", "buffett", "khosrowshahi", "freud", "graham", "garyvee")
+COUNCIL_PORTRAITS = {"alavi", "sadeghin", "raftari", "bezos", "graham", "garyvee", "martell", "buffett", "musk"}
 COUNCIL_BRAIN_FILES = ("_hot", "frameworks", "principles", "positions", "voice", "stories", "books")
 _council_brain_cache = {}
 
@@ -10015,8 +10049,8 @@ def _council_json(text):
     return v if isinstance(v, dict) else None
 
 
-COUNCIL_SEAT_MODEL = os.environ.get("COUNCIL_SEAT_MODEL", "GPT-5.6-Sol")          # ChatGPT flagship via the AI gateway (direct OpenAI/Anthropic is blocked from Iran)
-COUNCIL_CHAIR_MODEL = os.environ.get("COUNCIL_CHAIR_MODEL", "Claude-Fable-5")       # Claude chairs; either falls back to AI_MODEL on error
+COUNCIL_SEAT_MODEL = os.environ.get("COUNCIL_SEAT_MODEL", "DeepSeek-V4-Pro")          # ChatGPT flagship via the AI gateway (direct OpenAI/Anthropic is blocked from Iran)
+COUNCIL_CHAIR_MODEL = os.environ.get("COUNCIL_CHAIR_MODEL", "Claude-Opus-4.7")       # Claude chairs; either falls back to AI_MODEL on error
 
 
 def _council_ai(system, user, max_tokens, temperature, tenant, model):

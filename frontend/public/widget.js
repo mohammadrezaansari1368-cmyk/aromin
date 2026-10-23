@@ -68,6 +68,8 @@
 			'.head{background:' + col + ';color:#fff;padding:14px 16px;display:flex;align-items:center;gap:8px}.head b{flex:1;font-size:15px;font-weight:700}' +
 			'.head button{background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:10px;min-width:32px;height:32px;padding:0 8px;cursor:pointer;font-size:12px}' +
 			'.log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;background:#f7f5f7}' +
+			'.lf{display:grid;gap:7px;background:#fff;border:1px solid #eadfe7;border-radius:14px;padding:10px}.lf input{font:inherit;font-size:14px;border:1px solid #e3d6df;border-radius:10px;padding:9px 11px;outline:none;background:#fff;color:#1f1a1e;direction:rtl}' +
+			'.lf input:focus{border-color:' + col + '}.lf button{font:inherit;font-size:14px;font-weight:700;border:0;border-radius:10px;padding:10px;background:' + col + ';color:#fff;cursor:pointer}.lf button:disabled{opacity:.55}.lf .er{color:#b00020;font-size:12px}' +
 			'.m{max-width:85%;padding:9px 12px;border-radius:14px;font-size:14px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}' +
 			'.m.a{align-self:flex-start;background:#fff;border:1px solid #eee;border-bottom-right-radius:4px}.m.u{align-self:flex-end;background:' + col + ';color:#fff;border-bottom-left-radius:4px}' +
 			'.m.e{align-self:center;background:#fff4e5;color:#8a4b00;font-size:12.5px}.m.t{color:#888}' +
@@ -93,7 +95,7 @@
 			'<button type="button" class="btn" aria-expanded="false" aria-label=""><span class="halo" aria-hidden="true"></span><span class="ph" aria-hidden="true"></span><span class="bot" aria-hidden="true"></span></button></div>'
 		;(D.body || D.documentElement).appendChild(host)
 		var $ = function (s) { return root.querySelector(s) }
-		var w = $('.w'), btn = $('.btn'), log = $('.log'), ta = $('textarea'), send = $('form button')
+		var w = $('.w'), btn = $('.btn'), log = $('.log'), ta = $('textarea'), send = $('form button'), chatForm = $('form')   // captured before the lead form (3.9.80) is added to the log
 		$('.head b').textContent = c.title
 		$('.panel').setAttribute('aria-label', c.title)
 		btn.setAttribute('aria-label', 'گفت‌وگو با ' + c.title)
@@ -118,9 +120,32 @@
 		function bubble(role, text) {
 			var d = D.createElement('div'); d.className = 'm ' + role; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d
 		}
+		// 3.9.80: first goal = business name + mobile → straight to a sales rep (/lead); the chat stays open for questions
+		var OPENER = 'سلام 👋 خوش آمدید! برای اینکه کارشناسِ آرومین دقیق راهنمایی‌تان کند، اسمِ مجموعه و شمارهٔ تماس‌تان را بنویسید:'
+		function leadForm() {
+			var f = D.createElement('form'); f.className = 'lf'
+			f.innerHTML = '<input name="b" autocomplete="organization" placeholder="اسمِ مجموعه (کافه، رستوران، فروشگاه…)" maxlength="120" required>' +
+				'<input name="p" type="tel" inputmode="tel" autocomplete="tel" dir="ltr" placeholder="شمارهٔ موبایل ۰۹…" maxlength="16" required>' +
+				'<button type="submit">ثبت و تماسِ کارشناس</button><span class="er" role="alert"></span>'
+			f.addEventListener('submit', function (e) {
+				e.preventDefault()
+				var b = f.querySelector('[name=b]').value.trim(), p = f.querySelector('[name=p]').value.trim(), bt = f.querySelector('button'), er = f.querySelector('.er')
+				if (!b || !p) return
+				if (preview) { f.remove(); bubble('a', 'پیش‌نمایش: لید ثبت نمی‌شود.'); return }
+				bt.disabled = true; er.textContent = ''
+				req('POST', '/lead', { business: b, phone: p, conversationId: st.conversationId, page: { url: location.href.slice(0, 500) } })
+					.then(function (d) {
+						if (d && d.ok) { st.lead = true; save(); f.remove(); bubble('a', 'ممنون! ✅ کارشناسانِ آرومین به‌زودی با شما تماس می‌گیرند. سؤالی دارید همین‌جا بپرسید.'); emit('lead'); track('lead_form') }
+						else { er.textContent = (d && d.error) || 'ثبت نشد؛ دوباره امتحان کنید.'; bt.disabled = false }
+					})
+					.catch(function () { er.textContent = 'اتصال برقرار نشد؛ دوباره امتحان کنید.'; bt.disabled = false })
+			})
+			log.appendChild(f)
+		}
 		function render() {
 			log.textContent = ''
-			bubble('a', c.welcome)
+			bubble('a', st.lead ? c.welcome : OPENER)
+			if (!st.lead && !st.messages.length) leadForm()
 			st.messages.forEach(function (m) { bubble(m.role === 'user' ? 'u' : 'a', m.content) })
 		}
 		function toggle(v) {
@@ -129,13 +154,13 @@
 			st.open = o; if (!preview) save()
 			if (o) needBot()
 			emit(o ? 'open' : 'close'); if (o) track('widget_opened')
-			if (o) setTimeout(function () { ta.focus() }, 60)
+			if (o) setTimeout(function () { var i = root.querySelector('.lf input'); (i || ta).focus() }, 60)
 		}
 		btn.onclick = function () { toggle() }
 		$('.x').onclick = function () { toggle(false); btn.focus() }
 		$('.new').onclick = function () { st.messages = []; st.conversationId = rid(); st.agent = ''; if (!preview) save(); render() }
 		root.addEventListener('keydown', function (e) { if (e.key === 'Escape') { toggle(false); btn.focus() } })
-		ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('form').requestSubmit ? $('form').requestSubmit() : submit(e) } })
+		ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatForm.requestSubmit ? chatForm.requestSubmit() : submit(e) } })
 		ta.addEventListener('input', function () { emit('typing'); ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 110) + 'px' })
 		function submit(e) {
 			e.preventDefault()
@@ -156,7 +181,7 @@
 				.catch(function () { wait.remove(); bubble('e', 'اتصال برقرار نشد؛ دوباره امتحان کنید.'); emit('offline') })
 				.then(function () { busy = false; send.disabled = false; status('idle'); ta.focus() })
 		}
-		$('form').addEventListener('submit', submit)
+		chatForm.addEventListener('submit', submit)
 		render()
 		if (st.open || me.getAttribute('data-open') === '1') toggle(true)
 		function loadAgent() { // تنبل، پس از بارِ صفحه (بدونِ اثر بر LCP/INP)؛ خطا → همان ابزارکِ قبلی

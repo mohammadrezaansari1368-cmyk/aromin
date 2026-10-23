@@ -38,42 +38,38 @@ describe('CouncilRoom', () => {
 		expect(shapesFor('خانه')).toEqual(['open'])                            // final ه opens
 		expect(pauseAfter('تمام.')).toBe(340); expect(pauseAfter('اول،')).toBe(340); expect(pauseAfter('نکته:')).toBe(170)
 	})
-	it('reorders by drag, seats a chip dropped on the table, unseats a bust dragged off, moves with Alt+→ and convenes in that order', async () => {
+	it('pins Alavi to the middle, seats a chip dropped on the table, unseats a bust dragged off, and convenes in table order', async () => {
 		vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, right: 1000, bottom: 600, width: 1000, height: 600, x: 0, y: 0, toJSON: () => ({}) } as DOMRect)
 		const ptr = async (target: Element, type: string, x: number, y: number) => { await act(async () => { target.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0 })) }) }
 		const order = () => [...el.querySelectorAll('[data-seat]')].map((f) => f.getAttribute('data-seat'))
 		await act(async () => root.render(<CouncilRoom session={session} />)); await flush()
 		expect(order()).toEqual(['alavi', 'bezos'])
-		const seatEl = el.querySelector('[data-seat=alavi]')!
-		await ptr(seatEl, 'pointerdown', 100, 200); await ptr(seatEl, 'pointermove', 900, 200); await ptr(seatEl, 'pointerup', 900, 200)
-		expect(order()).toEqual(['bezos', 'alavi'])
-		expect(JSON.parse(localStorage.getItem('aromin.council.order')!)).toEqual(['bezos', 'alavi'])
-		expect(el.querySelector('[data-testid=council-announce]')!.textContent).toContain('نشست')
-		await act(async () => { (el.querySelector('[data-seat=bezos]') as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true })) })
-		expect(order()).toEqual(['alavi', 'bezos'])
 		const chip = btn('Raftari')
-		chip.disabled = false                                                   // pretend its library was just filled
+		chip.disabled = false
 		await ptr(chip, 'pointerdown', 500, 500); await ptr(chip, 'pointermove', 10, 300); await ptr(chip, 'pointerup', 10, 300)
 		expect(order()).toEqual(['raftari', 'alavi', 'bezos'])
+		expect(JSON.parse(localStorage.getItem('aromin.council.order')!)).toContain('raftari')
+		expect(el.querySelector('[data-testid=council-announce]')!.textContent).toContain('نشست')
 		const off = el.querySelector('[data-seat=raftari]')!
 		await ptr(off, 'pointerdown', 100, 200); await ptr(off, 'pointermove', 1500, 900); await ptr(off, 'pointerup', 1500, 900)
 		expect(order()).toEqual(['alavi', 'bezos'])
+		expect(el.querySelector('[data-testid=council-chair]')!.textContent).toContain('Coach')
 		const ta = el.querySelector('textarea') as HTMLTextAreaElement
 		Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(ta, 'قیمت اشتراک را ۲۰ درصد بالا ببریم؟')
 		await act(async () => { ta.dispatchEvent(new Event('input', { bubbles: true })) })
-		await act(async () => btn('Convene the council').click()); await flush()
+		await act(async () => btn('تشکیلِ جلسهٔ شورا').click()); await flush()
 		expect(calls.find((c) => c.url.startsWith('/api/council/ask'))!.body.seats).toEqual(['alavi', 'bezos'])
 	})
 	it('seats only ready advisors around the globe, plays the council and shows the verdict sheet', async () => {
 		await act(async () => root.render(<CouncilRoom session={session} />)); await flush()
 		expect(el.querySelector('[data-testid=council-globe]')).not.toBeNull()
-		expect(el.textContent).toContain('What decision do you need help with?')
+		expect(el.textContent).toContain('برای چه تصمیمی کمک می‌خواهید؟')
 		expect(btn('Raftari').disabled).toBe(true)
 		expect(el.querySelectorAll('img[src^="/council/bezos-"]').length).toBeGreaterThan(0)
 		const ta = el.querySelector('textarea') as HTMLTextAreaElement
 		Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(ta, 'قیمت اشتراک را ۲۰ درصد بالا ببریم؟')
 		await act(async () => { ta.dispatchEvent(new Event('input', { bubbles: true })) })
-		await act(async () => btn('Convene the council').click()); await flush()
+		await act(async () => btn('تشکیلِ جلسهٔ شورا').click()); await flush()
 		expect(calls.find((c) => c.url.startsWith('/api/council/ask'))!.body.seats).toEqual(['alavi', 'bezos'])
 		expect(el.querySelector('[data-testid=council-verdict]')!.textContent).toContain('اول آزمایش کن.')
 		await act(async () => btn('Read the verdict').click())

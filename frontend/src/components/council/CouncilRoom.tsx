@@ -40,6 +40,14 @@ export function shapesFor(word: string): Shape[] {
 /** Pause after a word that ends a clause */
 export const pauseAfter = (word: string) => (/[.!؟?،]$/.test(word) ? 340 : /[؛:]$/.test(word) ? 170 : 25)
 const ORDER_KEY = 'aromin.council.order'
+/** Dr. Alavi always sits in the middle of the table (3.9.80) */
+export const pinAlavi = <T,>(xs: T[], key: (x: T) => string): T[] => {
+	const i = xs.findIndex((x) => key(x) === 'alavi')
+	if (i < 0) return xs
+	const rest = xs.filter((_, j) => j !== i)
+	rest.splice(Math.floor(rest.length / 2), 0, xs[i])
+	return rest
+}
 const readOrder = (): string[] => { try { const v = JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] } }
 const saveOrder = (v: string[]) => { try { localStorage.setItem(ORDER_KEY, JSON.stringify(v)) } catch { /* private mode */ } }
 
@@ -58,7 +66,7 @@ function DrawnBust({ seat, shape, cls }: { seat: Seat; shape: Shape; cls: string
 	)
 }
 const FRAMES: Record<string, Shape[]> = {}          // seats with talking frames on disk (the original twelve)
-for (const k of ['bezos', 'graham', 'garyvee', 'martell', 'buffett', 'naval', 'sanchez', 'blakely', 'leila', 'musk', 'alavi', 'sadeghin', 'raftari']) FRAMES[k] = ['base', 'open', 'mid', 'blink']
+for (const k of ['bezos', 'graham', 'garyvee', 'martell', 'buffett', 'musk', 'alavi', 'sadeghin', 'raftari']) FRAMES[k] = ['base', 'open', 'mid', 'blink']
 const src = (s: Seat, shape: Shape = 'base') => `/council/${s.key}-${FRAMES[s.key]?.includes(shape) ? shape : 'base'}.webp`
 
 function Bust({ seat, shape }: { seat: Seat; shape: Shape }) {
@@ -166,7 +174,9 @@ export default function CouncilRoom({ session }: { session: Session }) {
 	}
 
 	const by = (k: string | null) => seats.find((s) => s.key === k)
-	const table = (pick.map(by).filter(Boolean) as Seat[])
+	const table = pinAlavi(pick.map(by).filter(Boolean) as Seat[], (s) => s.key)
+	const [panelOpen, setPanelOpen] = useState(() => { try { return localStorage.getItem('aromin.council.panel') === '1' } catch { return false } })
+	const togglePanel = (open?: boolean) => setPanelOpen((v) => { const n = open ?? !v; try { localStorage.setItem('aromin.council.panel', n ? '1' : '0') } catch { /* private mode */ } return n })
 
 	// The table is a globe seen from the front; seats sit along its far edge (middle seat farthest, ends nearest), as in the original.
 	useLayoutEffect(() => {
@@ -257,7 +267,7 @@ export default function CouncilRoom({ session }: { session: Session }) {
 	}
 
 	const convene = async () => {
-		const seatsNow = mode === 'quick' ? pick.slice(0, 4) : pick
+		const seatsNow = pinAlavi(mode === 'quick' ? pick.slice(0, 4) : pick, (k) => k)
 		setBusy(true); setErr(''); setRes(null); setDone(false); setSaid(null); setHeard([]); setAsked(question.trim()); setSpeed(1)
 		try {
 			const r = await api<Result>(session, '/api/council/ask', { question: question.trim(), seats: seatsNow })
@@ -303,7 +313,7 @@ export default function CouncilRoom({ session }: { session: Session }) {
 				</div>
 			)}
 
-			<main className="layout">
+			<main className={`layout ${panelOpen ? '' : 'collapsed'}`}>
 				<section aria-label="The council table">
 					<div ref={stage} className={`stage ${live ? 'live' : ''} ${box.narrow ? 'narrow' : ''}`} data-testid="council-stage" style={box.narrow ? { paddingTop: box.H } : undefined}>
 						<div className="wall" aria-hidden="true" />
@@ -344,19 +354,19 @@ export default function CouncilRoom({ session }: { session: Session }) {
 						<div className="center" style={box.narrow ? { position: 'relative', padding: '16px 18px 56px' } : { left: box.W * 0.2, width: box.W * 0.6, top: box.ctop, height: box.H - box.ctop - box.H * 0.09 }}>
 							{!res && !busy && (
 								<form className="composer" onSubmit={(e) => { e.preventDefault(); if (question.trim().length >= 10 && pick.length >= 2) convene() }}>
-									<h2>What decision do you need help with?</h2>
+									<h2 dir="rtl">برای چه تصمیمی کمک می‌خواهید؟</h2>
 									<textarea rows={3} dir="auto" minLength={10} required value={question} onChange={(e) => setQuestion(e.target.value)} aria-label="Decision"
-										placeholder="Give them the decision, your options, a few numbers (revenue, cash, team), and which way you're leaning." />
+										placeholder="تصمیم، گزینه‌ها، چند عدد (فروش، نقدینگی، تیم) و نظرِ خودتان را بنویسید…" />
 									<div className="samples" aria-label="Seats">{seats.map((s) => (
 										<button key={s.key} type="button" aria-pressed={pick.includes(s.key)} disabled={!s.ready} title={s.ready ? s.question + ' — drag onto the table' : 'Library is empty'}
 											onPointerDown={(e) => startDrag(e, s.key, 'chip')} onPointerMove={moveDrag} onPointerUp={() => { if (!endDrag()) toggle(s.key) }} onPointerCancel={() => setDrag(null)}
 											onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(s.key) } }}>{s.short}</button>))}</div>
 									<div className="composer-row">
 										<div className="mode" role="radiogroup" aria-label="Council size">
-											<label><input type="radio" name="rr-mode" checked={mode === 'full'} onChange={() => setMode('full')} /><span>Full council <small>{Math.min(7, pick.length)} seats</small></span></label>
-											<label><input type="radio" name="rr-mode" checked={mode === 'quick'} onChange={() => setMode('quick')} /><span>Quick <small>4 seats</small></span></label>
+											<label><input type="radio" name="rr-mode" checked={mode === 'full'} onChange={() => setMode('full')} /><span>شورای کامل <small>{Math.min(7, pick.length).toLocaleString('fa-IR')} صندلی</small></span></label>
+											<label><input type="radio" name="rr-mode" checked={mode === 'quick'} onChange={() => setMode('quick')} /><span>سریع <small>۴ صندلی</small></span></label>
 										</div>
-										<button className="convene" type="submit" disabled={busy || question.trim().length < 10 || pick.length < 2}>Convene the council</button>
+										<button className="convene" type="submit" disabled={busy || question.trim().length < 10 || pick.length < 2}>تشکیلِ جلسهٔ شورا</button>
 									</div>
 								</form>
 							)}
@@ -376,6 +386,10 @@ export default function CouncilRoom({ session }: { session: Session }) {
 								</div>
 							)}
 						</div>
+						<div className="chair-plate" data-testid="council-chair" aria-label={'رئیسِ جلسه: ' + (chair || 'ایجنتِ کوچ')}>
+							<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3l7 7-3 3-7-7z M10.5 6.5l-7 7 3 3 7-7 M3 21h10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+							<span><small>رئیسِ جلسه</small><b>{chair || 'ایجنتِ کوچ'}</b></span>
+						</div>
 						{live && (
 							<div className="playbar">
 								<span className="queue">{heard.length}/{res!.cards.filter((c) => c.ok).length} spoken</span>
@@ -386,12 +400,15 @@ export default function CouncilRoom({ session }: { session: Session }) {
 					</div>
 				</section>
 
-				<aside className="panel" aria-label="Key points">
+				<aside className={`panel ${panelOpen ? '' : 'rail'}`} aria-label="Key points" data-testid="council-panel">
 					<div className="tabs" role="tablist">
-						<button type="button" role="tab" aria-selected={tab === 'feed'} onClick={() => setTab('feed')}>Key points</button>
-						<button type="button" role="tab" aria-selected={tab === 'lib'} onClick={() => setTab('lib')}>Library</button>
+						<button type="button" className="ptoggle" aria-label={panelOpen ? 'بستنِ پنل' : 'باز کردنِ پنل'} aria-expanded={panelOpen} onClick={() => togglePanel()}>
+							<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" strokeWidth="1.7" /><path d="M15 4v16" stroke="currentColor" strokeWidth="1.7" /></svg>
+						</button>
+						<button type="button" role="tab" aria-selected={panelOpen && tab === 'feed'} title="Key points" onClick={() => { setTab('feed'); togglePanel(true) }}><span className="tl">Key points</span><span className="ti" aria-hidden="true">≡</span></button>
+						<button type="button" role="tab" aria-selected={panelOpen && tab === 'lib'} title="Library" onClick={() => { setTab('lib'); togglePanel(true) }}><span className="tl">Library</span><span className="ti" aria-hidden="true">📚</span></button>
 					</div>
-					{tab === 'feed' ? (
+					{!panelOpen ? null : tab === 'feed' ? (
 						<div className="tabpanel">{heard.length === 0 && <div className="empty">One line per seat as the council talks.</div>}
 							{heard.map((k) => { const c = cards[k], s = by(k); return c && s && (
 								<div key={k} className="feed-card"><div className="h"><img className="av" src={s.portrait ? src(s) : '/aromin-mark.svg'} alt="" />{s.name}<span className="r">{STANCE_EN[c.stance || ''] || c.stance} · {c.score}/10</span></div>

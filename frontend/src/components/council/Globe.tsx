@@ -80,6 +80,19 @@ export default function Globe({ className, style }: { className?: string; style?
 				fragmentShader: 'uniform sampler2D map; varying float s; varying float c; void main(){ vec4 t = texture2D(map, gl_PointCoord); vec3 col = mix(vec3(0.62,0.88,1.0), vec3(1.0,0.78,0.25), c); gl_FragColor = vec4(col, t.a * max(s, c*s*1.6)); if (gl_FragColor.a < 0.03) discard; }',
 			})))
 		}).catch(() => undefined)
+		// Iran in the flag's three colours (green / white / red stripes by latitude), denser and brighter than the rest of the world
+		fetch('/council/iran-dots.json').then((r) => r.json()).then((a: number[]) => {
+			if (!alive) return
+			const FLAG = [[0.14, 0.62, 0.25], [1, 1, 1], [0.85, 0.0, 0.0]]
+			const n = a.length / 3, pos = new Float32Array(n * 3), col = new Float32Array(n * 3)
+			for (let i = 0; i < n; i++) { const p = vec(a[i * 3], a[i * 3 + 1], 1.009); pos.set([p.x, p.y, p.z], i * 3); col.set(FLAG[a[i * 3 + 2]], i * 3) }
+			const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.BufferAttribute(col, 3))
+			spin.add(new THREE.Points(geo, new THREE.ShaderMaterial({
+				transparent: true, depthWrite: false, uniforms: { map: { value: dotTex } },
+				vertexShader: 'attribute vec3 color; varying vec3 vc; varying float s; void main(){ vec4 mv = modelViewMatrix*vec4(position,1.0); vec3 nn = normalize(normalMatrix*position); s = smoothstep(-0.1, 0.5, nn.z); vc = color; gl_PointSize = 4.6; gl_Position = projectionMatrix*mv; }',
+				fragmentShader: 'uniform sampler2D map; varying vec3 vc; varying float s; void main(){ vec4 t = texture2D(map, gl_PointCoord); gl_FragColor = vec4(vc, t.a * s); if (gl_FragColor.a < 0.05) discard; }',
+			})))
+		}).catch(() => undefined)
 
 		// light arcs between hubs (purple → gold), drawn and faded on a loop
 		const arcs = ROUTES.map(([a, b], i) => {

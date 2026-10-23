@@ -55,12 +55,27 @@ describe('widget.js loading', () => {
 		expect(SRC).not.toMatch(/BOT_V = '\d/)
 		expect(SRC.match(/__AROMIN_APP_VERSION__/g)?.length).toBe(1)
 	})
+	it('opens with the lead form first and sends business name + mobile to /lead (3.9.80)', async () => {
+		const f = fetch as unknown as ReturnType<typeof vi.fn>
+		f.mockImplementation(async (url: string) => ({ status: 200, json: async () => (String(url).endsWith('/config') ? CFG : { ok: true }) }))
+		const root = await boot()
+		;(root.querySelector('.btn') as HTMLButtonElement).click()
+		const lf = root.querySelector('form.lf') as HTMLFormElement
+		expect(lf).not.toBeNull()
+		;(lf.querySelector('input[name=b]') as HTMLInputElement).value = 'کافه نارنج'
+		;(lf.querySelector('input[name=p]') as HTMLInputElement).value = '09121234567'
+		lf.dispatchEvent(new Event('submit', { cancelable: true }))
+		for (let i = 0; i < 4; i++) await flush()
+		const call = f.mock.calls.find(([u]) => String(u).endsWith('/lead'))!
+		expect(JSON.parse(call[1].body)).toMatchObject({ business: 'کافه نارنج', phone: '09121234567' })
+		expect(root.querySelector('form.lf')).toBeNull()
+	})
 	it('keeps the specialist chosen by the server and sends it back; a new conversation forgets it (3.9.64)', async () => {
 		const f = fetch as unknown as ReturnType<typeof vi.fn>
 		f.mockImplementation(async (url: string) => ({ status: 200, json: async () => (String(url).endsWith('/config') ? CFG : String(url).endsWith('/chat') ? { ok: true, text: 'سلام', agent: { key: 'sales', name: 'فروش' } } : { ok: true }) }))
 		const root = await boot()
 		;(root.querySelector('.btn') as HTMLButtonElement).click()
-		const say = async (t: string) => { (root.querySelector('textarea') as HTMLTextAreaElement).value = t; root.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true })); for (let i = 0; i < 4; i++) await flush() }
+		const say = async (t: string) => { (root.querySelector('textarea') as HTMLTextAreaElement).value = t; root.querySelector('form:not(.lf)')!.dispatchEvent(new Event('submit', { cancelable: true })); for (let i = 0; i < 4; i++) await flush() }
 		await say('قیمت؟')
 		await say('تخفیف؟')
 		const chats = f.mock.calls.filter(([u]) => String(u).endsWith('/chat')).map(([, i]) => JSON.parse(i.body))
@@ -76,7 +91,7 @@ describe('widget.js loading', () => {
 		;(root.querySelector('.btn') as HTMLButtonElement).click()
 		expect(f.mock.calls.some(([u]) => String(u).endsWith('/event'))).toBe(false)
 		const ta = root.querySelector('textarea') as HTMLTextAreaElement; ta.value = 'سلام'
-		root.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }))
+		root.querySelector('form:not(.lf)')!.dispatchEvent(new Event('submit', { cancelable: true }))
 		await flush()
 		const chat = f.mock.calls.find(([u]) => String(u).endsWith('/chat'))
 		expect(chat && JSON.parse(chat[1].body).preview).toBe(true)

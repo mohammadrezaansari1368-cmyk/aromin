@@ -26,7 +26,6 @@ import { flushLedger } from '@/lib/ledgerStore'
 // دستیارِ عامل (دکمهٔ سه‌بعدی + گفت‌وگو/صدا) — جدا بارگذاری می‌شود تا پوسته سبک بماند
 const AgentDock = lazy(() => import('@/components/agent/AgentDock'))
 // حضور و عملکرد (recharts + xlsx) — فقط وقتی تب باز شود بارگذاری می‌شود
-const PerformancePage = lazy(() => import('@/components/performance/PerformancePage'))
 const ReportsPerf = lazy(() => import('@/components/performance/PerformancePage').then((m) => ({ default: m.ReportsPerf })))
 // دفتر فروش (C1…C6) — بومی؛ فقط وقتی تب باز شود بارگذاری می‌شود
 const LedgerPage = lazy(() => import('@/components/ledger/LedgerPage'))
@@ -69,8 +68,6 @@ const TABS: Tab[] = [
 	{ id: 'p-dash', label: 'تحلیل مدیریتی', sub: 'Analytics', icon: I('M3 3v18h18|M8 17V11|M13 17V7|M18 17v-4'), view: (s) => <Suspense fallback={null}><StarlightCluster session={s} /></Suspense>, panel: 'p-dash' },
 	{ id: 'p-inv', label: 'دفتر فروش', sub: 'Sales Ledger', icon: I('M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z|M15 4v5h5|M8 13h8M8 17h5'), view: (s, go) => <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><LedgerPage session={s} go={go} /></Suspense> },
 	{ id: 'p-team', label: 'جبران خدمات و پورسانت', sub: 'Compensation', icon: I('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2|M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M22 21v-2a4 4 0 0 0-3-3.9|M16 3.1a4 4 0 0 1 0 7.8'), panel: 'p-team' },
-	{ id: 'performance', label: 'عملکرد', sub: 'Performance', icon: I('M22 12h-4l-3 8-4-16-3 8H2'), view: (s, go, setPanel) => <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><PerformancePage session={s} initial={takePerfView(['dash', 'people', 'recon', 'activity', 'data'] as const, 'dash')} go={go} setPanel={setPanel} /></Suspense> },
-	{ id: 'p-ticket', label: 'پشتیبانی و تیکتینگ', sub: 'Support', icon: I('M4 9V7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2a2 2 0 0 0 0 6v2a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-6z'), panel: 'p-ticket' },
 	{ id: 'forecast', label: 'پیش‌بینی و بودجه', sub: 'Forecast', icon: I('M3 3v18h18|M7 16l3-3 3 2 5-6'), view: (s, go) => <ForecastPage session={s} goImport={() => go('import')} /> },
 	{ id: 'council', label: 'اتاق شورا', sub: 'Council', icon: I('M12 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z|M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z|M19 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z|M3 20c1-3 3-4 5-4h8c2 0 4 1 5 4'), view: (s) => (isAdmin(s.role) ? <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><CouncilRoom session={s} /></Suspense> : <p className="text-[13px] text-muted-foreground">فقط مدیر.</p>) },
 	{ id: 'instagram', label: 'اینستاگرام', sub: 'Instagram', icon: I('M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4z|M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M17.5 6.5h.01'), view: (s, go) => (isAdmin(s.role) ? <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><InstagramPage session={s} goSettings={() => go('p-set')} /></Suspense> : <p className="text-[13px] text-muted-foreground">فقط مدیر.</p>) },
