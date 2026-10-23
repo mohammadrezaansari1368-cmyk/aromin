@@ -11,8 +11,8 @@ import Globe from './Globe'
 import './council.css'
 
 type Seat = { key: string; name: string; short: string; initials: string; pillar: string; question: string; color: string; brain: boolean; ready: boolean; portrait: boolean; entries: { id: string; filename: string; chars: number }[] }
-type Card = { seat: string; ok: boolean; stance?: string; score?: number; line?: string; why?: string[]; error?: string }
-type Verdict = { ok: boolean; label?: string; call?: string; carried?: string[]; dissent?: string; next?: string[]; error?: string }
+type Card = { seat: string; ok: boolean; stance?: string; score?: number; line?: string; why?: string[]; frameworks?: string[]; math?: string; risk?: string; test?: string; model?: string; error?: string }
+type Verdict = { ok: boolean; label?: string; call?: string; carried?: string[]; dissent?: string; conditions?: string[]; kill?: string; next?: string[]; model?: string; error?: string }
 type Result = { cards: Card[]; verdict: Verdict; skipped: string[] }
 type Shape = 'base' | 'open' | 'mid' | 'blink'
 type Geo = Record<string, { x: number; head: number; size: number; plate: number; top: number }>
@@ -58,7 +58,7 @@ function DrawnBust({ seat, shape, cls }: { seat: Seat; shape: Shape; cls: string
 	)
 }
 const FRAMES: Record<string, Shape[]> = {}          // seats with talking frames on disk (the original twelve)
-for (const k of ['bezos', 'graham', 'garyvee', 'martell', 'buffett', 'naval', 'sanchez', 'blakely', 'leila', 'musk']) FRAMES[k] = ['base', 'open', 'mid', 'blink']
+for (const k of ['bezos', 'graham', 'garyvee', 'martell', 'buffett', 'naval', 'sanchez', 'blakely', 'leila', 'musk', 'alavi', 'sadeghin', 'raftari']) FRAMES[k] = ['base', 'open', 'mid', 'blink']
 const src = (s: Seat, shape: Shape = 'base') => `/council/${s.key}-${FRAMES[s.key]?.includes(shape) ? shape : 'base'}.webp`
 
 function Bust({ seat, shape }: { seat: Seat; shape: Shape }) {
@@ -395,7 +395,13 @@ export default function CouncilRoom({ session }: { session: Session }) {
 						<div className="tabpanel">{heard.length === 0 && <div className="empty">One line per seat as the council talks.</div>}
 							{heard.map((k) => { const c = cards[k], s = by(k); return c && s && (
 								<div key={k} className="feed-card"><div className="h"><img className="av" src={s.portrait ? src(s) : '/aromin-mark.svg'} alt="" />{s.name}<span className="r">{STANCE_EN[c.stance || ''] || c.stance} · {c.score}/10</span></div>
-									<p dir="auto">{c.line}</p>{c.why?.map((w, i) => <p key={i} dir="auto" style={{ color: 'var(--ink-mute)', fontSize: 12 }}>• {w}</p>)}</div>) })}
+									<p dir="auto">{c.line}</p>
+									{!!c.frameworks?.length && <div className="fw">{c.frameworks.map((f, i) => <span key={i} dir="auto">{f}</span>)}</div>}
+									{c.why?.map((w, i) => <p key={i} dir="auto" className="why">• {w}</p>)}
+									{c.math && <p dir="auto" className="kv"><b>Math</b> {c.math}</p>}
+									{c.risk && <p dir="auto" className="kv"><b>Risk</b> {c.risk}</p>}
+									{c.test && <p dir="auto" className="kv"><b>Test</b> {c.test}</p>}
+									{c.model && <p className="model">{c.model}</p>}</div>) })}
 							{res && res.skipped.length > 0 && <div className="empty">Not seated (empty library): {res.skipped.map((k) => by(k)?.short).join(', ')}</div>}
 						</div>
 					) : <Library session={session} seats={seats} reload={load} />}
@@ -411,6 +417,8 @@ export default function CouncilRoom({ session }: { session: Session }) {
 						<p className="v-call" dir="auto">{res.verdict.call}</p>
 						{!!res.verdict.carried?.length && <><h4>What carried the room</h4><ul dir="auto">{res.verdict.carried.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
 						{res.verdict.dissent && <><h4>Strongest objection</h4><p dir="auto" style={{ margin: 0 }}>{res.verdict.dissent}</p></>}
+						{!!res.verdict.conditions?.length && <><h4>Conditions</h4><ul dir="auto">{res.verdict.conditions.map((x, i) => <li key={i}>{x}</li>)}</ul></>}
+						{res.verdict.kill && <><h4>Kill criterion</h4><p dir="auto" style={{ margin: 0 }}>{res.verdict.kill}</p></>}
 						{!!res.verdict.next?.length && <><h4>Next steps</h4><ol dir="auto">{res.verdict.next.map((x, i) => <li key={i}>{x}</li>)}</ol></>}
 					</div>
 				</div>

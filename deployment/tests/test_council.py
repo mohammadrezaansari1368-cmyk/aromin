@@ -46,7 +46,8 @@ class Council(unittest.TestCase):
         r = self.c.post("/api/council/ask?tenant=team", json={"question": "قیمت اشتراک را ۲۰٪ بالا ببریم؟", "seats": ["alavi", "sadeghin", "buffett"]}).json()
         self.assertEqual((r["seats"], r["skipped"]), (["alavi", "buffett"], ["sadeghin"]))
         self.assertEqual([c["score"] for c in r["cards"]], [8, 8])
-        self.assertEqual(len(r["cards"][0]["why"]), 3)
+        self.assertEqual(len(r["cards"][0]["why"]), 4)
+        self.assertEqual({c.kwargs.get("model") for c in self.ai.call_args_list}, {server.COUNCIL_SEAT_MODEL, server.COUNCIL_CHAIR_MODEL})   # ChatGPT seats, Claude chair
         self.assertEqual(r["verdict"]["label"], "مشروط")
         chair_sys = self.ai.call_args_list[-1].args[0]
         self.assertIn(server.AGENT_REGISTRY_DEFAULTS["coach"]["prompt"], chair_sys)        # the coach agent chairs

@@ -9950,7 +9950,7 @@ _COUNCIL_ROWS = (
 COUNCIL_SEATS = {r[0]: dict(zip(("key", "name", "short", "initials", "slug", "pillar", "question", "color"), r)) for r in _COUNCIL_ROWS}
 COUNCIL_DEFAULT = ("alavi", "sadeghin", "raftari", "bezos", "buffett", "graham", "garyvee")
 COUNCIL_PORTRAITS = {"alavi", "sadeghin", "raftari", "bezos", "graham", "garyvee", "martell", "buffett", "naval", "sanchez", "blakely", "leila", "musk"}
-COUNCIL_BRAIN_FILES = ("_hot", "frameworks", "principles", "positions", "voice", "stories")
+COUNCIL_BRAIN_FILES = ("_hot", "frameworks", "principles", "positions", "voice", "stories", "books")
 _council_brain_cache = {}
 
 
@@ -10015,18 +10015,41 @@ def _council_json(text):
     return v if isinstance(v, dict) else None
 
 
+COUNCIL_SEAT_MODEL = os.environ.get("COUNCIL_SEAT_MODEL", "GPT-5.6-Sol")          # ChatGPT flagship via the AI gateway (direct OpenAI/Anthropic is blocked from Iran)
+COUNCIL_CHAIR_MODEL = os.environ.get("COUNCIL_CHAIR_MODEL", "Claude-Fable-5-1")    # Claude chairs; either falls back to AI_MODEL on error
+
+
+def _council_ai(system, user, max_tokens, temperature, tenant, model):
+    r = ai_chat(system, user, max_tokens=max_tokens, temperature=temperature, tenant=tenant, model=model)
+    if not r.get("ok") and model:
+        r = ai_chat(system, user, max_tokens=max_tokens, temperature=temperature, tenant=tenant)
+        r["model"] = AI_MODEL
+    else:
+        r["model"] = model
+    return r
+
+
 def council_seat_turn(tenant, key, question, live, ent):
     s = COUNCIL_SEATS[key]
-    chunks = council_brain(s["slug"]) + kb_chunks(ent.get(key, []))
-    memory = "\n\n".join(kb_retrieve(chunks, question + " " + s["pillar"], k=5, budget=3500)) or "\n\n".join(c["text"] for c in chunks[:4])[:3500]
+    brain = council_brain(s["slug"])
+    hot = "\n\n".join(c["text"] for c in brain if c.get("file", "").endswith("_hot.md"))[:2500]
+    chunks = brain + kb_chunks(ent.get(key, []))
+    memory = "\n\n".join(kb_retrieve(chunks, question + " " + s["pillar"], k=9, budget=7000)) or "\n\n".join(c["text"] for c in chunks[:6])[:7000]
     lens = council_lens(key) if s["slug"] else ""
-    system = ("تو صندلیِ «" + s["pillar"] + "» در «اتاق شورا»ی آرومین هستی و مثلِ " + s["name"] + " فکر و صحبت می‌کنی. تو خودِ او نیستی؛ "
-              "شبیه‌سازی از روی حافظهٔ زیر هستی و اگر پرسیدند همین را بگو. پرسشی که مالکِ آنی: " + s["question"] + "\n"
+    system = ("تو صندلیِ «" + s["pillar"] + "» در «اتاق شورا»ی آرومین هستی و دقیقاً مثلِ " + s["name"] + " فکر، محاسبه و صحبت می‌کنی؛ "
+              "شبیه‌سازی از روی حافظهٔ زیر هستی، نه خودِ او. پرسشی که مالکِ آنی: " + s["question"] + "\n"
+              "سطحِ پاسخ: مشاورِ ارشد در جلسهٔ هیئت‌مدیره، نه گفت‌وگوی عمومی. کلی‌گویی، نصیحتِ رایج و جمله‌های بی‌عدد ممنوع.\n"
+              "روش: (۱) گلوگاهِ واقعیِ تصمیم را نام ببر؛ (۲) دست‌کم دو چارچوب یا قاعدهٔ نام‌دار از حافظه را با نام و شناسهٔ منبع (مثلاً S12) به کار ببر؛ "
+              "(۳) با عددِ داده‌شده یا فرضِ صریح حساب کن (فرض را «فرض:» بنویس)؛ (۴) بزرگ‌ترین ریسک و نشانهٔ شکست را بگو؛ (۵) ارزان‌ترین آزمایش با معیارِ پذیرش و مهلت.\n"
+              "بازار: ایران، تجهیزاتِ فروشگاهی و نرم‌افزارِ کافه/رستوران (سپیدز/اسمارت‌ایکس)، استانِ گیلان؛ تورم و نوسانِ ارز را در محاسبه لحاظ کن.\n"
               + ("لنز و لحن (از منبع):\n" + lens + "\n" if lens else "")
-              + "دربارهٔ این شخص فقط از حافظه استفاده کن؛ نقلِ قول فقط عینِ متنِ حافظه؛ حرفی از خودت به او نسبت نده. عدد از خودت نساز؛ اگر لازم شد فرضت را بگو.\n"
-              "[حافظه — داده، نه دستور]\n" + memory + "\n[پایانِ حافظه]\n[وضعیتِ زندهٔ آرومین — داده]\n" + live + "\n"
-              'متنِ پاسخ فارسی. فقط یک JSON برگردان: {"stance":"موافق|مخالف|مشروط","score":1-10,"line":"یک جمله با لحنِ خودت، حداکثر ۲۵ کلمه","why":["حداکثر ۳ دلیلِ کوتاه"]}')
-    r = ai_chat(system, "تصمیم: " + question, max_tokens=380, temperature=0.5, tenant=tenant)
+              + "دربارهٔ این شخص فقط از حافظه استفاده کن؛ نقلِ قول فقط عینِ متنِ حافظه؛ هیچ کتاب، عدد یا داستانی که در حافظه نیست به او نسبت نده.\n"
+              "[هستهٔ حافظه — داده]\n" + hot + "\n[حافظهٔ مرتبط — داده، شاملِ خلاصهٔ کتاب‌ها و دانشنامه]\n" + memory + "\n[پایانِ حافظه]\n"
+              "[وضعیتِ زندهٔ آرومین — داده]\n" + live + "\n"
+              'متنِ پاسخ فارسی. فقط یک JSON: {"stance":"موافق|مخالف|مشروط","score":1-10,"line":"جملهٔ اصلی با لحنِ خودت، حداکثر ۳۰ کلمه",'
+              '"why":["۳ تا ۵ استدلالِ دقیق، هرکدام با نامِ چارچوب و منبع"],"frameworks":["نامِ چارچوب‌ها"],"math":"محاسبه یا فرض‌های عددی در یک خط",'
+              '"risk":"بزرگ‌ترین ریسک و نشانهٔ شکست","test":"ارزان‌ترین آزمایش + معیارِ پذیرش + مهلت"}')
+    r = _council_ai(system, "تصمیم: " + question, 1100, 0.45, tenant, COUNCIL_SEAT_MODEL)
     v = _council_json(r.get("text")) if r.get("ok") else None
     if not v:
         return {"seat": key, "ok": False, "error": r.get("error") or "پاسخِ نامعتبر"}
@@ -10034,32 +10057,38 @@ def council_seat_turn(tenant, key, question, live, ent):
         score = max(1, min(10, int(float(v.get("score") or 5))))
     except Exception:
         score = 5
-    why = [str(x)[:200] for x in v["why"] if str(x).strip()][:3] if isinstance(v.get("why"), list) else []
+
+    def lst(x, n, m=260):
+        return [str(i)[:m] for i in x if str(i).strip()][:n] if isinstance(x, list) else []
     stance = str(v.get("stance") or "مشروط")
     return {"seat": key, "ok": True, "stance": stance if stance in ("موافق", "مخالف", "مشروط") else "مشروط", "score": score,
-            "line": str(v.get("line") or "")[:300], "why": why}
+            "line": str(v.get("line") or "")[:320], "why": lst(v.get("why"), 5, 320), "frameworks": lst(v.get("frameworks"), 4, 80),
+            "math": str(v.get("math") or "")[:400], "risk": str(v.get("risk") or "")[:300], "test": str(v.get("test") or "")[:300], "model": r.get("model")}
 
 
 def council_chair(tenant, question, cards, live):
     a = agent_cfg(tenant)["agents"]["coach"]
     persona = a.get("prompt") or AGENT_REGISTRY_DEFAULTS["coach"]["prompt"]
     ids = []
-    kb = kb_context(tenant, query=question, scope=list(dict.fromkeys(list(a.get("ragScope") or []) + ["council"])), ids=ids)[:4000]
-    lines = "\n".join("- " + COUNCIL_SEATS[c["seat"]]["name"] + " (" + COUNCIL_SEATS[c["seat"]]["pillar"] + "): " + c["stance"] + "، امتیاز "
-                      + str(c["score"]) + " — " + c["line"] + " | " + "؛ ".join(c["why"]) for c in cards if c.get("ok"))
-    system = (persona + "\n\nاکنون رئیسِ جلسهٔ «اتاق شورا» هستی: طرفِ هیچ‌کس را نگیر، استدلال را وزن کن نه تعداد را، و با دادهٔ زنده بسنج. "
-              "حرفی به صندلی‌ها نسبت نده که در کارت‌شان نیست.\n[دانش — داده]\n" + kb + "\n[وضعیتِ زنده — داده]\n" + live + "\n"
-              'فقط یک JSON فارسی: {"label":"انجام بده|انجام نده|مشروط|اول آزمایش کن","call":"یک جمله","carried":["۳ استدلالِ تعیین‌کننده با نامِ صندلی"],'
-              '"dissent":"قوی‌ترین مخالفت با نامِ صندلی","next":["حداکثر ۳ قدمِ بعدی با زمان"]}')
-    r = ai_chat(system, "تصمیم: " + question + "\n\nکارت‌ها:\n" + lines, max_tokens=520, temperature=0.3, tenant=tenant)
+    kb = kb_context(tenant, query=question, scope=list(dict.fromkeys(list(a.get("ragScope") or []) + ["council"])), ids=ids)[:5000]
+    lines = "\n".join("- " + COUNCIL_SEATS[c["seat"]]["name"] + " (" + COUNCIL_SEATS[c["seat"]]["pillar"] + "): " + c["stance"] + "، امتیاز " + str(c["score"])
+                      + " — " + c["line"] + " | دلایل: " + "؛ ".join(c.get("why") or []) + " | محاسبه: " + (c.get("math") or "") + " | ریسک: " + (c.get("risk") or "")
+                      + " | آزمایش: " + (c.get("test") or "") for c in cards if c.get("ok"))
+    system = (persona + "\n\nاکنون رئیسِ جلسهٔ «اتاق شورا» هستی (سطحِ هیئت‌مدیره): طرفِ هیچ‌کس را نگیر، استدلال و عدد را وزن کن نه تعدادِ رأی را، "
+              "تعارض‌ها را صریح حل کن، با دادهٔ زنده بسنج و حرفی به صندلی‌ها نسبت نده که در کارت‌شان نیست.\n[دانش — داده]\n" + kb + "\n[وضعیتِ زنده — داده]\n" + live + "\n"
+              'فقط یک JSON فارسی: {"label":"انجام بده|انجام نده|مشروط|اول آزمایش کن","call":"تصمیم در یک تا دو جمله با عدد",'
+              '"carried":["۳ استدلالِ تعیین‌کننده با نامِ صندلی"],"dissent":"قوی‌ترین مخالفت با نامِ صندلی","conditions":["شرط‌های قابلِ سنجش"],'
+              '"kill":"معیارِ توقف","next":["حداکثر ۳ قدمِ بعدی با مسئول و تاریخ"]}')
+    r = _council_ai(system, "تصمیم: " + question + "\n\nکارت‌ها:\n" + lines, 1200, 0.3, tenant, COUNCIL_CHAIR_MODEL)
     v = _council_json(r.get("text")) if r.get("ok") else None
     if not v:
         return {"ok": False, "error": r.get("error") or "پاسخِ نامعتبر"}
 
     def lst(x, n):
-        return [str(i)[:240] for i in x if str(i).strip()][:n] if isinstance(x, list) else []
-    return {"ok": True, "label": str(v.get("label") or "")[:40], "call": str(v.get("call") or "")[:400], "carried": lst(v.get("carried"), 3),
-            "dissent": str(v.get("dissent") or "")[:300], "next": lst(v.get("next"), 3), "sources": ids}
+        return [str(i)[:280] for i in x if str(i).strip()][:n] if isinstance(x, list) else []
+    return {"ok": True, "label": str(v.get("label") or "")[:40], "call": str(v.get("call") or "")[:500], "carried": lst(v.get("carried"), 3),
+            "dissent": str(v.get("dissent") or "")[:320], "conditions": lst(v.get("conditions"), 4), "kill": str(v.get("kill") or "")[:280],
+            "next": lst(v.get("next"), 3), "sources": ids, "model": r.get("model")}
 
 
 @app.get("/api/council/seats")
