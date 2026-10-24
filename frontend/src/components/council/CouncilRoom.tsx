@@ -371,7 +371,7 @@ export default function CouncilRoom({ session }: { session: Session }) {
 								</form>
 							)}
 							{busy && <div className="caption"><div className="cap-head"><span className="cap-who">The Chair</span><span className="cap-tag">Seats are thinking</span></div>
-								<p className="cap-text chair">Each seat reads its brain and the live numbers<span className="dots"><i /><i /><i /></span></p></div>}
+								<p className="cap-text chair">Each seat reads its library and the live numbers<span className="dots"><i /><i /><i /></span></p></div>}
 							{said && (
 								<div className="caption" aria-live="polite" data-testid="council-caption">
 									<div className="cap-head">{said.seat && <span className="cap-av"><img src={by(said.seat)?.portrait ? src(by(said.seat)!) : '/aromin-mark.svg'} alt="" /></span>}
@@ -464,7 +464,7 @@ function Library({ session, seats, reload }: { session: Session; seats: Seat[]; 
 				<div key={s.key} className="feed-card" style={{ cursor: 'default' }}>
 					<button type="button" className="h" style={{ background: 'none', border: 0, padding: 0, width: '100%', color: 'inherit' }} aria-expanded={open === s.key} onClick={() => setOpen(open === s.key ? null : s.key)}>
 						<img className="av" src={s.portrait ? src(s) : '/aromin-mark.svg'} alt="" />{s.name}
-						<span className="r">{s.brain ? 'brain' : ''}{s.entries.length ? `${s.brain ? ' + ' : ''}${s.entries.length} entries` : s.brain ? '' : 'empty'}</span></button>
+						<span className="r">{s.entries.length ? `${s.entries.length} entries` : s.brain ? 'built-in' : 'empty'}</span></button>
 					{open === s.key && (
 						<div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
 							{s.entries.map((e) => <div key={e.id} className="lib-row"><span className="n">{e.filename}</span><span>{e.chars.toLocaleString()} chars</span><button type="button" className="ghost" disabled={busy} onClick={() => del(e.id)}>Delete</button></div>)}

@@ -10054,18 +10054,23 @@ COUNCIL_CHAIR_MODEL = os.environ.get("COUNCIL_CHAIR_MODEL", "Claude-Opus-4.7")  
 
 
 def _council_ai(system, user, max_tokens, temperature, tenant, model):
-    r = ai_chat(system, user, max_tokens=max_tokens, temperature=temperature, tenant=tenant, model=model)
-    if not r.get("ok") and model:
-        r = ai_chat(system, user, max_tokens=max_tokens, temperature=temperature, tenant=tenant)
-        r["model"] = AI_MODEL
-    else:
-        r["model"] = model
+    """3.9.82: reasoning models (DeepSeek-V4-Pro) can spend the whole budget thinking and return ok with empty text —
+    give them room, and treat an empty or non-JSON answer like an error: fall back to AI_MODEL once."""
+    r = ai_chat(system, user, max_tokens=max(max_tokens, 4000), temperature=temperature, tenant=tenant, model=model)
+    r["model"] = model
+    if model and model != AI_MODEL and not (r.get("ok") and _council_json(r.get("text"))):
+        r2 = ai_chat(system, user, max_tokens=max_tokens, temperature=temperature, tenant=tenant)
+        if r2.get("ok") or not r.get("ok"):
+            r = r2
+            r["model"] = AI_MODEL
     return r
 
 
 def council_seat_turn(tenant, key, question, live, ent):
     s = COUNCIL_SEATS[key]
-    brain = council_brain(s["slug"])
+    # 3.9.82: a brain file that is already in the Library (KB «council», filename <slug>__<file>.md) is read from there only — no duplicate chunks
+    have = {x[0] for x in ent.get(key, [])}
+    brain = [c for c in council_brain(s["slug"]) if c.get("file", "").endswith("_hot.md") or c.get("file", "").replace("/", "__") not in have]
     hot = "\n\n".join(c["text"] for c in brain if c.get("file", "").endswith("_hot.md"))[:2500]
     chunks = brain + kb_chunks(ent.get(key, []))
     memory = "\n\n".join(kb_retrieve(chunks, question + " " + s["pillar"], k=9, budget=7000)) or "\n\n".join(c["text"] for c in chunks[:6])[:7000]

@@ -35,8 +35,8 @@ function loadPdfJs() {
 	if (w.pdfjsLib) return Promise.resolve(w.pdfjsLib)
 	pdfjs ??= new Promise((res, rej) => {
 		const s = document.createElement('script')
-		s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
-		s.onload = () => { try { w.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch { /* */ } res(w.pdfjsLib) }
+		s.src = '/vendor/pdf-3.11.174.min.js'
+		s.onload = () => { try { w.pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf-3.11.174.worker.min.js' } catch { /* */ } res(w.pdfjsLib) }
 		s.onerror = () => { pdfjs = null; rej(new Error('بارگذاریِ خوانندهٔ PDF ناموفق بود (اینترنت؟)')) }
 		document.head.appendChild(s)
 	})

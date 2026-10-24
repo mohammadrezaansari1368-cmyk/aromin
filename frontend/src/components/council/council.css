@@ -202,11 +202,14 @@
   .rr .stage { border-radius: 14px; min-height: 0; }
   .rr .composer h2 { font-size: 18px; } .rr .composer-row { flex-direction: column; align-items: stretch; } .rr .mode { justify-content: center; }
   .rr .convene { width: 100%; }
-  .rr .samples { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; padding-bottom: 4px; }
-  .rr .samples button { flex: none; }
+  .rr .samples { flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .rr .samples button { padding: 8px 14px; font-size: 13.5px; min-height: 40px; }
   .rr .nameplate { min-width: 64px; padding: 3px 6px 4px; } .rr .nameplate b { font-size: 11px; } .rr .nameplate small { display: none; }
   .rr .chair-plate { position: static; margin: 0 12px 12px; justify-content: center; }
   .rr .playbar { right: 8px; bottom: 8px; } .rr .playbar .queue { display: none; }
   .rr .disclaimer { padding: 0 12px 12px; font-size: 11px; }
 }
 .rr .disclaimer, .rr-sheet .disclaimer { text-align: center; font-size: 11.5px; color: var(--ink-mute); padding: 0 24px 16px; margin: 0; }
+
+/* 3.9.82: on touch screens a tap toggles a seat and the page can still scroll (drag-to-seat stays for mouse/pen) */
+@media (pointer: coarse) { .rr .samples button { touch-action: manipulation; } }
