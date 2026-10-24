@@ -13,7 +13,7 @@ import { isAdmin, type Session } from '@/lib/auth'
 import { runPreset, setPageActions, setPageContext } from '@/lib/agent'
 import { fetchFull, saveState } from '@/lib/forecastStore'
 import Sortable from '@/components/ui/sortable'
-import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, FOCUS } from '@/components/ui/tokens'
+import { BTN, BTN_GHOST, BTN_PRIMARY, FOCUS } from '@/components/ui/tokens'
 import {
 	DEFAULTS, FC_IDS, GRP, FC_INDUSTRY, INDUSTRY_OPTS, M4TYPES, M4TYPE_OPTS, M4REAL_MSG, MARGIN_STD, STRAT_FA, FC_USD_HIST, LEVELW, MN,
 	GUIDE, IND_FA, guideEx, industryDefaults, industryNote, normalize, fillAnnual, suggestBase, compute,
@@ -68,13 +68,17 @@ const TierMark = ({ tier, className = 'h-4 w-5' }: { tier: Tier; className?: str
 const ForecastBento = lazy(() => import('./ForecastBento'))
 
 function Card({ title, sub, children, id, tone }: { title: ReactNode; sub?: ReactNode; children: ReactNode; id?: string; tone?: string }) {
+	const tier = useContext(TierCtx)
 	return (
-		<section id={id} className={`@container ${CARD} ${CARD_PAD} ${tone || ''}`}>
-			<header className="mb-4">
-				<h3 className={CARD_TITLE}>{title}</h3>
-				{sub && <p className={CARD_SUB}>{sub}</p>}
-			</header>
-			{children}
+		<section id={id} className={`@container relative rounded-2xl bg-gradient-to-br from-border/70 via-border/20 to-transparent p-px shadow-card ${tone || ''}`}>
+			<div className="relative overflow-hidden rounded-[15px] bg-card p-5 sm:p-6">
+				<span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[3px]" style={{ background: `linear-gradient(90deg, ${TIER[tier].fill}, ${TIER[tier].fill}00)` }} />
+				<header className="mb-4">
+					<h3 className="text-[15.5px] font-bold leading-7 tracking-tight text-foreground sm:text-[17px]">{title}</h3>
+					{sub && <p className="mt-0.5 line-clamp-1 max-w-[75ch] text-[12.5px] leading-6 text-muted-foreground">{sub}</p>}
+				</header>
+				{children}
+			</div>
 		</section>
 	)
 }
@@ -85,9 +89,10 @@ function Band({ tier, title, desc, children }: { tier: Tier; title: string; desc
 				<header className="flex items-center gap-3 px-1 pt-4">
 					<TierMark tier={tier} className="h-5 w-7" />
 					<div className="min-w-0">
-						<h2 id={'fc-band-h-' + tier} className="text-[18px] font-extrabold leading-7" style={{ color: TIER[tier].ink }}>{title}</h2>
+						<h2 id={'fc-band-h-' + tier} className="text-[18px] font-extrabold leading-7 tracking-tight" style={{ color: TIER[tier].ink }}>{title}</h2>
 						<p className="text-[12.5px] leading-6 text-muted-foreground">{desc}</p>
 					</div>
+					<span aria-hidden className="hidden h-px flex-1 self-center sm:block" style={{ background: `linear-gradient(to left, ${TIER[tier].fill}38, transparent)` }} />
 				</header>
 				<Sortable id={'forecast.' + tier}>{children}</Sortable>
 			</section>
@@ -102,17 +107,21 @@ type FigKind = 'total' | 'gold' | 'warn' | undefined
 function Fig({ k, v, u, kind, small }: { k: ReactNode; v: ReactNode; u?: ReactNode; kind?: FigKind; small?: boolean }) {
 	const t = TIER[useContext(TierCtx)]
 	const total = kind === 'total'
-	const cls = total ? t.on : kind === 'gold' ? 'bg-accent/15 ring-1 ring-accent/45' : kind === 'warn' ? 'bg-error/10 ring-1 ring-error/30' : 'bg-muted/45 ring-1 ring-border/80'
+	const cls = total ? t.on : kind === 'gold' ? 'bg-accent/10 ring-1 ring-accent/30' : kind === 'warn' ? 'bg-error/10 ring-1 ring-error/25' : 'bg-muted/40 ring-1 ring-border/70'
 	const sub = total ? t.onSub : 'text-muted-foreground'
 	return (
-		<div className={`flex min-w-0 flex-col gap-1 rounded-xl px-4 py-3.5 ${cls}`} style={total ? { background: t.fill } : undefined}>
-			<div className={`text-[11.5px] font-bold ${sub}`}>{k}</div>
-			<div className={`${small ? 'text-[14px] @lg:text-[15px]' : 'text-[16px] @lg:text-[21px]'} font-extrabold leading-tight tabular-nums [overflow-wrap:anywhere]`}>{v}</div>
-			{u && <div className={`text-[11px] leading-5 ${sub}`}>{u}</div>}
+		<div
+			className={`relative flex min-w-0 flex-col gap-1 overflow-hidden rounded-2xl px-4 py-3.5 transition-shadow motion-safe:duration-200 ${cls} ${total ? '' : 'hover:shadow-sm'}`}
+			style={total ? { background: `linear-gradient(135deg, ${t.fill}, ${t.fill}e6)` } : undefined}
+		>
+			{total && <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-black/10" />}
+			<div className={`relative text-[11px] font-bold tracking-wide ${sub}`}>{k}</div>
+			<div className={`relative ${small ? 'text-[14px] @lg:text-[15px]' : 'text-[16px] @lg:text-[21px]'} font-extrabold leading-tight tabular-nums [overflow-wrap:anywhere]`}>{v}</div>
+			{u && <div className={`relative text-[11px] leading-5 ${sub}`}>{u}</div>}
 		</div>
 	)
 }
-const Figs = ({ children }: { children: ReactNode }) => <div className="mt-4 grid grid-cols-2 gap-2.5 @2xl:grid-cols-4">{children}</div>
+const Figs = ({ children }: { children: ReactNode }) => <div className="mt-4 grid grid-cols-2 gap-3 @2xl:grid-cols-4">{children}</div>
 function Btn({ children, onClick, kind = 'primary', sm, disabled, title }: { children: ReactNode; onClick?: () => void; kind?: 'primary' | 'ghost' | 'gold'; sm?: boolean; disabled?: boolean; title?: string }) {
 	const k =
 		kind === 'gold' ? `${BTN} bg-accent text-accent-foreground hover:brightness-105` : kind === 'ghost' ? BTN_GHOST : BTN_PRIMARY
