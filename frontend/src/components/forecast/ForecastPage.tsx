@@ -1098,15 +1098,28 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 }
 
 function Method({ n, t, h, out, children }: { n: string; t: string; h: ReactNode; out: number; children: ReactNode }) {
+	const tier = TIER[useContext(TierCtx)]
+	const filled = out > 0
 	return (
-		<div className="grid gap-3 rounded-xl p-4 ring-1 ring-border/80 transition hover:ring-border @3xl:grid-cols-[200px_1fr_170px]">
+		<div className={`group @container relative grid gap-3 overflow-hidden rounded-2xl bg-card/60 p-4 ring-1 ring-border/70 transition motion-safe:duration-200 hover:bg-card hover:shadow-sm hover:ring-border @3xl:grid-cols-[210px_1fr_170px] @3xl:items-center ${filled ? 'ring-border' : ''}`}>
+			<span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-[3px] opacity-0 transition-opacity motion-safe:duration-200 group-hover:opacity-100" style={{ background: filled ? tier.fill : `${tier.fill}80` }} />
 			<div className="flex items-start gap-2.5">
-				<span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-[13px] font-extrabold text-primary-ink">{n}</span>
+				<span
+					className="grid size-8 shrink-0 place-items-center rounded-full text-[13px] font-extrabold tabular-nums ring-1 ring-inset"
+					style={filled ? { background: `linear-gradient(135deg, ${tier.fill}, ${tier.fill}cc)`, color: 'white', boxShadow: `0 4px 10px -4px ${tier.fill}99` } : { background: `${tier.fill}14`, color: tier.ink, boxShadow: 'none' }}
+				>
+					{n}
+				</span>
 				<div className="min-w-0"><b className="text-[13.5px] leading-7">{t}</b><div className="text-[11.5px] leading-5 text-muted-foreground">{h}</div></div>
 			</div>
 			<div className="min-w-0">{children}</div>
 			<div className="flex items-center @3xl:justify-end">
-				<span className={`rounded-xl px-3 py-2 text-[14px] tabular-nums ${out > 0 ? 'bg-primary/[.07] text-primary-ink' : 'bg-muted/60'}`}>{out > 0 ? <b>{sep(out)}</b> : <span className="text-muted-foreground">—</span>}</span>
+				<span
+					className={`rounded-xl px-3 py-2 text-[14px] tabular-nums ring-1 ring-inset transition-colors ${filled ? '' : 'bg-muted/60 ring-border/60'}`}
+					style={filled ? { background: `${tier.fill}14`, color: tier.ink, boxShadow: `inset 0 0 0 1px ${tier.fill}2e` } : undefined}
+				>
+					{filled ? <b>{sep(out)}</b> : <span className="text-muted-foreground">—</span>}
+				</span>
 			</div>
 		</div>
 	)
