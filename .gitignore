@@ -10,3 +10,13 @@ graphify-out/
 # Build output: packaged from frontend/dist by tools/package_release.py
 deployment/web/
 __pycache__/
+# Real environment files never enter git (only the template).
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+deployment/.reopen_codes.json
+deployment/.attendance_archive_v1

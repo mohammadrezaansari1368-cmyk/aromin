@@ -5,7 +5,7 @@
  * (اگر سرور در دسترس نباشد، دادهٔ نمونه نشان داده می‌شود و برچسبِ «نمونه» می‌خورد.)
  */
 
-import { useMemo, type ReactNode } from 'react'
+import { useEffect, useMemo, type ReactNode } from 'react'
 import DraggableWidgetGrid, { type WidgetItem } from '@/components/ui/draggable-widget-grid'
 import Gauge3D from '@/components/ui/gauge-3d'
 import { Shell, Big, Row, Dot, Bars, BarRow, faNum } from '@/components/ui/kit'
@@ -15,7 +15,9 @@ import type { Session } from '@/lib/auth'
 import { canSeeAll, dailySeries, EMPTY_FILTER, NA, totals, type Dataset } from '@/lib/performance'
 import { usePerformance } from '@/components/performance/usePerformance'
 import { ClusterTile, GaugeTile, LiveFeedTile } from '@/components/dashboard/gauges/GaugeTiles'
-import { NEON_SAMPLE, NeonKpi, NeonRadar, NeonRings, NeonSpeed, NeonWave, useNeonColors } from '@/components/dashboard/NeonWidgets'
+import { GAUGE_SPECS, setLiveGauges, type GaugeId, type GaugeReading, type GaugeSpec } from '@/components/dashboard/gauges/kpi'
+import { NeonKpi, NeonRadar, NeonRings, NeonShell, NeonSpeed, NeonWave, useNeonColors, type NeonData } from '@/components/dashboard/NeonWidgets'
+import { niceScale, radarAxes, useServerLive, type ServerLive } from '@/lib/liveKpis'
 
 /** رنگ‌های تم برای عقربه‌ها (SVG هگز لازم دارد) */
 type TC = { primary: string; secondary: string; accent: string }
@@ -23,9 +25,9 @@ type TC = { primary: string; secondary: string; accent: string }
 type Kind = 'target' | 'conversion' | 'sales' | 'funnel' | 'channels' | 'agents' | 'deals' | 'budget' | 'fcYear' | 'fcVsActual' | PerfKind | NeonKind | GaugeKind
 /** کاشی‌های «حضور و عملکرد» — فقط برای مدیران/مالی، از همان دیتاستِ محدود‌شده */
 type PerfKind = 'pfRate' | 'pfHours' | 'pfLate' | 'pfRecon'
-/** کاشی‌های نئونی (بستهٔ طراحیِ Cyberpunk) — فعلاً با دادهٔ نمونهٔ طراحی تا منبعِ هرکدام تعیین شود */
+/** کاشی‌های نئونی (بستهٔ طراحیِ Cyberpunk) — 3.9.68: دادهٔ واقعی (نقشهٔ تأییدشده در docs/TILE-MAP.md) */
 type NeonKind = 'nwSpeed' | 'nwRings' | 'nwKpi' | 'nwRadar' | 'nwWave'
-/** کاشی‌های گیجِ آنالوگ (بستهٔ «Gauge Cluster») — فعلاً با منبعِ نمونه (gauges/gaugeMock.ts) تا اتصالشان تعیین شود */
+/** کاشی‌های گیجِ آنالوگ (بستهٔ «Gauge Cluster») — 3.9.68: دادهٔ واقعی از setLiveGauges (همین فایل) */
 type GaugeKind = 'bgTach' | 'bgSpeed' | 'bgFuel' | 'bgTemp' | 'bgPower' | 'bgFeed' | 'bgCluster'
 interface Tile extends WidgetItem {
 	kind: Kind
@@ -56,15 +58,65 @@ const NEON_TILES: Tile[] = [
 	{ id: 'nwRadar', kind: 'nwRadar', size: 'sm' },
 	{ id: 'nwWave', kind: 'nwWave', size: 'wide' },
 ]
-function NeonView({ kind }: { kind: NeonKind }) {
-	const k = useNeonColors(), d = NEON_SAMPLE
+const NO_DATA: Record<NeonKind, [string, string]> = {
+	nwSpeed: ['تحقق تارگت درآمد', 'بودجه یا فروشِ بسته‌شده ثبت نشده'], nwRings: ['درآمد و نقدینگی', 'فروشِ بسته‌شده‌ای نیست'],
+	nwKpi: ['جریان نقدی', 'فروشِ بسته‌شده‌ای نیست'], nwRadar: ['سلامت فروش', 'کمتر از سه شاخص داده دارد'], nwWave: ['تماس‌های پاسخ‌داده', 'فایلِ تماس وارد نشده'],
+}
+function NoData({ kind }: { kind: NeonKind }) {
+	return <NeonShell sample={false} title={NO_DATA[kind][0]}><div className="m-auto text-center"><p className="text-[14px] font-bold text-muted-foreground">داده‌ای نیست</p><p className="mt-1 text-[11.5px] text-muted-foreground">{NO_DATA[kind][1]}</p></div></NeonShell>
+}
+function NeonView({ kind, m, live }: { kind: NeonKind; m: Metrics; live: ServerLive | null }) {
+	const k = useNeonColors(), x = m.live
+	const real = m.real && !!x
+	const base: NeonData = { revenue: Math.min(100, m.targetPct), cashReserve: x?.cashSharePct ?? 0, marketShare: x?.heldSharePct ?? 0,
+		profit: (x?.monthCashM ?? 0) * 1e6, margin: x?.cashSharePct ?? 0, salesVolume: live?.calls?.byDay ?? [], radar: {} }
 	switch (kind) {
-		case 'nwSpeed': return <NeonSpeed value={d.revenue} k={k} />
-		case 'nwRings': return <NeonRings d={d} k={k} />
-		case 'nwKpi': return <NeonKpi d={d} k={k} />
-		case 'nwRadar': return <NeonRadar d={d} k={k} />
-		case 'nwWave': return <NeonWave d={d} k={k} />
+		case 'nwSpeed': return real && m.budgetMillion ? <NeonSpeed value={m.targetPct} k={k} live /> : <NoData kind={kind} />
+		case 'nwRings': return real && x!.wonM > 0 ? <NeonRings d={base} k={k} live labels={['تحقق بودجه', 'سهم نقد', 'چکِ معلق']} /> : <NoData kind={kind} />
+		case 'nwKpi': return real && x!.wonM > 0 ? <NeonKpi d={base} k={k} live title="جریان نقدی" labels={['نقدِ این ماه', 'سهم نقد']} /> : <NoData kind={kind} />
+		case 'nwRadar': {
+			const axes = x ? Object.entries(radarAxes(real ? m.conversion : null, x, live)).filter((e): e is [string, number] => e[1] != null) : []
+			if (axes.length < 3) return <NoData kind={kind} />
+			const radar = Object.fromEntries(axes.map(([a, v]) => [a, Math.round(v)]))
+			return <NeonRadar d={{ ...base, radar, marketShare: Math.round(axes.reduce((s, [, v]) => s + v, 0) / axes.length) }} k={k} live title="سلامت فروش" />
+		}
+		case 'nwWave': return live?.calls?.byDay?.length ? <NeonWave d={base} k={k} live title="تماس‌های پاسخ‌داده (۱۴ روز)" /> : <NoData kind={kind} />
 	}
+}
+
+/** 3.9.68: real numbers into the gauge tiles (A20–A26) — labels and scales follow the metric, red zones only where they mean something */
+function useLiveGauges(m: Metrics, live: ServerLive | null) {
+	useEffect(() => {
+		const x = m.real ? m.live : undefined
+		const calls = live?.calls, sales = x?.salesByDayM || []
+		const sc = {
+			tach: niceScale(Math.max(calls?.today || 0, ...(calls?.byDay || [0])) * 1.2, 10),
+			speed: niceScale(Math.max(x?.salesTodayM || 0, ...sales) * 1.2, 10),
+			power: niceScale((live?.leads?.month || 0) * 1.5, 10),
+		}
+		const spec = (id: GaugeId, label: string, unit: string, code: string, max: number, step: number, extra: Partial<GaugeSpec> = {}): GaugeSpec =>
+			({ ...GAUGE_SPECS[id], label, unit, faceUnit: unit, code, max, step, minor: 2, redFrom: undefined, redTo: undefined, decimals: 0, ...extra })
+		const trend = (a?: number, b?: number) => (a != null && b ? ((a - b) / b) * 100 : null)
+		const r = (value: number, t: number | null = null): GaugeReading => ({ value, trend: t, updatedAt: Date.now() })
+		const yCalls = calls?.byDay?.[calls.byDay.length - 2], ySales = sales[sales.length - 2]
+		setLiveGauges({
+			specs: {
+				tach: spec('tach', 'تماس‌های پاسخ‌دادهٔ امروز', 'تماس', 'calls · today', sc.tach.max, sc.tach.step),
+				speed: spec('speed', 'فروشِ امروز', 'میلیون تومان', 'sales · today', sc.speed.max, sc.speed.step, { decimals: 1 }),
+				fuel: spec('fuel', 'باقی‌ماندهٔ بودجهٔ ماه', '٪', 'budget · left', 100, 20),
+				temp: spec('temp', 'سهمِ چکِ معلق از فروش', '٪', 'held · share', 100, 20, { redFrom: 0.8 }),
+				power: spec('power', 'لیدهای سایت (۳۰ روز)', 'لید', 'leads · 30d', sc.power.max, sc.power.step),
+			},
+			readings: {
+				tach: r(calls?.today ?? 0, trend(calls?.today, yCalls)), speed: r(x?.salesTodayM ?? 0, trend(x?.salesTodayM, ySales)),
+				fuel: r(x?.remainingBudgetPct ?? 0), temp: r(x?.heldSharePct ?? 0), power: r(live?.leads?.month ?? 0),
+			},
+			empty: { tach: !calls, speed: !x, fuel: x?.remainingBudgetPct == null, temp: x?.heldSharePct == null, power: !live?.leads },
+			feeds: [{ label: 'دفترِ فروش', at: m.real && m.updatedAt ? new Date(m.updatedAt).toISOString() : null },
+				{ label: 'تماس‌ها', at: live?.sources?.calls ?? null }, { label: 'تیکت‌ها', at: live?.sources?.tickets ?? null },
+				{ label: 'لیدهای سایت', at: live?.sources?.leads ?? null }, { label: 'هاریکان', at: live?.sources?.attendance ?? null }],
+		})
+	}, [m, live])
 }
 const GAUGE_TILES: Tile[] = [
 	{ id: 'bgCluster', kind: 'bgCluster', size: 'wide' },
@@ -92,7 +144,7 @@ const fa1 = (n: number) => n.toLocaleString('fa-IR', { maximumFractionDigits: 1 
 function PerfView({ kind, ds, tc }: { kind: PerfKind; ds: Dataset | null; tc: TC }): ReactNode {
 	const t = ds ? totals(ds, ALL_F) : null
 	const none = !ds || !ds.people.length
-	const meta = none ? 'فایلِ حضور بارگذاری نشده' : `${faNum(t!.people)} نفر`
+	const meta = none ? 'هنوز داده‌ای از هاریکان نرسیده' : `${faNum(t!.people)} نفر`
 	switch (kind) {
 		case 'pfRate':
 			return (
@@ -273,6 +325,8 @@ export default function Board({ session }: { session: Session }) {
 	const th = useTheme()
 	const perf = canSeeAll(session)
 	const { ds } = usePerformance(session, perf)
+	const live = useServerLive(perf ? session : null)
+	useLiveGauges(m, live)
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	const tc = useMemo<TC>(() => ({ primary: tokenHex('primary'), secondary: tokenHex('secondary'), accent: tokenHex('accent') }), [th])
 	const user = session.user || session.name
@@ -290,7 +344,7 @@ export default function Board({ session }: { session: Session }) {
 			onChange={save}
 			renderItem={(item) => {
 				const k = (item as Tile).kind
-				return k.startsWith('bg') ? <GaugeView kind={k as GaugeKind} /> : k.startsWith('nw') ? <NeonView kind={k as NeonKind} /> : k.startsWith('pf') ? <PerfView kind={k as PerfKind} ds={perf ? ds : null} tc={tc} /> : <View kind={k} m={m} tc={tc} />
+				return k.startsWith('bg') ? <GaugeView kind={k as GaugeKind} /> : k.startsWith('nw') ? <NeonView kind={k as NeonKind} m={m} live={live} /> : k.startsWith('pf') ? <PerfView kind={k as PerfKind} ds={perf ? ds : null} tc={tc} /> : <View kind={k} m={m} tc={tc} />
 			}}
 		/>
 	)

@@ -17,7 +17,7 @@ healthy(){
     systemctl is-active --quiet "$SERVICE" || continue
     curl -fsS "http://127.0.0.1:$PORT/api/spa-deploy/ping" 2>/dev/null | grep -q '"deployed":true' || continue
     curl -fsS "http://127.0.0.1:$PORT/" 2>/dev/null | grep -q 'id="root"' || continue
-    curl -fsS "http://127.0.0.1:$PORT/legacy" 2>/dev/null | grep -q 'APP_VERSION=' || continue
+    curl -fsS "http://127.0.0.1:$PORT/legacy" 2>/dev/null | grep -qE 'APP_VERSION *= *"[0-9.]+"' || continue   # legacy.html: var APP_VERSION = "x.y.z"
     return 0
   done
   return 1

@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { dealKpis, type DealKpis } from '@/lib/liveKpis'
 
 export interface Deal {
 	amount: string | number
@@ -75,6 +76,8 @@ export interface Metrics {
 	/** واقعیِ ماه‌های دارای داده در برابرِ پیش‌بینیِ همان ماه‌ها (٪). */
 	fcVsActualPct: number
 	fcMonths: number
+	/** 3.9.68: deal numbers for the live tiles (absent on demo data) */
+	live?: DealKpis
 }
 
 const num = (a: unknown) => parseInt(String(a ?? '').replace(/[^0-9]/g, ''), 10) || 0
@@ -196,6 +199,7 @@ export function compute(s: AppState, tenant: string): Metrics {
 		fcYear: Number(s.forecast?.targetYear) || 0,
 		fcVsActualPct: fF ? Math.round((fA / fF) * 100) : 0,
 		fcMonths: fN,
+		live: dealKpis(s as unknown as Parameters<typeof dealKpis>[0]),
 	}
 }
 

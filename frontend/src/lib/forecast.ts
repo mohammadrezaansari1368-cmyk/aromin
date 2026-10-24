@@ -550,7 +550,7 @@ export function compute(f: Form, x: Extra, ctx: Ctx) {
 		usd, strat, stratNote: stratTxt[strat] || '', R, V, mp, Hm, mkt, avgP, perMonth, perHorizon, pyramidNote,
 		yrs, y, d, dol, g2, g3, grs, avgG, ma3, next, dg, histNote, scen, ready, tol,
 		mR, m4depth, m4adjNote, capNote, filled, consensus, median, spread, methodsNote,
-		ty, monthly, derived, monthlyForecast, monthlyBlended, safety, safeT, va,
+		ty, monthly, derived, monthlyForecast, monthlyBlended, safety, safeT, va, act,
 		alpha: n('fcAlpha') || 0.5,
 	}
 }

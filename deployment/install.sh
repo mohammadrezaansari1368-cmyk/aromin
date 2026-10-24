@@ -12,6 +12,11 @@ if [ -f "$SRV_DIR/migrations/004_check_collection.sql" ] && ! cmp -s "$HERE/migr
   echo "Conflicting migration 004_check_collection.sql; no files changed." >&2; exit 1
 fi
 SPA_DIR="$(cd "$SRV_DIR/.." && pwd)/web"
+for mig in 006_identity_attendance.sql 007_calls.sql 008_tickets.sql 009_batch_rows.sql 010_harikan_exports.sql 011_aromin_agent.sql 012_app_secrets.sql 013_api_keys.sql; do   # applied once by migrate.py on start; a changed copy must never be re-shipped
+  if [ -f "$SRV_DIR/migrations/$mig" ] && ! cmp -s "$HERE/migrations/$mig" "$SRV_DIR/migrations/$mig"; then
+    echo "Conflicting migration $mig; no files changed." >&2; exit 1
+  fi
+done
 if [ -f "$SRV_DIR/migrations/005_publishing.sql" ] && ! cmp -s "$HERE/migrations/005_publishing.sql" "$SRV_DIR/migrations/005_publishing.sql"; then
   echo "Conflicting migration 005_publishing.sql; no files changed." >&2; exit 1
 fi
@@ -20,7 +25,7 @@ BK="$APP_DIR/backups-install/$TS"; mkdir -p "$BK"
 echo "› بکاپ در: $BK"
 [ -e "$SPA_DIR" ]            && cp -r "$SPA_DIR" "$BK/web"        || true
 [ -f "$SRV_DIR/server.py" ] && cp "$SRV_DIR/server.py" "$BK/"    || true
-for item in aromin_publish.py aromin_performance.py aromin_stage.py fix_stage_dates.py validate_ledger.py assets migrations/005_publishing.sql migrations/005_publishing.down.sql.txt; do
+for item in aromin_publish.py aromin_performance.py aromin_identity.py aromin_attendance.py aromin_calls.py aromin_tickets.py aromin_stage.py aromin_security.py aromin_sessions.py fix_stage_dates.py validate_ledger.py assets migrations/005_publishing.sql migrations/005_publishing.down.sql.txt migrations/006_identity_attendance.sql migrations/006_identity_attendance.down.sql.txt migrations/007_calls.sql migrations/007_calls.down.sql.txt migrations/008_tickets.sql migrations/008_tickets.down.sql.txt migrations/009_batch_rows.sql migrations/009_batch_rows.down.sql.txt migrations/010_harikan_exports.sql migrations/010_harikan_exports.down.sql.txt migrations/011_aromin_agent.sql migrations/011_aromin_agent.down.sql.txt migrations/012_app_secrets.sql migrations/012_app_secrets.down.sql.txt migrations/013_api_keys.sql migrations/013_api_keys.down.sql.txt; do
   mkdir -p "$BK/$(dirname "$item")"
   if [ -e "$SRV_DIR/$item" ]; then cp -r "$SRV_DIR/$item" "$BK/$item"; else touch "$BK/$item.absent"; fi
 done
@@ -31,10 +36,14 @@ echo "› نصبِ فایل‌ها"
 rm -rf "$SPA_DIR"; cp -r "$HERE/web" "$SPA_DIR"
 cp "$HERE/server.py" "$SRV_DIR/server.py"
 cp "$HERE/aromin_publish.py" "$SRV_DIR/aromin_publish.py"
-cp "$HERE/aromin_performance.py" "$HERE/aromin_stage.py" "$HERE/fix_stage_dates.py" "$HERE/validate_ledger.py" "$SRV_DIR/"   # «تغییر مرحله» + اصلاحِ تاریخی (dry-run پیش‌فرض) + گزارشِ اعتبارسنجی (فقط خواندن)
+cp "$HERE/aromin_performance.py" "$HERE/aromin_stage.py" "$HERE/fix_stage_dates.py" "$HERE/validate_ledger.py" "$SRV_DIR/"
+cp "$HERE/aromin_identity.py" "$HERE/aromin_attendance.py" "$HERE/aromin_calls.py" "$HERE/aromin_tickets.py" "$SRV_DIR/"   # server.py imports these (WP-A/B/C/4)
+cp "$HERE/aromin_security.py" "$HERE/aromin_sessions.py" "$SRV_DIR/"   # server.py imports these (WP-05/WP-01); missing → ModuleNotFoundError on startup → auto-rollback
+# «تغییر مرحله» + اصلاحِ تاریخی (dry-run پیش‌فرض) + گزارشِ اعتبارسنجی (فقط خواندن)
 mkdir -p "$SRV_DIR/assets" "$SRV_DIR/migrations"
 cp -r "$HERE/assets/." "$SRV_DIR/assets/"
 cp "$HERE/migrations/005_publishing.sql" "$HERE/migrations/005_publishing.down.sql.txt" "$SRV_DIR/migrations/"
+cp "$HERE/migrations/006_identity_attendance.sql" "$HERE/migrations/006_identity_attendance.down.sql.txt" "$HERE/migrations/007_calls.sql" "$HERE/migrations/007_calls.down.sql.txt" "$HERE/migrations/008_tickets.sql" "$HERE/migrations/008_tickets.down.sql.txt" "$HERE/migrations/009_batch_rows.sql" "$HERE/migrations/009_batch_rows.down.sql.txt" "$HERE/migrations/010_harikan_exports.sql" "$HERE/migrations/010_harikan_exports.down.sql.txt" "$HERE/migrations/011_aromin_agent.sql" "$HERE/migrations/011_aromin_agent.down.sql.txt" "$HERE/migrations/012_app_secrets.sql" "$HERE/migrations/012_app_secrets.down.sql.txt" "$HERE/migrations/013_api_keys.sql" "$HERE/migrations/013_api_keys.down.sql.txt" "$SRV_DIR/migrations/"
 if ! "$SRV_DIR/.venv/bin/pip" install Pillow==11.3.0 arabic-reshaper==3.0.0 python-bidi==0.6.6; then
   echo "Publishing image dependencies unavailable; preparation will be BLOCKED. Server installation continues." >&2
 fi
@@ -60,6 +69,33 @@ if [ -n "$SVC_USER" ] && [ "$SVC_USER" != "root" ]; then
   [ -f "$LEGACY" ] && chown "$SVC_USER":"$SVC_USER" "$LEGACY" 2>/dev/null || true
   echo "  + دسترسیِ نوشتن به $SVC_USER داده شد"
 fi
+# کلیدِ سرورِ MCP (/api/mcp) — فقط روی سرور؛ هرگز در مخزن یا بسته نیست. مثلِ setup-arvan.sh: مالک root، گروهِ کاربرِ سرویس، 640.
+# جایگزینی فقط با درخواستِ صریح: MCP_TOKEN_IMPORT=/root/aromin-mcp-token.txt bash install.sh — فایل باید regular، نه symlink، مالکِ root
+# و بدونِ نوشتنِ گروه/دیگران باشد؛ پس از ورود پاک می‌شود. بدونِ آن، کلیدِ موجود دست نمی‌خورد و فقط بارِ اول کلیدِ تصادفی ساخته می‌شود.
+MCP_ENVF="${MCP_ENV:-/etc/aromin/mcp.env}"
+mkdir -p "$(dirname "$MCP_ENVF")" && chmod 755 "$(dirname "$MCP_ENVF")"   # the service must traverse it; the file itself stays 640/600 (review MCP-R06)
+MCP_NEW=""
+MCP_TEN="$( [ -f "$MCP_ENVF" ] && sed -n "s/^MCP_TENANT=//p" "$MCP_ENVF" | head -n1 || true )"
+if [ -n "${MCP_TOKEN_IMPORT:-}" ]; then
+  if [ -f "$MCP_TOKEN_IMPORT" ] && [ ! -L "$MCP_TOKEN_IMPORT" ] && [ "$(stat -c %u "$MCP_TOKEN_IMPORT")" = 0 ] \
+     && [ $(( 0$(stat -c %a "$MCP_TOKEN_IMPORT") & 022 )) -eq 0 ]; then
+    MCP_NEW="$(tr -d ' \t\r\n' < "$MCP_TOKEN_IMPORT")"
+    if ! printf '%s' "$MCP_NEW" | grep -Eq '^[A-Za-z0-9._-]{32,200}$'; then echo "✗ $MCP_TOKEN_IMPORT شبیهِ کلید نیست؛ کلیدِ MCP تغییر نکرد."; MCP_NEW=""; fi
+    shred -u "$MCP_TOKEN_IMPORT" 2>/dev/null || rm -f "$MCP_TOKEN_IMPORT"
+  else
+    echo "✗ MCP_TOKEN_IMPORT باید فایلِ معمولیِ مالکِ root، نه symlink و بدونِ مجوزِ نوشتنِ گروه/دیگران باشد؛ کلیدِ MCP تغییر نکرد."
+  fi
+elif [ ! -f "$MCP_ENVF" ]; then
+  MCP_NEW="$(openssl rand -hex 32 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(32))')"
+fi
+if [ -n "$MCP_NEW" ]; then
+  ( umask 077; printf 'MCP_TOKEN=%s\nMCP_TENANT=%s\n' "$MCP_NEW" "${MCP_TEN:-team}" > "$MCP_ENVF.new" ) && mv -f "$MCP_ENVF.new" "$MCP_ENVF"
+  echo "  + کلیدِ MCP ذخیره شد: $MCP_ENVF   (دیدن: sudo grep MCP_TOKEN $MCP_ENVF)"
+fi
+if [ -f "$MCP_ENVF" ]; then
+  if [ -n "$SVC_USER" ] && [ "$SVC_USER" != root ] && chgrp "$SVC_USER" "$MCP_ENVF" 2>/dev/null; then chmod 640 "$MCP_ENVF"; else chmod 600 "$MCP_ENVF"; fi
+fi
+unset MCP_NEW MCP_TEN
 echo "› ری‌استارتِ سرویس ($SERVICE)"
 RS=""
 if command -v systemctl >/dev/null 2>&1; then

@@ -1,0 +1,4 @@
+-- Manual destructive rollback only. Export call data before use. identity_aliases (006) is untouched.
+DROP TABLE IF EXISTS call_summaries;
+DROP TABLE IF EXISTS call_logs;
+DROP TABLE IF EXISTS call_batches;

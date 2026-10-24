@@ -2,6 +2,8 @@ import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { ReactLenis } from 'lenis/react'
+import { reducedMotion } from '@/lib/motion'
 
 // بازبینیِ img2threejs برای نشانِ دستیار — جدا بارگذاری می‌شود (three در بستهٔ اصلی نیاید)
 const AgentPreview = lazy(() => import('@/components/agent/AgentPreview'))
@@ -21,7 +23,7 @@ createRoot(document.getElementById('root')!).render(
         <Suspense fallback={null}>{qs.has('hero') ? <Emblem3D mode="hero" size={300} /> : <Emblem3D mode="front" size={360} view={pv} fitRef={qs.has('fit')} stripped={qs.has('stripped')} />}</Suspense>
       </div>
     ) : (
-      <App />
+      <>{!reducedMotion() && <ReactLenis root options={{ lerp: 0.12 }} />}<App /></>
     )}
   </StrictMode>,
 )

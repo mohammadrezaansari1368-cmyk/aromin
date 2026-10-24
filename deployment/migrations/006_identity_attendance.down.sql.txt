@@ -1,0 +1,6 @@
+-- Manual destructive rollback only. Export attendance and identity mappings before use.
+DROP TABLE IF EXISTS attendance_settings;
+DROP TABLE IF EXISTS attendance_overrides;
+DROP TABLE IF EXISTS attendance_days;
+DROP TABLE IF EXISTS attendance_batches;
+DROP TABLE IF EXISTS identity_aliases;

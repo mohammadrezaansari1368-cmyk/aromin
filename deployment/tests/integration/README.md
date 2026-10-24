@@ -9,3 +9,4 @@
 تهیه‌کنندهٔ همهٔ داده‌ها خودِ اسکریپت‌هاست؛ هرگز روی پایگاهِ اصلی اجرا نشود (`DB_NAME=aromin_dev`).
 6. ایمپورتِ کاملِ تازه: `python tests/integration/seed_team.py <deployment>` و `python tests/integration/make_joolio_fixture.py D:/aromin-mariadb/joolio-fixture.xlsx`، سپس `playwright-cli run-code --filename=tests/integration/import_spec.js` (پیش‌نمایش، تعارض، نامِ تازه، ثبت، ایمپورتِ دوباره بدونِ تغییر، موبایل)
 7. گزارشِ اعتبارسنجی (فقط خواندن): `python validate_ledger.py --tenant team --json OUT.json`
+8. R01 (قفلِ دامنه روی MariaDB واقعی): `python tests/integration/concurrency_r01.py` — نویسندهٔ دوم باید تا commitِ اولی منتظر بماند (فقط پایگاهِ `aromin_dev`).

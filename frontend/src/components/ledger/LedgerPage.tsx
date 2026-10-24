@@ -15,7 +15,7 @@ import {
 import { classifyKinds, custNorm, ledgerOf } from '@/engines/customer/index.ts'
 import { cleanName } from '@/engines/deal-import/index.ts'
 import { fetchFull } from '@/lib/forecastStore'
-import { approveBatch, approveDoc, closeDeals, setFinanceBy, flushLedger, LEDGER_FY, ledgerStatus, loadLayout, onLedgerStatus, queueOp, reopenDeal, reopenMany, requestReopenCode, requestReopenCodeMany, saveLayout, submitDocs, withdrawDoc, type ApprovalInput, type Ref } from '@/lib/ledgerStore'
+import { approveBatch, approveDoc, closeDeals, setFinanceBy, flushLedger, LEDGER_FY, ledgerStatus, loadLayout, onLedgerStatus, queueOp, reassignFinance, reopenDeal, reopenMany, requestReopenCode, requestReopenCodeMany, saveLayout, submitDocs, withdrawDoc, type ApprovalInput, type Ref } from '@/lib/ledgerStore'
 import { canSeeAll } from '@/lib/performance'
 import { isActivePerson } from '@/lib/people'
 import { currentTenant } from '@/lib/data'
@@ -25,6 +25,7 @@ import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, FOCUS, INPUT } from '@/components/ui
 import { parseJ, todayJ } from '@/lib/jalali'
 import BulkApprove from '@/components/ledger/BulkApprove'
 import BulkReopen from '@/components/ledger/BulkReopen'
+import FinanceReassign from '@/components/ledger/FinanceReassign'
 import { motion } from 'motion/react'
 import { RowOrderContext, RowGrip, useRowOrder } from '@/components/ui/use-row-order'
 import { orderRows } from '@/components/ui/row-order'
@@ -392,6 +393,13 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 		return out.filter(n => !people.some(p => p.name === n && !isActivePerson(p)))
 	}, [people, full])
 
+	// «انتقالِ سهمِ مالی»: «از» شاملِ هر نامی است که روی اسنادِ امسال آمده (حتی کارشناسِ غیرفعال)
+	const finFromNames = useMemo(() => {
+		const out = new Set(finNames)
+		people.forEach((p) => ledgerOf(p, full, LEDGER_FY).forEach((d: Deal) => { const n = financeOf(d).trim(); if (n) out.add(n) }))
+		return [...out]
+	}, [finNames, people, full])
+
 	/* ---- اعلانِ ایمپورتِ قبلی (ایمپورت از «مرکز ایمپورت») ---- */
 	const lastImp = useMemo(() => {
 		const L: any[] = Array.isArray(full?.importLog) ? full.importLog : []
@@ -572,7 +580,8 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 						<span className="text-[11.5px] text-muted-foreground">بروز شده با اپ جدید</span>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">{canApprove && <BulkApprove confirmationKey={JSON.stringify([approvable, approvalTotals, scopeLabel])} totals={approvalTotals} count={approvable.length} scope={scopeLabel} suggest={{ cash: T.payNow, pending: T.payCheck + T.payPend }} onApprove={bulkApprove} />}
-					{isAdmin(session.role) && <BulkReopen confirmationKey={JSON.stringify([reopenIds, reopenTotals, scopeLabel])} count={reopenIds.length} scope={scopeLabel} totals={reopenTotals} onCode={bulkReopenCode} onReopen={bulkReopen} />}</div>
+					{isAdmin(session.role) && <BulkReopen confirmationKey={JSON.stringify([reopenIds, reopenTotals, scopeLabel])} count={reopenIds.length} scope={scopeLabel} totals={reopenTotals} onCode={bulkReopenCode} onReopen={bulkReopen} />}
+					{isAdmin(session.role) && viewFy === LEDGER_FY && <FinanceReassign names={finNames} fromNames={finFromNames} month={gm === 'all' ? null : +gm} onRun={async (b) => { const r = await reassignFinance(session, b); if (!b.dry) await load(); return r }} />}</div>
 				</header>
 				<ControlStrip
 					full={full} people={people} years={years} viewFy={viewFy} setViewFy={(y) => { setViewFy(y); setCur({ r: 0, c: 0 }) }} gm={gm} setGm={setGm}

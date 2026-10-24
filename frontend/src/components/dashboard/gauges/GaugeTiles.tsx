@@ -44,13 +44,14 @@ function Trend({ v }: { v: number | null }) {
 
 /** یک گیجِ مستقل */
 export function GaugeTile({ id, hero = false }: { id: GaugeId; hero?: boolean }) {
-	const s = GAUGE_SPECS[id]
-	const { readings, sweep, mode } = useGaugeReadings()
+	const { readings, sweep, mode, specs, empty } = useGaugeReadings()
+	const s = specs?.[id] ?? GAUGE_SPECS[id]
 	const r = readings[id]
+	const none = !!empty?.[id]
 	const [live, setLive] = useState<number | null>(null)
 	const shown = Math.max(0, Math.min(live ?? r.value, r.max ?? s.max))
 	return (
-		<GaugeShell icon={s.icon} title={s.label} code={s.code} status={gaugeStatus(s, r)} mock={mode === 'mock'}>
+		<GaugeShell icon={s.icon} title={s.label} code={s.code} status={none ? 'idle' : gaugeStatus(s, r)} mock={mode === 'mock'}>
 			{/* گیج = کوچک‌ترِ عرض و ارتفاعِ فضای موجود (container size) — در کاشیِ بلند و کوتاه هر دو جا می‌شود */}
 			<div className="flex min-h-0 flex-1 items-center justify-center [container-type:size]">
 				<div className={`aspect-square w-[min(100cqw,100cqh)] ${hero ? 'max-w-[440px]' : 'max-w-[220px]'}`}>
@@ -58,9 +59,11 @@ export function GaugeTile({ id, hero = false }: { id: GaugeId; hero?: boolean })
 				</div>
 			</div>
 			<footer className="flex items-baseline justify-center gap-2">
-				<span className={`font-extrabold tabular-nums leading-none text-foreground ${hero ? 'text-[34px] @[320px]:text-[40px]' : 'text-[24px] @[240px]:text-[28px]'}`}>{fa(shown, s.decimals)}</span>
-				<span className="text-[11px] font-bold tracking-[0.08em] text-muted-foreground">{s.unit}</span>
-				<Trend v={r.trend} />
+				{none ? <span className="text-[13px] font-bold text-muted-foreground">داده‌ای نیست</span> : <>
+					<span className={`font-extrabold tabular-nums leading-none text-foreground ${hero ? 'text-[34px] @[320px]:text-[40px]' : 'text-[24px] @[240px]:text-[28px]'}`}>{fa(shown, s.decimals)}</span>
+					<span className="text-[11px] font-bold tracking-[0.08em] text-muted-foreground">{s.unit}</span>
+					<Trend v={r.trend} />
+				</>}
 			</footer>
 		</GaugeShell>
 	)
@@ -68,7 +71,7 @@ export function GaugeTile({ id, hero = false }: { id: GaugeId; hero?: boolean })
 
 /** فیدِ زنده: منبع، آخرین به‌روزرسانی، تست سوییپ و شبیه‌سازی (فقط منبعِ نمونه) */
 export function LiveFeedTile() {
-	const { mode, simulating, lastUpdate, setSimulating, sweepTest } = useGaugeReadings()
+	const { mode, simulating, lastUpdate, setSimulating, sweepTest, feeds } = useGaugeReadings()
 	const state = mode === 'live' ? { dot: 'bg-success', t: 'زنده' } : simulating ? { dot: 'bg-success', t: 'شبیه‌سازی' } : mode === 'offline' ? { dot: 'bg-error', t: 'قطع' } : { dot: 'bg-muted-foreground/60', t: 'متوقف' }
 	return (
 		<GaugeShell icon="M4.9 19.1a10 10 0 0 1 0-14.2|M19.1 4.9a10 10 0 0 1 0 14.2|M7.8 16.2a6 6 0 0 1 0-8.4|M16.2 7.8a6 6 0 0 1 0 8.4|M12 12h.01" title="فیدِ زنده" code="gauges · source" mock={mode === 'mock'}
@@ -77,13 +80,16 @@ export function LiveFeedTile() {
 				<div className="flex items-center justify-between gap-2"><dt className="text-muted-foreground">منبعِ داده</dt><dd className="text-left font-bold">{mode === 'mock' ? <>نمونهٔ طراحی<span className="hidden @[300px]:inline"> (در انتظارِ اتصال)</span></> : mode === 'live' ? 'منبعِ زنده' : 'در دسترس نیست'}</dd></div>
 				<div className="flex items-center justify-between gap-2"><dt className="text-muted-foreground">آخرین به‌روزرسانی</dt><dd className="font-mono tabular-nums" dir="ltr">{lastUpdate ? new Date(lastUpdate).toLocaleTimeString('fa-IR', { hour12: false }) : '—'}</dd></div>
 				<div className="hidden items-center justify-between gap-2 @[240px]:flex"><dt className="text-muted-foreground">گیج‌ها</dt><dd className="font-bold">{fa(GAUGE_ORDER.length)}</dd></div>
+				{(feeds || []).map((f) => (
+					<div key={f.label} className="flex items-center justify-between gap-2"><dt className="text-muted-foreground">{f.label}</dt><dd className="font-mono tabular-nums" dir="ltr">{f.at ? f.at.replace(/-/g, '/').slice(0, 16) : '—'}</dd></div>
+				))}
 			</dl>
-			<div className="mt-auto flex flex-col gap-1.5 pt-1 @[240px]:flex-row @[240px]:gap-2 @[240px]:pt-2">
+			{setSimulating && <div className="mt-auto flex flex-col gap-1.5 pt-1 @[240px]:flex-row @[240px]:gap-2 @[240px]:pt-2">
 				<button type="button" onClick={() => sweepTest?.()} disabled={!sweepTest}
 					className="min-h-8 flex-1 rounded-xl bg-primary @[240px]:min-h-9 px-2 text-[11.5px] @[240px]:text-[12px] font-bold text-primary-foreground shadow-[0_6px_16px_-8px_hsl(var(--primary)/.6)] transition hover:bg-hover focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 disabled:opacity-50">تست سوییپ</button>
 				<button type="button" onClick={() => setSimulating?.(!simulating)} disabled={!setSimulating} aria-pressed={simulating}
 					className="min-h-8 flex-1 rounded-xl bg-card @[240px]:min-h-9 px-2 text-[11.5px] @[240px]:text-[12px] font-bold text-foreground ring-1 ring-border transition hover:bg-muted focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25 disabled:opacity-50">{simulating ? 'توقفِ شبیه‌سازی' : 'شبیه‌سازی'}</button>
-			</div>
+			</div>}
 		</GaugeShell>
 	)
 }
@@ -97,7 +103,7 @@ const MOUNTS: { id: GaugeId; x: number; y: number; w: number; z: number }[] = [
 	{ id: 'tach', x: 50, y: 39, w: 49.5, z: 3 },
 ]
 export function ClusterTile() {
-	const { readings, sweep, mode } = useGaugeReadings()
+	const { readings, sweep, mode, specs } = useGaugeReadings()
 	return (
 		<GaugeShell icon="M3 12h3l3-8 4 16 3-8h5" title="کلاسترِ عملکرد" code="cluster · 5 gauges" mock={mode === 'mock'}>
 			<div className="flex min-h-0 flex-1 items-center justify-center">
@@ -110,7 +116,7 @@ export function ClusterTile() {
 						const r = readings[m.id]
 						return (
 							<div key={m.id} className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: m.x + '%', top: m.y + '%', width: m.w + '%', zIndex: m.z }}>
-								<AnalogGauge spec={GAUGE_SPECS[m.id]} value={r.value} max={r.max} sweep={sweep} delay={i * 0.12} tilt={false} />
+								<AnalogGauge spec={specs?.[m.id] ?? GAUGE_SPECS[m.id]} value={r.value} max={r.max} sweep={sweep} delay={i * 0.12} tilt={false} />
 							</div>
 						)
 					})}

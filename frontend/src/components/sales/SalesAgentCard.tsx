@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { authHeaders, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
 import { DEFAULT_PROMPT, DEFAULT_TEMPLATES, DEFAULT_VARS, SCENARIOS } from './salesDefaults'
+import LeadAlertLinks from './LeadAlertLinks'
 import { BTN, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
 
 type Cfg = { enabled: boolean; activated: boolean; source: string; reportHour: number; vars: Record<string, string>; prompt: string; tplRep: string; tplManager: string; tplManagerNoRep: string; tplCustomer: string; tplReportSms: string }
@@ -76,6 +77,8 @@ export default function SalesAgentCard({ session }: { session: Session }) {
 				</ul>
 				<p className="text-[11px] text-muted-foreground sm:col-span-2">فهرست و موبایلِ کارشناسان همان «تنظیمات ← کارشناسان» است. زمان‌بند: {info.worker ? 'در حالِ کار' : 'خاموش'}</p>
 			</div>
+
+			{info.tables && info.canEdit && <LeadAlertLinks session={session} />}
 
 			{info.config.activated && (
 				<fieldset disabled={!ed} className="grid gap-3">

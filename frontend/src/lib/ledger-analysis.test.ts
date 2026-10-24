@@ -35,9 +35,20 @@ describe('salary models and finance attribution', () => {
   const hybrid=period(inv,freshS()), pure=period(inv,freshS(),{comp:'commission'})
   expect(pure.baseTotal).toBe(0); expect(pure.total).toBe(pure.payout); expect(hybrid.total).toBe(hybrid.baseTotal+pure.payout)
  })
- it('credits finance for held invoices without treating suspended credit as cash', () => {
+ it('owner decision 1405/07/30: finance is paid now for held (pending-cheque) invoices; the seller still waits', () => {
   const t=period(inv.map(d=>({...d,settle:'hold'})),freshS(),{comp:'fixed'})
-  expect(t.financeBonus['مالی'].basis).toBe(5000000); expect(t.financeBonus['مالی'].cash).toBe(0); expect(t.financeBonus['مالی'].pending).toBeGreaterThan(0)
+  const f=t.financeBonus['مالی']
+  expect(f.basis).toBe(5000000); expect(f.base).toBeGreaterThan(0); expect(f.cash).toBe(f.base); expect(f.held).toBe(f.base); expect(f.pending).toBe(0)
+  const cleared=period(inv,freshS(),{comp:'fixed'}).financeBonus['مالی']
+  expect(f.base).toBe(cleared.base)                                        // same credit before and after the cheque clears → never paid twice
+  const seller=period(inv.map(d=>({...d,settle:'hold'})),freshS())
+  expect(seller.payNow).toBe(0)                                            // the seller's commission stays held
+ })
+ it('owner decision 1405/07/30: lead-gen is paid for held invoices too, even in a month of only cheques', () => {
+  const lead=[d({ month:0, amount:100000000, funnel:'won', settle:'hold', leadGen:'لیدساز', finBy:'مالی' })]
+  const t=period(lead,freshS())
+  expect(t.leadBonus['لیدساز'].base).toBeGreaterThan(0)
+  expect(t.leadBonus['لیدساز'].base).toBe(period(lead.map(x=>({...x,settle:'cash'})),freshS()).leadBonus['لیدساز'].base)
  })
  it('month filtering excludes credits even when another month is explicitly active', () => {
   const S=freshS(); S.months={'0':{active:true,cfg:{base:1,threshold:0,tiers:[{cap:200,rate:3}]}}}

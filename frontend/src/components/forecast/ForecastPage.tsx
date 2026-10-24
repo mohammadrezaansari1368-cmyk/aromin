@@ -6,8 +6,9 @@
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
+import { sanitizeForecastHtml } from '@/lib/sanitizeForecastHtml'
 import { isAdmin, type Session } from '@/lib/auth'
 import { runPreset, setPageActions, setPageContext } from '@/lib/agent'
 import { fetchFull, saveState } from '@/lib/forecastStore'
@@ -64,6 +65,8 @@ const TierMark = ({ tier, className = 'h-4 w-5' }: { tier: Tier; className?: str
 )
 
 /* ---------------- بلوک‌های طراحی ---------------- */
+const ForecastBento = lazy(() => import('./ForecastBento'))
+
 function Card({ title, sub, children, id, tone }: { title: ReactNode; sub?: ReactNode; children: ReactNode; id?: string; tone?: string }) {
 	return (
 		<section id={id} className={`@container ${CARD} ${CARD_PAD} ${tone || ''}`}>
@@ -92,7 +95,7 @@ function Band({ tier, title, desc, children }: { tier: Tier; title: string; desc
 	)
 }
 function Html({ h, className = '' }: { h: string; className?: string }) {
-	return <p className={`max-w-[95ch] text-[12.5px] leading-7 text-muted-foreground ${className}`} dangerouslySetInnerHTML={{ __html: h }} />
+	return <p className={`max-w-[95ch] text-[12.5px] leading-7 text-muted-foreground ${className}`} dangerouslySetInnerHTML={{ __html: sanitizeForecastHtml(h) }} />
 }
 type FigKind = 'total' | 'gold' | 'warn' | undefined
 /** کاشیِ عدد — «total» رنگِ طبقهٔ همان بخش را می‌گیرد */
@@ -538,8 +541,28 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 		},
 	]
 
+	// 3.9.68: نمای بنتو — فقط نمایشِ همان خروجی‌های compute و معاملاتِ همین صفحه
+	const bento = (() => {
+		const ch: Record<string, number> = {}, st = { cash: 0, check: 0, hold: 0 }
+		for (const p of ctx.people || []) for (const d of (p as { inv?: Record<string, unknown>[] }).inv || []) {
+			if ((d.funnel || 'won') !== 'won') continue
+			const a = parseFloat(String(d.amount ?? '').replace(/[^\d.-]/g, '')) || 0
+			const c = d.channel === 'unofficial' ? 'غیررسمی' : 'رسمی'
+			ch[c] = (ch[c] || 0) + a
+			if (d.settle === 'hold') st.hold += a
+			else if (d.settle === 'check' || d.settle === 'cash_after_check') st.check += a
+			else st.cash += a
+		}
+		const today = new Intl.DateTimeFormat('en-US-u-ca-persian-nu-latn', { timeZone: 'Asia/Tehran', month: 'numeric' }).format(new Date())
+		return { channels: Object.entries(ch).map(([name, value]) => ({ name, value })), settle: st, month: Math.max(0, Math.min(11, (parseInt(today, 10) || 1) - 1)) }
+	})()
+
 	return (
 		<div dir="rtl" className="fc-root flex flex-col gap-6 pb-24 selection:bg-primary/15" style={VARS}>
+			<Suspense fallback={null}>
+				<ForecastBento year={r.ty} target={r.R} safeTarget={r.safeT} forecast={r.monthlyBlended && r.monthlyBlended.length ? r.monthlyBlended.slice(0, 12) : null}
+					actual={r.act} channels={bento.channels} settle={bento.settle} month={bento.month} readiness={r.ready} />
+			</Suspense>
 			<PyramidOverview tiers={pyramid} badge={saveBadge} />
 
 			{/* ۲) راهنما */}
@@ -634,7 +657,7 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 				<Card title="صنعتِ کسب‌وکارت چیست؟" sub="اول صنعت را انتخاب کن تا پیش‌فرض‌های تخصصی (حاشیهٔ سود، الگوی فصلی، نرخ خرید…) خودکار اعمال شود">
 					<div className="grid items-start gap-4 @3xl:grid-cols-[minmax(0,380px)_1fr]">
 						<label className="block"><Label>صنعتِ کسب‌وکار: پیش‌فرض‌های تخصصی</Label>{sel('fcIndustry', INDUSTRY_OPTS, doIndustry)}</label>
-						{indN && <div className="rounded-xl bg-[var(--fc-brass-soft)] px-4 py-3 text-[12.5px] leading-7 text-foreground ring-1 ring-accent/35" dangerouslySetInnerHTML={{ __html: indN }} />}
+						{indN && <div className="rounded-xl bg-[var(--fc-brass-soft)] px-4 py-3 text-[12.5px] leading-7 text-foreground ring-1 ring-accent/35" dangerouslySetInnerHTML={{ __html: sanitizeForecastHtml(indN) }} />}
 					</div>
 				</Card>
 
@@ -929,7 +952,7 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 							</div>
 							<Html className="mt-2" h={(mo.nAct ? "<b style='color:#1E8E3E'>✓ = عددِ واقعیِ ثبت‌شدهٔ " + fa(r.ty) + ' (' + fa(mo.nAct) + ' ماه)</b>؛ بقیهٔ ماه‌ها پیش‌بینیِ ۹ روش است. ' : '') + (r.usd > 0 && mo.blTot > 0 ? 'برای رشدِ واقعی (نه فقط تورمی)، فروشِ <b>دلاری</b> هر ماه باید از همان ماهِ سال قبل بیشتر باشد. مثال: در <b>' + MN[mo.peak[0]] + "</b> باید حدود <b style='direction:ltr;display:inline-block'>$" + sep(Math.round(mo.peak[1] / r.usd)) + '</b> بفروشی. (نرخ دلار: ' + faGroup(r.usd) + ' تومان)' : 'نرخ دلار را در گام «افق دید» وارد کن تا ستونِ «$ لازم» و هدفِ دلاریِ هر ماه نمایش داده شود.')} />
 							<div className="mt-4 grid grid-cols-1 gap-2.5 @xl:grid-cols-3">
-								<Fig kind="total" k="پیش‌بینی کل سال هدف" v={sep(mo.blTot)} u={<span dangerouslySetInnerHTML={{ __html: 'تومان — سال ' + fa(r.ty) + (mo.sel.length ? ' · ' + fa(mo.sel.length) + ' روش' : ' · روشی انتخاب نشده') + (r.usd > 0 && mo.blTot > 0 ? ' · ≈ <b>$' + sep(Math.round(mo.blTot / r.usd)) + '</b>' : '') }} />} />
+								<Fig kind="total" k="پیش‌بینی کل سال هدف" v={sep(mo.blTot)} u={<span dangerouslySetInnerHTML={{ __html: sanitizeForecastHtml('تومان — سال ' + fa(r.ty) + (mo.sel.length ? ' · ' + fa(mo.sel.length) + ' روش' : ' · روشی انتخاب نشده') + (r.usd > 0 && mo.blTot > 0 ? ' · ≈ <b>$' + sep(Math.round(mo.blTot / r.usd)) + '</b>' : '')) }} />} />
 								<Fig small k="بهترین ماه (اوج فصلی)" v={mo.blTot > 0 ? MN[mo.peak[0]] : '—'} u={mo.blTot > 0 ? sep(mo.peak[1]) : '—'} />
 								<Fig small k="ضعیف‌ترین ماه" v={mo.blTot > 0 ? MN[mo.low[0]] : '—'} u={mo.blTot > 0 ? sep(mo.low[1]) : '—'} />
 							</div>
