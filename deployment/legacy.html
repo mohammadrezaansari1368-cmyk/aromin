@@ -4003,7 +4003,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     officialDeduct:10, months:{} }; }
 
   /* ---------- چند کارشناس ---------- */
-  var APP_VERSION = "3.9.83";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
+  var APP_VERSION = "3.9.84";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
   var DATA_VERSION=3;             // نسخه‌ی ساختار داده (برای مهاجرت خودکار)
   var PEOPLE=[], activePid=null, gid=1;
   var SALESCRISIS=false;   // شرایطِ بحرانی: مدیرِ فروش هم تارگت می‌گیرد و می‌فروشد
@@ -13524,6 +13524,14 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     if(window.parent!==window) whenReady(function(ok){ try{ window.parent.postMessage({aromin:"import-ready",ok:ok,tenant:TENANT,log:(typeof IMPORTLOG!=="undefined"?IMPORTLOG.slice(-60):[])}, location.origin); }catch(e){} });
   })();
   function _hasInv(f){ try{ return !!(f && Array.isArray(f.people) && f.people.some(function(p){ return (p.inv&&p.inv.length) || (p.invY && Object.keys(p.invY).some(function(y){ return p.invY[y]&&p.invY[y].length; })); })); }catch(e){ return false; } }
+  // 3.9.84: saves were rejected for days (ledger lock 409) — candidates typed in that time live only in this browser's local copy.
+  // Read them BEFORE the server state replaces memory, then add back any candidate the server does not have and save once.
+  function _localHire(){ var out=[]; try{ [CUR_KEY,SAVE_KEY].forEach(function(k){ var raw=localStorage.getItem(k); if(!raw) return; var o=JSON.parse(raw); (o.hire||[]).forEach(function(h){ if(h&&h.id&&!out.some(function(x){return x.id===h.id;})) out.push(h); }); }); }catch(e){} return out; }
+  function _mergeHire(list){
+    var n=0; (list||[]).forEach(function(h){ if(!HIRE.some(function(x){return x.id===h.id;})){ HIRE.push(h); n++; } });
+    if(n){ try{ console.info("[aromin] "+n+" hiring candidate(s) restored from this browser"); }catch(e){}
+      setTimeout(function(){ if(typeof autosave==="function") autosave(); if(typeof toast==="function") toast(n+" داوطلب از حافظهٔ این مرورگر بازیابی و ذخیره شد"); }, 1500); }
+  }
   function _hasInvLS(){ try{ var raw=localStorage.getItem(CUR_KEY)||localStorage.getItem(SAVE_KEY); if(!raw) return false; return _hasInv(JSON.parse(raw)); }catch(e){ return false; } }
   function loadTenantData(cb){
     function doneLocal(){
@@ -13537,7 +13545,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
         dbBadge("MariaDB — متصل", true);
         API.load().then(function(d){
           var full=(d&&d.ok&&d.full&&d.full.people)?d.full:null;
-          if(full && _hasInv(full)){ applySnapshot(full); tenantFinish(); dbBadge("MariaDB — بارگذاری شد (کامل)", true); if(cb) cb(); return; }
+          if(full && _hasInv(full)){ var _lh=_localHire(); applySnapshot(full); _mergeHire(_lh); tenantFinish(); dbBadge("MariaDB — بارگذاری شد (کامل)", true); if(cb) cb(); return; }
           // بازیابیِ اضطراری: بلابِ کسب‌وکار خالی است ولی سرور آرایهٔ people/normalized (جدول‌های people+deals) را برگردانده — از همان بازسازی کن
           var sqlPeople=(d&&d.ok&&Array.isArray(d.people)&&d.people.length)?d.people:null;
           if(sqlPeople && _hasInv({people:sqlPeople})){

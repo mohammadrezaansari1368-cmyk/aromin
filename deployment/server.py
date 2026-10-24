@@ -10,6 +10,7 @@ import re
 import math
 import json
 import time
+import copy
 import random
 import secrets
 from aromin_security import PublicError, PublicValidationError, public_error, secret_matches
@@ -733,6 +734,7 @@ def post_state(request: Request, payload: dict = Body(default={}), tenant: str =
                 _preserve_import_history(old, st)
                 _preserve_compensation(old, st)
                 _merge_sale_dates(old, st)
+                _c1_repair(old, st)
                 bad = _c1_lock_violation(old, st)
                 if bad:
                     return JSONResponse({"ok": False, "error": bad, "locked": True}, status_code=409)
@@ -2248,6 +2250,53 @@ def _c1_index(full):
                 if isinstance(d, dict) and d.get("id") is not None:
                     out.setdefault(str(d.get("id")), []).append(d)
     return out
+
+
+def _c1_repair(old, new):
+    """3.9.84: the legacy page autosaves the whole state with its own (older) copy of the ledger. A locked deal or a finance-only
+    field it carries is no longer a reason to reject the WHOLE save (that silently dropped hiring candidates, settings… for days):
+    the server's version of those deals/fields is put back into the incoming state and everything else is accepted."""
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return 0
+    oi, ni, fixed = _c1_index(old), _c1_index(new), 0
+    owner = {}
+    for p in (old.get("people") or []):
+        if isinstance(p, dict):
+            for d in (p.get("inv") or []):
+                if isinstance(d, dict) and d.get("id") is not None:
+                    owner[str(d["id"])] = p.get("id")
+    people = {pp.get("id"): pp for pp in (new.get("people") or []) if isinstance(pp, dict)}
+    for did, ds in oi.items():
+        locked = next((d for d in ds if _c1_locked(d)), None)
+        nds = ni.get(did) or []
+        if locked is not None:
+            if not nds:
+                pp = people.get(owner.get(did))
+                if pp is not None:
+                    pp.setdefault("inv", []).append(copy.deepcopy(locked)); fixed += 1
+                continue
+            for nd in nds:
+                if nd != locked:
+                    nd.clear(); nd.update(copy.deepcopy(locked)); fixed += 1
+            continue
+        ref = ds[0]
+        for nd in nds:
+            for f in C1_SERVER_FIELDS:
+                if nd.get(f) != ref.get(f):
+                    if f in ref:
+                        nd[f] = copy.deepcopy(ref[f])
+                    else:
+                        nd.pop(f, None)
+                    fixed += 1
+            if str(ref.get("no") or "").strip() and nd.get("no") != ref.get("no"):
+                nd["no"] = ref.get("no"); fixed += 1
+    for did, ds in ni.items():
+        if did not in oi:
+            for d in ds:
+                for f in C1_SERVER_FIELDS:
+                    if d.pop(f, None) is not None:
+                        fixed += 1
+    return fixed
 
 
 def _c1_lock_violation(old, new):
