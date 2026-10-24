@@ -308,3 +308,27 @@ select:not([multiple]):not([size]):disabled { opacity: .6; cursor: not-allowed; 
 
 /* 3.9.81: تنظیمات به سبکِ Claude Desktop — کارت‌های داخلِ هر بخش تخت می‌شوند (بدونِ سایه/قاب)، فقط خطِ جداکننده */
 .cs-pane > * { box-shadow: none !important; --tw-ring-shadow: 0 0 #0000 !important; background: transparent !important; border-radius: 0 !important; border: 0 !important; border-bottom: 1px solid hsl(var(--border) / .6) !important; padding-inline: 0 !important; margin: 0 !important; }
+
+/* 3.9.87: Segmented (AlexisRoe e-ink-ui-lib) — Tailwind 3 project, so its variables and classes live here; mapped to the theme tokens */
+:root {
+  --eink-color-primary: hsl(var(--foreground));
+  --eink-color-secondary: hsl(var(--card));
+  --eink-color-background: hsl(var(--muted));
+  --eink-color-disabled: hsl(var(--muted-foreground));
+  --eink-size-16: 16px;
+  --eink-size-24: 24px;
+  --eink-font-size-default: 14px;
+  --eink-border-width-medium: 2px;
+  --eink-border-style: solid;
+  --eink-border-color: hsl(var(--border));
+  --eink-border-medium: var(--eink-border-width-medium) var(--eink-border-style) var(--eink-border-color);
+}
+.eink-segmented { display: inline-flex; max-width: 100%; }
+.eink-segmented--full-width { display: flex; width: 100%; }
+.eink-segmented__list { display: flex; flex: 1; gap: 4px; margin: 0; padding: 4px; list-style: none; border: var(--eink-border-medium); border-radius: 14px; background: var(--eink-color-background); }
+.eink-segmented__item-wrapper { flex: 1; display: flex; }
+.eink-segmented__item { flex: 1; min-height: 44px; padding: 0 var(--eink-size-16); border: 0; border-radius: 10px; background: transparent; color: var(--eink-color-disabled);
+  font: inherit; font-size: var(--eink-font-size-default); font-weight: 600; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
+.eink-segmented__item:hover { color: var(--eink-color-primary); }
+.eink-segmented__item:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.eink-segmented__item--selected { background: var(--eink-color-secondary); color: var(--eink-color-primary); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }

@@ -13,7 +13,12 @@ import { isAdmin, type Session } from '@/lib/auth'
 import { runPreset, setPageActions, setPageContext } from '@/lib/agent'
 import { fetchFull, saveState } from '@/lib/forecastStore'
 import Sortable from '@/components/ui/sortable'
-import { BentoGrid, CurrencyInput, Field, FieldDescription, FieldGroup, FieldLabel, InputGroup, InputGroupAddon, Markdown, MetricCard, RadioGroupWithPlanCards, Segmented, Select, ShCard, ShCardHeader, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/shadcn-kit'
+import Segmented from '@/components/ui/segmented'
+import RadioGroupWithPlanCards, { type Plan } from '@/components/ui/radio-group-with-plan-cards'
+import CurrencyInput from 'react-currency-input-field'
+import ReactSelect from 'react-select'
+import { HeartHandshake, Rocket, ShieldCheck } from 'lucide-react'
+import { BentoGrid, Field, FieldDescription, FieldGroup, FieldLabel, InputGroup, InputGroupAddon, Markdown, MetricCard, ShCard, ShCardHeader, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/shadcn-kit'
 import { stripHtml, toBullets } from '@/lib/stripHtml'
 import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, FOCUS } from '@/components/ui/tokens'
 import {
@@ -69,6 +74,23 @@ const TierMark = ({ tier, className = 'h-4 w-5' }: { tier: Tier; className?: str
 /* ---------------- بلوک‌های طراحی ---------------- */
 const ForecastBento = lazy(() => import('./ForecastBento'))
 
+// 3.9.87: «استراتژی امسال» plans (lucide icons; «price» = marketing budget share of target sales, same rule as the auto-suggestion)
+const STRAT_PLANS: Plan[] = [
+	{ id: 'survive', title: 'بقا', desc: 'فقط بمانم؛ نقدینگی و هزینه‌ها اولویت دارند.', price: 'بودجه ۴٪', icon: ShieldCheck, color: 'text-sky-600', background: 'bg-sky-500/10' },
+	{ id: 'hold', title: 'حفظ', desc: 'سهم بازار را نگه دارم و مشتری را حفظ کنم.', price: 'بودجه ۶٪', icon: HeartHandshake, color: 'text-amber-500', background: 'bg-amber-400/10' },
+	{ id: 'grow', title: 'رشد', desc: 'سهم بازار بگیرم؛ بودجهٔ بازاریابی بیشتر.', price: 'بودجه ۱۲٪', icon: Rocket, color: 'text-rose-500', background: 'bg-rose-500/10' },
+]
+// react-select in the theme (RTL, 44 px control, tokens instead of its blue defaults)
+const RS_STYLES = {
+	control: (b: object, st: { isFocused: boolean }) => ({ ...b, minHeight: 44, borderRadius: 12, background: 'hsl(var(--card))', borderColor: st.isFocused ? 'hsl(var(--primary))' : 'hsl(var(--border))', boxShadow: st.isFocused ? '0 0 0 4px hsl(var(--primary) / .12)' : 'none', '&:hover': { borderColor: 'hsl(var(--primary) / .4)' } }),
+	menu: (b: object) => ({ ...b, borderRadius: 12, background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', boxShadow: '0 12px 32px rgb(0 0 0 / .18)', overflow: 'hidden' }),
+	menuPortal: (b: object) => ({ ...b, zIndex: 60 }),
+	option: (b: object, st: { isFocused: boolean; isSelected: boolean }) => ({ ...b, fontSize: 14, minHeight: 40, cursor: 'pointer', color: 'hsl(var(--foreground))', fontWeight: st.isSelected ? 700 : 400, background: st.isSelected ? 'hsl(var(--primary) / .14)' : st.isFocused ? 'hsl(var(--primary) / .08)' : 'transparent' }),
+	singleValue: (b: object) => ({ ...b, color: 'hsl(var(--foreground))', fontSize: 14 }),
+	input: (b: object) => ({ ...b, color: 'hsl(var(--foreground))' }),
+	placeholder: (b: object) => ({ ...b, color: 'hsl(var(--muted-foreground))', fontSize: 14 }),
+	indicatorSeparator: () => ({ display: 'none' }),
+}
 function Card({ title, sub, children, id, tone }: { title: ReactNode; sub?: ReactNode; children: ReactNode; id?: string; tone?: string }) {
 	return (
 		<section id={id} className={`@container ${CARD} ${CARD_PAD} ${tone || ''}`}>
@@ -670,7 +692,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 						<div className="flex flex-col gap-4 lg:col-span-4">
 							<Field>
 								<FieldLabel>صنعت کسب‌وکار: پیش‌فرض‌های تخصصی</FieldLabel>
-								<Select value={v('fcIndustry')} onValueChange={doIndustry} options={INDUSTRY_OPTS.filter((o) => o[0])} placeholder="صنعت را انتخاب کن" ariaLabel="صنعت کسب‌وکار" />
+								<ReactSelect aria-label="صنعت کسب‌وکار" isRtl isSearchable placeholder="صنعت را انتخاب کن" noOptionsMessage={() => 'پیدا نشد'}
+									options={INDUSTRY_OPTS.filter((o) => o[0]).map(([value, label]) => ({ value, label }))}
+									value={INDUSTRY_OPTS.filter((o) => o[0] && o[0] === v('fcIndustry')).map(([value, label]) => ({ value, label }))[0] || null}
+									onChange={(o) => { if (o) doIndustry(o.value) }} menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined} styles={RS_STYLES} />
 								<FieldDescription>تغییر صنعت، تمام مقادیر پیش‌فرض را بازنویسی می‌کند.</FieldDescription>
 							</Field>
 						</div>
@@ -692,8 +717,11 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 						<FieldGroup className="lg:col-span-8">
 							<Field>
 								<FieldLabel>افق دید</FieldLabel>
-								<Segmented fullWidth label="افق دید" value={(v('fcHorizonUnit') || '1') as '1' | '3' | '12'} onChange={(u) => update({ fcHorizonUnit: u }, 'fcHorizonUnit')}
-									options={[{ value: '1', label: 'ماهانه' }, { value: '3', label: 'فصلی' }, { value: '12', label: 'سالانه' }]} />
+								<Segmented fullWidth aria-label="افق دید" defaultId="1" value={v('fcHorizonUnit') || '1'} onChange={(u) => update({ fcHorizonUnit: u }, 'fcHorizonUnit')}>
+									<Segmented.Item id="1">ماهانه</Segmented.Item>
+									<Segmented.Item id="3">فصلی</Segmented.Item>
+									<Segmented.Item id="12">سالانه</Segmented.Item>
+								</Segmented>
 								<div className="flex items-center gap-2">
 									<span className="text-sm text-muted-foreground">طولِ افق:</span>
 									<div className="w-24">{txt('fcHorizon', { w: '!h-11' })}</div>
@@ -702,17 +730,16 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 							</Field>
 							<Field>
 								<FieldLabel>استراتژی امسال</FieldLabel>
-								<RadioGroupWithPlanCards label="استراتژی امسال" value={v('fcStrategy') || 'hold'} onValueChange={(s) => update({ fcStrategy: s }, 'fcStrategy')} options={[
-									{ value: 'survive', title: 'بقا', badge: 'Survival', desc: 'فقط بمانم؛ نقدینگی و هزینه‌ها اولویت دارند.' },
-									{ value: 'hold', title: 'حفظ', badge: 'Hold', desc: 'سهم بازار را نگه دارم و مشتری را حفظ کنم.' },
-									{ value: 'grow', title: 'رشد', badge: 'Growth', desc: 'سهم بازار بگیرم؛ بودجهٔ بازاریابی بیشتر.' },
-								]} />
+								<RadioGroupWithPlanCards label="استراتژی امسال" value={v('fcStrategy') || 'hold'} onValueChange={(x) => update({ fcStrategy: x }, 'fcStrategy')} plans={STRAT_PLANS} />
 								{r.stratNote && <FieldDescription>{r.stratNote}</FieldDescription>}
 							</Field>
 							<Field>
 								<FieldLabel htmlFor="fcUsdIn">نرخ دلار امروز (تومان)</FieldLabel>
 								<InputGroup>
-									<CurrencyInput id="fcUsdIn" value={v('fcUsd')} onValueChange={(d) => onText('fcUsd')(d)} placeholder="مثلاً 187,515" suffix="تومان" />
+									<CurrencyInput id="fcUsdIn" dir="ltr" inputMode="numeric" allowDecimals={false} allowNegativeValue={false} groupSeparator="," decimalSeparator="."
+										value={toLat(v('fcUsd')).replace(/[^0-9]/g, '')} onValueChange={(val) => onText('fcUsd')(val || '')} placeholder="مثلاً 187,515"
+										className="min-h-[44px] w-full min-w-0 flex-1 bg-transparent px-3 text-left text-[15px] tabular-nums outline-none placeholder:text-muted-foreground/70" />
+									<span className="flex items-center px-2 text-xs text-muted-foreground">تومان</span>
 									<InputGroupAddon>
 										<button type="button" onClick={doUsdFetch} disabled={usdBusy} className="min-h-[36px] whitespace-nowrap rounded-lg bg-primary/10 px-3 text-sm font-semibold text-primary transition hover:bg-primary/15 disabled:opacity-50">
 											{usdBusy ? 'در حال دریافت…' : 'دریافت آنلاین'}
