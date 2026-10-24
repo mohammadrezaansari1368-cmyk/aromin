@@ -5018,12 +5018,16 @@ async def widget_public_chat(request: Request, site_id: str = PathParam(...)):
     spec = agent_spec(site["tenant"], route, history, sid, not preview) if route else None
     if spec and spec["handoff"]:
         history = history[-4:]                     # the new specialist gets a case summary (in spec.persona) + the last turns
+    if str(p.get("model") or "") in WIDGET_MODELS:
+        site = dict(site, _model=str(p["model"]))      # visitor picked one of the 4 low-cost models in the chat
     if sa_enabled(site["tenant"]) or agent_on:
         out = await _in_pool(sa_reply, site, history, page, conv, vis, preview, spec)
     else:
         out = await _in_pool(_w_reply, site, history, page)
     if spec:
         out["agent"] = {"key": spec["agent"], "name": spec["name"]}
+    if out.get("ok") and WIDGET_CART_BUNDLE and _BUY_RE.search(history[-1]["content"]):
+        out["action"] = {"cart": WIDGET_CART_BUNDLE, "checkout": "https://arominco.com/cart"}
     if agent_on and not preview:
         if not out.get("ok"):
             agent_event(site["tenant"], sid, "error", {"code": "reply"})
@@ -6490,6 +6494,18 @@ def _sa_may(spec, action):
     return spec is None or action in spec["actions"]
 
 
+# 3.9.83: the site agent's «prompt-master» skill (compact) — visitors who ask for a prompt get one ready to paste
+SA_PROMPT_MASTER = (
+    "\n\n[مهارت: prompt-master] اگر کاربر خواست برای یک ابزارِ هوش مصنوعی (ChatGPT، Claude، Gemini، Midjourney، ابزارِ ویدیو یا کدنویسی) پرامپت بنویسی یا پرامپتش را بهتر کنی: "
+    "اگر ابزارِ هدف معلوم نیست فقط همان را یک بار بپرس؛ بعد هدف، ورودی، قالبِ خروجی، محدودیت‌ها و معیارِ موفقیت را بیرون بکش و یک پرامپتِ کامل و آمادهٔ کپی بده "
+    "(نقش، زمینه، وظیفه، قالبِ خروجی، محدودیت‌ها؛ برای تصویر: سوژه، سبک، نور، قاب و پارامترها). پرامپت را بینِ ``` و ``` بگذار و زیرش فقط یک جمله بنویس که چه چیزی بهینه شد. "
+    "بدونِ توضیحِ اضافه و بدونِ کلیدِ API یا اطلاعاتِ محرمانه.")
+# 3.9.83: «I want the software» → the site widget puts the starter bundle in the shop cart (Shopfa, same origin) and sends the visitor to pay
+WIDGET_CART_BUNDLE = [x.strip() for x in os.environ.get("WIDGET_CART_BUNDLE", "sepidz-web-light,printer-oscar-pos-58ub").split(",") if x.strip()]
+_BUY_RE = re.compile(r"(نرم ?‌?افزار|سپیدز|برنامه(ی)? (رستوران|کافه|فروشگاه)).{0,25}(می ?‌?خوا|لازم|بخر|خرید|سفارش)|(می ?‌?خوا|بخر|خرید|سفارش).{0,25}(نرم ?‌?افزار|سپیدز)")
+WIDGET_MODELS = ("GPT-5.6-Luna", "DeepSeek-V4-Flash", "Claude-Haiku-4.5", "Gemini-2.5-Flash")
+
+
 def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False, spec=None):
     """حالتِ دستیارِ فروش: پرامپتِ تنظیمات + دانشِ عمومی + کاتالوگِ مرتبط + جستجوی امن (سقفِ ۳) + ثبتِ لید.
     spec (3.9.64): پرامپت، مجموعه‌های دانش و actionهای ایجنتِ انتخاب‌شده توسطِ ارکستراتور."""
@@ -6520,11 +6536,12 @@ def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False,
     lap("grounding", st)
     if page.get("title"):
         system += "\n\n[داده] صفحه‌ای که مشتری الان در آن است: " + _sa_clean(page.get("title"), 200)
+    system += SA_PROMPT_MASTER
     msgs, searches, log = list(history), 0, []
     out = {"ok": False}
     for _ in range(3):
         st = time.perf_counter()
-        out = ai_chat(system, None, max_tokens=600, temperature=0.4, history=msgs, model=agent_model(tenant))
+        out = ai_chat(system, None, max_tokens=600, temperature=0.4, history=msgs, model=site.get("_model") or agent_model(tenant))
         tm["llm"].append(round(time.perf_counter() - st, 2))
         if not out.get("ok"):
             _sa_timing_log(tm, t0, "error")
@@ -10189,6 +10206,33 @@ def council_ask(request: Request, payload: dict = Body(default={}), tenant: str 
     skipped = [k for k in want if k not in seats]
     if len(seats) < 2:
         return JSONResponse({"ok": False, "error": "دست‌کم دو صندلیِ آماده لازم است (صندلیِ بی‌دانشنامه نمی‌نشیند).", "skipped": skipped}, status_code=400)
+    if payload.get("async"):
+        # 3.9.83: a full session takes 40–90 s (reasoning seats + chair) — longer than the CDN/proxy timeout (504).
+        # Run it in the background and let the room poll GET /api/council/job/{id}.
+        jid = _uuid.uuid4().hex
+        with _council_lock:
+            for k in [k for k, v in _council_jobs.items() if time.time() - v["t"] > 3600]:
+                _council_jobs.pop(k, None)
+            _council_jobs[jid] = {"t": time.time(), "tenant": tenant, "done": False, "result": None}
+
+        def run():
+            try:
+                res = _council_run(tenant, question, seats, skipped, ent)
+            except Exception as e:
+                res = {"ok": False, "error": "جلسه انجام نشد: " + str(e)[:120]}
+            with _council_lock:
+                _council_jobs[jid].update(done=True, result=res)
+        _th.Thread(target=run, daemon=True).start()
+        return {"ok": True, "job": jid}
+    res = _council_run(tenant, question, seats, skipped, ent)
+    return res if res.get("ok") else JSONResponse(res, status_code=502)
+
+
+_council_jobs = {}
+_council_lock = _th.Lock()
+
+
+def _council_run(tenant, question, seats, skipped, ent):
     try:
         live = json.dumps({k: v for k, v in dashboard_live(tenant).items() if k != "sources"}, ensure_ascii=False, default=str)[:1500]
     except Exception:
@@ -10196,13 +10240,27 @@ def council_ask(request: Request, payload: dict = Body(default={}), tenant: str 
     with _Pool(max_workers=len(seats)) as ex:
         cards = list(ex.map(lambda k: council_seat_turn(tenant, k, question, live, ent), seats))
     if sum(1 for c in cards if c.get("ok")) < 2:
-        return JSONResponse({"ok": False, "error": next((c["error"] for c in cards if c.get("error")), "مدل پاسخ نداد."), "cards": cards}, status_code=502)
+        return {"ok": False, "error": next((c["error"] for c in cards if c.get("error")), "مدل پاسخ نداد."), "cards": cards}
     verdict = council_chair(tenant, question, cards, live)
     try:
         agent_event(tenant, None, "council", {"agent": "coach", "seats": seats, "skipped": skipped})
     except Exception:
         pass
     return {"ok": True, "question": question, "seats": seats, "skipped": skipped, "cards": cards, "verdict": verdict}
+
+
+@app.get("/api/council/job/{jid}")
+def council_job(request: Request, jid: str = PathParam(...), tenant: str = Query(default="")):
+    ident, err = _kb_guard(request, tenant)
+    if err:
+        return err
+    with _council_lock:
+        j = _council_jobs.get(jid)
+    if not j or j["tenant"] != tenant:
+        return JSONResponse({"ok": False, "error": "جلسه پیدا نشد؛ دوباره تشکیل دهید."}, status_code=404)
+    if not j["done"]:
+        return {"ok": True, "done": False}
+    return {"ok": True, "done": True, "result": j["result"]}
 
 
 # ---- 3.9.73: مدیریتِ پیجِ اینستاگرام (aromin.online) از راهِ کانکتورِ Composio — سرور به graph.instagram.com دسترسی ندارد ولی به Composio دارد.

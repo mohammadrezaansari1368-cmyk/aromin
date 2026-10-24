@@ -213,3 +213,8 @@
 
 /* 3.9.82: on touch screens a tap toggles a seat and the page can still scroll (drag-to-seat stays for mouse/pen) */
 @media (pointer: coarse) { .rr .samples button { touch-action: manipulation; } }
+
+/* 3.9.83: the chair is always visible — gold plate at the head of the table (top centre), phones included */
+.rr .chair-plate { left: 50% !important; right: auto !important; top: 10px !important; bottom: auto !important; transform: translateX(-50%); position: absolute !important; margin: 0 !important;
+  padding: 7px 16px 7px 12px; border-width: 1.5px; box-shadow: 0 0 0 4px rgba(252,191,0,.12), 0 8px 24px rgba(0,0,0,.35); white-space: nowrap; }
+.rr .chair-plate b { font-size: 13.5px; } .rr .chair-plate small { color: #fcbf00; }

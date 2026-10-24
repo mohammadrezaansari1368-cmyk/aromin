@@ -56,7 +56,8 @@ export const FACE_CSS = `
 /** حالت را روی چهره اعمال می‌کند: فقط کلاس و تصویرِ همان واکنشِ سه‌بعدی (بدونِ بازسازیِ DOM) */
 export function applyState(el: Element, s: EmotionState) {
 	const L = LOOKS[s] || LOOKS.neutral
-	el.setAttribute('class', 'af ' + s + ' ' + (L.cls || ''))
+	// keep the host's own sizing class (widget.js header avatar «hav») — 3.9.83: without it the avatar filled the phone screen
+	el.setAttribute('class', (el.classList.contains('hav') ? 'hav ' : '') + 'af ' + s + ' ' + (L.cls || ''))
 	const src = FACE_BASE + '/agent/' + (FACE_OF[s] || 'listening') + '.webp'
 	if (el.getAttribute('src') !== src) el.setAttribute('src', src)
 	el.setAttribute('data-state', s)

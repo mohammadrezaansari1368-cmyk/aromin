@@ -227,7 +227,18 @@ export default function CouncilRoom({ session }: { session: Session }) {
 
 	// optional Persian voice (Web Speech, fa-IR only; never a third-party TTS) — off by default
 	const [voice, setVoice] = useState(false)
-	const faVoice = () => (typeof speechSynthesis !== 'undefined' ? speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith('fa')) : undefined)
+	// Persian voice if the device has one, else Arabic (iPhone has no Persian TTS); first utterance is spoken inside the tap so iOS unlocks speech
+	const faVoice = () => { if (typeof speechSynthesis === 'undefined') return undefined; const vs = speechSynthesis.getVoices(); return vs.find((v) => /^fa/i.test(v.lang)) || vs.find((v) => /^ar/i.test(v.lang)) }
+	const toggleVoice = () => {
+		const on = !voice
+		setVoice(on)
+		if (typeof speechSynthesis === 'undefined') { if (on) setErr('این مرورگر از صدا پشتیبانی نمی‌کند؛ زیرنویس نمایش داده می‌شود.'); return }
+		speechSynthesis.cancel()
+		if (!on) return
+		const u = new SpeechSynthesisUtterance('صدا روشن شد'), v = faVoice()
+		if (v) { u.voice = v; u.lang = v.lang } else { u.lang = 'fa-IR'; setErr('این دستگاه صدای فارسی ندارد؛ زیرنویس نمایش داده می‌شود.') }
+		speechSynthesis.speak(u)
+	}
 
 	const wait = (ms: number) => (skip.current ? Promise.resolve() : sleep(ms / speedRef.current))
 	const mouthWord = async (seat: string, word: string) => {
@@ -270,7 +281,17 @@ export default function CouncilRoom({ session }: { session: Session }) {
 		const seatsNow = pinAlavi(mode === 'quick' ? pick.slice(0, 4) : pick, (k) => k)
 		setBusy(true); setErr(''); setRes(null); setDone(false); setSaid(null); setHeard([]); setAsked(question.trim()); setSpeed(1)
 		try {
-			const r = await api<Result>(session, '/api/council/ask', { question: question.trim(), seats: seatsNow })
+			// 3.9.83: the session runs in the background on the server (40–90 s is longer than the CDN timeout) — poll until it is done
+			const j = await api<{ job?: string } & Partial<Result>>(session, '/api/council/ask', { question: question.trim(), seats: seatsNow, async: true })
+			let r = j as Result
+			for (let i = 0; j.job && i < 100; i++) {
+				await sleep(3000)
+				const st = await api<{ done: boolean; result?: Result & { ok?: boolean; error?: string } }>(session, '/api/council/job/' + j.job)
+				if (!st.done) continue
+				if (!st.result?.ok) throw new Error(st.result?.error || 'جلسه انجام نشد')
+				r = st.result; break
+			}
+			if (!r.cards) throw new Error('جلسه طول کشید؛ دوباره امتحان کنید.')
 			setRes(r); setBusy(false); await play(r)
 		} catch (e) { setErr((e as Error).message); setBusy(false) }
 	}
@@ -293,7 +314,7 @@ export default function CouncilRoom({ session }: { session: Session }) {
 					<li key={k} className={k === step ? 'active' : STEPS.findIndex((x) => x[0] === step) > i ? 'done' : ''}>{l}</li>))}</ol>
 				<div className="top-actions">
 					<span className="usage">Chair: {chair || 'Coach agent'}</span>
-					<button className="ghost" type="button" aria-pressed={voice} title="Persian voice (fa-IR) from this browser, if it has one" onClick={() => setVoice((v) => !v)}>Voice {voice ? 'on' : 'off'}</button>
+					<button className="ghost" type="button" aria-pressed={voice} title="Persian voice (fa-IR) from this browser, if it has one" onClick={toggleVoice}>{voice ? 'صدا: روشن' : 'صدا: خاموش'}</button>
 					{res && <button className="ghost" type="button" onClick={reset}>New question</button>}
 				</div>
 			</header>
@@ -370,12 +391,12 @@ export default function CouncilRoom({ session }: { session: Session }) {
 									</div>
 								</form>
 							)}
-							{busy && <div className="caption"><div className="cap-head"><span className="cap-who">The Chair</span><span className="cap-tag">Seats are thinking</span></div>
+							{busy && <div className="caption"><div className="cap-head"><span className="cap-who">رئیسِ جلسه</span><span className="cap-tag">Seats are thinking</span></div>
 								<p className="cap-text chair">Each seat reads its library and the live numbers<span className="dots"><i /><i /><i /></span></p></div>}
 							{said && (
 								<div className="caption" aria-live="polite" data-testid="council-caption">
 									<div className="cap-head">{said.seat && <span className="cap-av"><img src={by(said.seat)?.portrait ? src(by(said.seat)!) : '/aromin-mark.svg'} alt="" /></span>}
-										<span className="cap-who">{said.seat ? by(said.seat)?.name : 'The Chair'}</span><span className="cap-tag">{said.tag}</span></div>
+										<span className="cap-who">{said.seat ? by(said.seat)?.name : 'رئیسِ جلسه'}</span><span className="cap-tag">{said.tag}</span></div>
 									<p className={`cap-text ${said.seat ? '' : 'chair'}`} dir="auto">{said.words.map((w, i) => <span key={i} className={`w ${i < said.n ? 'on' : ''}`}>{w} </span>)}</p>
 								</div>
 							)}
@@ -409,7 +430,7 @@ export default function CouncilRoom({ session }: { session: Session }) {
 						<button type="button" role="tab" aria-selected={panelOpen && tab === 'lib'} title="Library" onClick={() => { setTab('lib'); togglePanel(true) }}><span className="tl">Library</span><span className="ti" aria-hidden="true">📚</span></button>
 					</div>
 					{!panelOpen ? null : tab === 'feed' ? (
-						<div className="tabpanel">{heard.length === 0 && <div className="empty">One line per seat as the council talks.</div>}
+						<div className="tabpanel">{heard.length === 0 && <div className="empty">خلاصهٔ حرفِ هر صندلی اینجا می‌آید.</div>}
 							{heard.map((k) => { const c = cards[k], s = by(k); return c && s && (
 								<div key={k} className="feed-card"><div className="h"><img className="av" src={s.portrait ? src(s) : '/aromin-mark.svg'} alt="" />{s.name}<span className="r">{STANCE_EN[c.stance || ''] || c.stance} · {c.score}/10</span></div>
 									<p dir="auto">{c.line}</p>
@@ -424,7 +445,6 @@ export default function CouncilRoom({ session }: { session: Session }) {
 					) : <Library session={session} seats={seats} reload={load} />}
 				</aside>
 			</main>
-			<p className="disclaimer">Simulated advisors built from each person's public work. They are not the people and do not speak for them.</p>
 
 			{sheet && res?.verdict.ok && (
 				<div className="rr rr-sheet" role="dialog" aria-modal="true" aria-label="Verdict" onClick={(e) => { if (e.target === e.currentTarget) setSheet(false) }}>

@@ -58,7 +58,7 @@
 				sel + ' .tease{bottom:' + (p.bottom + 92) + 'px;' + side + ':' + p.offset + 'px;' + other + ':auto}' +
 				sel + ' .panel{bottom:' + (p.bottom + 92) + 'px;' + side + ':' + p.offset + 'px;' + other + ':auto;transform-origin:bottom ' + side + '}'
 		}
-		var col = c.color, ink = '#1f1e1d', mute = '#7a776c', line = '#e8e6dc'
+		var col = c.color || '#910D6A', blue = '#004991', gold = '#FCBF00', ink = '#1f1e1d', mute = '#7a776c', line = '#e8e6dc'
 		return ':host{all:initial}*{box-sizing:border-box;margin:0;padding:0;font-family:ArominWidget,Tahoma,sans-serif;letter-spacing:0;line-height:1.7;text-transform:none}' +
 			// launcher: the 3D assistant hops (squash & stretch) until the visitor opens the chat once
 			'.btn{position:fixed;z-index:2147483000;width:78px;height:78px;border:0;padding:0;cursor:pointer;background:transparent;transform-origin:50% 100%}' +
@@ -73,15 +73,19 @@
 			// the chat page (Claude-like): warm paper, no coloured header, assistant text without a bubble, grey user bubble, round composer with ↑
 			'.panel{position:fixed;z-index:2147483001;width:400px;max-width:calc(100vw - 24px);height:min(660px,calc(100vh - 120px));background:#faf9f5;color:' + ink + ';border:1px solid ' + line + ';border-radius:22px;box-shadow:0 24px 64px rgba(0,0,0,.2);display:flex;flex-direction:column;overflow:hidden;direction:rtl;text-align:right;opacity:0;transform:translateY(14px) scale(.98);pointer-events:none;transition:opacity .18s cubic-bezier(.16,1,.3,1),transform .18s cubic-bezier(.16,1,.3,1)}' +
 			'.open .panel{opacity:1;transform:none;pointer-events:auto}' +
+			'.panel:before{content:"";display:block;height:4px;flex:none;background:linear-gradient(90deg,' + blue + ' 0 33.3%,' + col + ' 33.3% 66.6%,' + gold + ' 66.6%)}' +
+			'.hav{width:38px!important;height:38px!important;max-width:38px;flex:none;object-fit:contain}.ht b{color:' + blue + '}' +
+			'.mdl{font:inherit;font-size:12px;color:' + blue + ';background:#eef3f9;border:1px solid #d5e1ee;border-radius:10px;padding:5px 6px;max-width:122px;cursor:pointer;flex:none}' +
+			'.cart{display:inline-block;margin-top:8px;background:' + gold + ';color:#1f1e1d;font-weight:700;text-decoration:none;border-radius:12px;padding:9px 16px}' +
 			'.head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #eeece5}.hav{width:38px;height:38px;flex:none;object-fit:contain}' +
 			'.ht{flex:1;min-width:0}.ht b{display:block;font-size:15px;font-weight:700;line-height:1.4}.ht small{display:block;font-size:11.5px;color:' + mute + ';line-height:1.4}' +
 			'.head button{background:transparent;color:#5e5d59;border:0;border-radius:10px;width:36px;height:36px;display:grid;place-items:center;cursor:pointer;flex:none}.head button:hover{background:#efede6}.head svg{width:18px;height:18px}' +
 			'.log{flex:1;overflow-y:auto;padding:18px 16px 8px;display:flex;flex-direction:column;gap:14px;overscroll-behavior:contain}' +
 			'.m{font-size:15px;line-height:1.85;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}' +
-			'.m.a{align-self:stretch;color:' + ink + '}.m.u{align-self:flex-end;max-width:85%;background:#f0eee6;border-radius:18px;padding:8px 14px}' +
+			'.m.a{align-self:stretch;color:' + ink + '}.m.u{align-self:flex-end;max-width:85%;background:#eaf1f8;color:#0b2a4a;border-radius:18px;padding:8px 14px}' +
 			'.m.e{align-self:stretch;color:#8a4b00;background:#fdf3e4;border-radius:12px;padding:8px 12px;font-size:13.5px}' +
 			'.row{display:flex;gap:10px;align-items:flex-start}.row>img{width:40px;height:40px;flex:none;object-fit:contain}.row .m{flex:1;min-width:0}' +
-			'.dots{display:inline-flex;gap:5px;padding:8px 0}.dots i{width:7px;height:7px;border-radius:50%;background:' + col + ';opacity:.35;animation:aw-dot 1.1s infinite}.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}@keyframes aw-dot{40%{opacity:1;transform:translateY(-3px)}}' +
+			'.dots{display:inline-flex;gap:5px;padding:8px 0}.dots i{width:7px;height:7px;border-radius:50%;background:' + gold + ';opacity:.35;animation:aw-dot 1.1s infinite}.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}@keyframes aw-dot{40%{opacity:1;transform:translateY(-3px)}}' +
 			'.lf{display:grid;gap:8px;background:#fff;border:1px solid ' + line + ';border-radius:16px;padding:12px}.lf input{font:inherit;font-size:15px;border:1px solid #e3e1d8;border-radius:12px;padding:10px 12px;outline:none;background:#fff;color:' + ink + ';direction:rtl}' +
 			'.lf input:focus{border-color:' + col + ';box-shadow:0 0 0 3px ' + col + '22}.lf button{font:inherit;font-size:15px;font-weight:700;border:0;border-radius:12px;padding:11px;background:' + col + ';color:#fff;cursor:pointer}.lf button:disabled{opacity:.55}.lf .er{color:#b42318;font-size:12.5px}' +
 			'form.c{margin:6px 12px 6px;display:flex;align-items:flex-end;gap:8px;background:#fff;border:1px solid #e3e1d8;border-radius:22px;padding:8px;box-shadow:0 1px 4px rgba(0,0,0,.05)}form.c:focus-within{border-color:#c9c6ba}' +
@@ -98,6 +102,8 @@
 	var NEW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>'
 	// 3.9.81: the assistant's 3D reactions (rendered from the dashboard's 3D model) — no emoji anywhere
 	function FACE(k) { return BASE + '/agent/' + k + '.webp' }
+	// 3.9.83: the visitor can pick one of four low-cost models (server allow-list WIDGET_MODELS)
+	var MODELS = [['GPT-5.6-Luna', 'GPT Luna'], ['DeepSeek-V4-Flash', 'DeepSeek Flash'], ['Claude-Haiku-4.5', 'Claude Haiku'], ['Gemini-2.5-Flash', 'Gemini Flash']]
 	var CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
 
 	function mount(c) {
@@ -108,13 +114,16 @@
 		root.innerHTML = '<style>' + css(c) + '</style><div class="w" dir="rtl">' +
 			'<div class="panel" role="dialog" aria-modal="false" aria-label=""><div class="head"><img class="hav" alt="" aria-hidden="true" src="' + FACE('listening') + '"><div class="ht"><b></b><small>معمولاً در چند ثانیه پاسخ می‌دهد</small></div>' +
 			'<button type="button" class="new" title="گفت‌وگوی تازه" aria-label="گفت‌وگوی تازه">' + NEW + '</button><button type="button" class="x" aria-label="بستن">' + CLOSE + '</button></div>' +
-			'<div class="log" aria-live="polite"></div><form class="c"><textarea rows="1" placeholder="پیامتان را بنویسید…" aria-label="پیام"></textarea><button type="submit" aria-label="ارسال">' + UP + '</button></form><div class="foot">دستیارِ هوشمندِ آرومین</div></div>' +
+			'<div class="log" aria-live="polite"></div><form class="c"><textarea rows="1" placeholder="پیامتان را بنویسید…" aria-label="پیام"></textarea><select class="mdl" aria-label="مدلِ هوش مصنوعی">' + MODELS.map(function (m) { return '<option value="' + m[0] + '">' + m[1] + '</option>' }).join('') + '</select><button type="submit" aria-label="ارسال">' + UP + '</button></form><div class="foot">Agent هوشمندِ آرومین</div></div>' +
 			'<div class="tease" role="status"><span class="tt"></span><button type="button" class="tx" aria-label="بستن">×</button></div>' +
 			'<button type="button" class="btn" aria-expanded="false" aria-label=""><span class="halo" aria-hidden="true"></span><img class="ph" alt="" aria-hidden="true" src="' + FACE('joy') + '"><span class="bot" aria-hidden="true"></span></button></div>'
 		;(D.body || D.documentElement).appendChild(host)
 		var $ = function (s) { return root.querySelector(s) }
 		var w = $('.w'), btn = $('.btn'), log = $('.log'), ta = $('textarea'), send = $('form button'), chatForm = $('form')   // captured before the lead form (3.9.80) is added to the log
+		c.title = String(c.title || 'Agent آرومین').replace(/دستیار/g, 'Agent')   // 3.9.83: «agent», not «دستیار»
 		$('.ht b').textContent = c.title
+		var mdl = $('.mdl'); if (st.model) mdl.value = st.model
+		mdl.onchange = function () { st.model = mdl.value; if (!preview) save() }
 		$('.panel').setAttribute('aria-label', c.title)
 		btn.setAttribute('aria-label', 'گفت‌وگو با ' + c.title)
 		var busy = false, bot = null, ag = null
@@ -202,16 +211,37 @@
 			if (preview) { bubble('a', 'این پیش‌نمایش است؛ پاسخِ واقعی بعد از نصب روی سایت نمایش داده می‌شود.'); return }
 			save(); busy = true; send.disabled = true; status('thinking'); emit('send')
 			var wait = bubble('a t', ''); wait.innerHTML = '<span class="dots" aria-label="در حالِ نوشتن"><i></i><i></i><i></i></span>'
-			req('POST', '/chat', { conversationId: st.conversationId, visitorId: st.visitorId, messages: st.messages.slice(-12), consent: !!st.consent, preview: URL_PREVIEW || undefined, agent: st.agent || undefined, page: { url: location.href.slice(0, 500), title: D.title.slice(0, 200), landing: st.landing } })
+			req('POST', '/chat', { conversationId: st.conversationId, visitorId: st.visitorId, messages: st.messages.slice(-12), consent: !!st.consent, preview: URL_PREVIEW || undefined, agent: st.agent || undefined, model: mdl.value, page: { url: location.href.slice(0, 500), title: D.title.slice(0, 200), landing: st.landing } })
 				.then(function (d) {
 					wait.remove()
-					if (d.ok && d.text) { st.messages.push({ role: 'assistant', content: String(d.text) }); if (d.agent && /^[a-z_]{2,20}$/.test(d.agent.key)) st.agent = d.agent.key; save(); bubble('a', String(d.text)); emit(d.lead && d.lead.ok ? 'lead' : 'reply', String(d.text)) }
+					if (d.ok && d.text) { st.messages.push({ role: 'assistant', content: String(d.text) }); if (d.agent && /^[a-z_]{2,20}$/.test(d.agent.key)) st.agent = d.agent.key; save(); bubble('a', String(d.text)); emit(d.lead && d.lead.ok ? 'lead' : 'reply', String(d.text)); if (d.action && d.action.cart) addToCart(d.action) }
 					else { bubble('e', d.error || 'ارسال نشد؛ دوباره امتحان کنید.', 'sadness'); emit(d.status === 429 ? 'rateLimit' : 'error') }
 				})
 				.catch(function () { wait.remove(); bubble('e', 'اتصال برقرار نشد؛ دوباره امتحان کنید.', 'sadness'); emit('offline') })
 				.then(function () { busy = false; send.disabled = false; status('idle'); ta.focus() })
 		}
 		chatForm.addEventListener('submit', submit)
+		// 3.9.83: «I want the software» → the agent puts the starter bundle into the shop's own cart (same origin: the product page's
+		// .product-basket form is posted to /cart exactly like its «add to cart» button) and sends the visitor to pay
+		function addToCart(a) {
+			var shop = /(^|\.)arominco\.com$/.test(location.hostname), done = 0, msg = bubble('a', 'سپیدز لایت و یک فیش‌پرینتر را برایتان در سبدِ خرید می‌گذارم…', 'joy')
+			function finish() {
+				var t = msg.querySelector('.m') || msg
+				t.textContent = done ? 'سپیدز وب لایت و فیش‌پرینتر در سبدِ خریدِ شماست. برای تکمیل و پرداخت بزنید:' : 'برای خرید، سبدِ فروشگاه را باز کنید:'
+				var l = D.createElement('a'); l.className = 'cart'; l.href = a.checkout || 'https://arominco.com/cart'; l.textContent = 'رفتن به سبد و پرداخت'; l.target = '_top'; t.appendChild(D.createElement('br')); t.appendChild(l)
+				log.scrollTop = log.scrollHeight; track('cart_added', { n: String(done) })
+			}
+			if (!shop || preview) return finish()
+			var jobs = a.cart.map(function (slug) {
+				return fetch('/product/' + encodeURIComponent(slug), { credentials: 'include' }).then(function (r) { return r.text() }).then(function (h) {
+					var f = new DOMParser().parseFromString(h, 'text/html').querySelector('form.product-basket')
+					if (!f) return
+					return fetch('/cart', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+						body: new URLSearchParams(new FormData(f)).toString() }).then(function (r) { if (r.ok) done++ })
+				}).catch(function () { /* the link below still works */ })
+			})
+			Promise.all(jobs).then(finish)
+		}
 		render()
 		if (st.open || me.getAttribute('data-open') === '1') toggle(true)
 		function loadAgent() { // تنبل، پس از بارِ صفحه (بدونِ اثر بر LCP/INP)؛ خطا → همان ابزارکِ قبلی
