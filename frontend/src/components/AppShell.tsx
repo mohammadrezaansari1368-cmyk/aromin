@@ -19,27 +19,19 @@ import ThemeSwitcher from '@/components/ThemeSwitcher'
 import { bindHost } from '@/lib/agent'
 import { listenTaskImports } from '@/lib/performance'
 import { setTileUser } from '@/components/ui/sortable'
-import GoogleSettings from '@/components/agent/GoogleSettings'
-import { KbConnectionCard } from '@/components/KnowledgeTile'
 import { flushLedger } from '@/lib/ledgerStore'
 
 // دستیارِ عامل (دکمهٔ سه‌بعدی + گفت‌وگو/صدا) — جدا بارگذاری می‌شود تا پوسته سبک بماند
+const SettingsPage = lazy(() => import('@/components/settings/SettingsPage'))
 const AgentDock = lazy(() => import('@/components/agent/AgentDock'))
 // حضور و عملکرد (recharts + xlsx) — فقط وقتی تب باز شود بارگذاری می‌شود
+const PerformancePage = lazy(() => import('@/components/performance/PerformancePage'))
 const ReportsPerf = lazy(() => import('@/components/performance/PerformancePage').then((m) => ({ default: m.ReportsPerf })))
 // دفتر فروش (C1…C6) — بومی؛ فقط وقتی تب باز شود بارگذاری می‌شود
 const LedgerPage = lazy(() => import('@/components/ledger/LedgerPage'))
 const CouncilRoom = lazy(() => import('@/components/council/CouncilRoom'))
 const InstagramPage = lazy(() => import('@/components/instagram/InstagramPage'))
-const InstagramConnectorCard = lazy(() => import('@/components/instagram/InstagramConnectorCard'))
 const StarlightCluster = lazy(() => import('@/components/analytics/StarlightCluster'))
-const WidgetInstallCard = lazy(() => import('@/components/WidgetInstallCard'))
-const SalesAgentCard = lazy(() => import('@/components/sales/SalesAgentCard'))
-const AgentSettingsCard = lazy(() => import('@/components/agent/AgentSettingsCard'))
-const MessengerTokensCard = lazy(() => import('@/components/settings/MessengerTokensCard'))
-const AgentsCard = lazy(() => import('@/components/agent/AgentsCard'))
-const ReleaseCard = lazy(() => import('@/components/settings/ReleaseCard'))
-const WebServiceCard = lazy(() => import('@/components/settings/WebServiceCard'))
 const LeadsCard = lazy(() => import('@/components/sales/LeadsCard'))
 import { TAB_ALIASES, setPerfView, takePerfView } from '@/components/performance/perfNav'
 import { takeDeepLink } from '@/lib/deepLink'
@@ -65,18 +57,19 @@ const I = (d: string) => (
 
 const TABS: Tab[] = [
 	{ id: 'dashboard', label: 'داشبورد', sub: 'Executive', icon: I('M3 13a9 9 0 0 1 18 0|M12 13l4-3|M3 13v4a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-4'), view: (s) => <Board session={s} /> },
-	{ id: 'p-dash', label: 'تحلیل مدیریتی', sub: 'Analytics', icon: I('M3 3v18h18|M8 17V11|M13 17V7|M18 17v-4'), view: (s) => <Suspense fallback={null}><StarlightCluster session={s} /></Suspense>, panel: 'p-dash' },
+	{ id: 'p-dash', label: 'تحلیل', sub: 'Analytics', icon: I('M3 3v18h18|M8 17V11|M13 17V7|M18 17v-4'), view: (s) => <Suspense fallback={null}><StarlightCluster session={s} /></Suspense>, panel: 'p-dash' },
 	{ id: 'p-inv', label: 'دفتر فروش', sub: 'Sales Ledger', icon: I('M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z|M15 4v5h5|M8 13h8M8 17h5'), view: (s, go) => <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><LedgerPage session={s} go={go} /></Suspense> },
-	{ id: 'p-team', label: 'جبران خدمات و پورسانت', sub: 'Compensation', icon: I('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2|M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M22 21v-2a4 4 0 0 0-3-3.9|M16 3.1a4 4 0 0 1 0 7.8'), panel: 'p-team' },
-	{ id: 'forecast', label: 'پیش‌بینی و بودجه', sub: 'Forecast', icon: I('M3 3v18h18|M7 16l3-3 3 2 5-6'), view: (s, go) => <ForecastPage session={s} goImport={() => go('import')} /> },
-	{ id: 'council', label: 'اتاق شورا', sub: 'Council', icon: I('M12 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z|M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z|M19 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z|M3 20c1-3 3-4 5-4h8c2 0 4 1 5 4'), view: (s) => (isAdmin(s.role) ? <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><CouncilRoom session={s} /></Suspense> : <p className="text-[13px] text-muted-foreground">فقط مدیر.</p>) },
+	{ id: 'p-team', label: 'پورسانت', sub: 'Compensation', icon: I('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2|M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M22 21v-2a4 4 0 0 0-3-3.9|M16 3.1a4 4 0 0 1 0 7.8'), panel: 'p-team' },
+	{ id: 'performance', label: 'عملکرد', sub: 'Performance', icon: I('M22 12h-4l-3 8-4-16-3 8H2'), view: (s, go, setPanel) => <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><PerformancePage session={s} initial={takePerfView(['dash', 'people', 'recon', 'activity', 'data'] as const, 'dash')} go={go} setPanel={setPanel} /></Suspense> },
+	{ id: 'forecast', label: 'پیش‌بینی', sub: 'Forecast', icon: I('M3 3v18h18|M7 16l3-3 3 2 5-6'), view: (s, go) => <ForecastPage session={s} goImport={() => go('import')} /> },
+	{ id: 'council', label: 'شورا', sub: 'Council', icon: I('M12 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z|M5 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z|M19 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4z|M3 20c1-3 3-4 5-4h8c2 0 4 1 5 4'), view: (s) => (isAdmin(s.role) ? <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><CouncilRoom session={s} /></Suspense> : <p className="text-[13px] text-muted-foreground">فقط مدیر.</p>) },
 	{ id: 'instagram', label: 'اینستاگرام', sub: 'Instagram', icon: I('M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4z|M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M17.5 6.5h.01'), view: (s, go) => (isAdmin(s.role) ? <Suspense fallback={<div className="h-40 animate-pulse rounded-2xl bg-muted/50" />}><InstagramPage session={s} goSettings={() => go('p-set')} /></Suspense> : <p className="text-[13px] text-muted-foreground">فقط مدیر.</p>) },
-	{ id: 'p-ladder', label: 'نردبان پیشرفت', sub: 'Growth Ladder', icon: I('M7 3v18|M17 3v18|M7 7h10|M7 12h10|M7 17h10'), panel: 'p-ladder' },
-	{ id: 'import', label: 'مرکز ایمپورت', sub: 'Import Center', icon: I('M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4|M7 10l5 5 5-5|M12 15V3'), view: (s) => <ImportPage session={s} /> },
-	{ id: 'p-report', label: 'گزارش و بک‌آپ', sub: 'Reports', icon: I('M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z|M14 2v6h6|M9 15h6'), view: (s, go) => <Suspense fallback={null}>{(isAdmin(s.role) || s.role === 'finance') && <LeadsCard session={s} />}<ReportsPerf session={s} go={go} initial={takePerfView(['summary', 'lawyer'] as const, 'summary')} /></Suspense>, panel: 'p-report' },
+	{ id: 'p-ladder', label: 'مسیر رشد', sub: 'Growth Ladder', icon: I('M7 3v18|M17 3v18|M7 7h10|M7 12h10|M7 17h10'), panel: 'p-ladder' },
+	{ id: 'import', label: 'ورود داده', sub: 'Import Center', icon: I('M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4|M7 10l5 5 5-5|M12 15V3'), view: (s) => <ImportPage session={s} /> },
+	{ id: 'p-report', label: 'گزارش‌ها', sub: 'Reports', icon: I('M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z|M14 2v6h6|M9 15h6'), view: (s, go) => <Suspense fallback={null}>{(isAdmin(s.role) || s.role === 'finance') && <LeadsCard session={s} />}<ReportsPerf session={s} go={go} initial={takePerfView(['summary', 'lawyer'] as const, 'summary')} /></Suspense>, panel: 'p-report' },
 	{ id: 'p-calc', label: 'ماشین‌حساب', sub: 'Calculator', icon: I('M5 2h14a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z|M8 6h8|M8 11h2M14 11h2M8 15h2M14 15h2M8 19h2M14 19h2'), panel: 'p-calc' },
 	{ id: 'p-hire', label: 'استخدام', sub: 'Hiring', icon: I('M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2|M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z|M19 8v6|M22 11h-6'), panel: 'p-hire' },
-	{ id: 'p-set', label: 'تنظیمات', sub: 'Settings', icon: I('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'), view: (s) => <><Suspense fallback={null}><WidgetInstallCard session={s} />{isAdmin(s.role) && <><AgentSettingsCard session={s} /><AgentsCard session={s} /><MessengerTokensCard session={s} /><ReleaseCard /><WebServiceCard session={s} /><InstagramConnectorCard session={s} /><SalesAgentCard session={s} /></>}</Suspense><GoogleSettings session={s} /><KbConnectionCard session={s} /></>, panel: 'p-set' },
+	{ id: 'p-set', label: 'تنظیمات', sub: 'Settings', icon: I('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z|M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'), view: (s, _go, setPanel) => <Suspense fallback={null}><SettingsPage session={s} setPanel={setPanel} /></Suspense> },
 ]
 
 export default function AppShell({ session, onLogout }: { session: Session; onLogout: () => void }) {
@@ -109,7 +102,7 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 	const tab = TABS.find((t) => t.id === active) ?? TABS[0]
 	// پنلِ موتورِ قبلی برای تبِ یکی‌شدهٔ «عملکرد» پویاست (فقط در بخشِ «فعالیت، امتیاز و ردیاب»)
 	const [subPanel, setSubPanel] = useState<string | null>(null)
-	const panelOf = (t: Tab) => (t.id === 'performance' ? subPanel : t.panel ?? null)
+	const panelOf = (t: Tab) => (t.id === 'performance' || t.id === 'p-set' ? subPanel : t.panel ?? null)
 	const panel = panelOf(tab)
 	const panelRef = useRef(panel)
 	const setPanel = useCallback((p: string | null) => {

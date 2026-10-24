@@ -61,6 +61,23 @@ function Bot({ status, pulse, still, pointer, anchor, emotion = 'neutral' }: { s
 	// current blended expression (3.9.79): numbers ease toward the target reaction every frame
 	const ex = useRef({ ...EXPR.neutral, w: { smile: EXPR.neutral.mouthS, frown: 0, o: 0, line: 0, smirk: 0 } as Record<MouthShape, number>, tintC: new THREE.Color(0) })
 	const tmpTint = useMemo(() => new THREE.Color(), [])
+	// 3.9.81: anger = the whole body turns red and smoke puffs rise from the top of the head
+	const RED = useMemo(() => new THREE.Color(0xe0141e), [])
+	const bodyBase = useMemo(() => new THREE.Color(), [])
+	const smoke = useMemo(() => {
+		const c = document.createElement('canvas'); c.width = c.height = 64
+		const x = c.getContext?.('2d')
+		if (!x) return [] as THREE.Sprite[]
+		const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32)
+		gr.addColorStop(0, 'rgba(255,255,255,.95)'); gr.addColorStop(0.55, 'rgba(255,255,255,.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)')
+		x.fillStyle = gr; x.fillRect(0, 0, 64, 64)
+		const tex = new THREE.CanvasTexture(c)
+		return Array.from({ length: 8 }, (_, i) => {
+			const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: 0x5c5c5c, transparent: true, opacity: 0, depthWrite: false }))
+			sp.userData.ph = i / 8; sp.userData.side = i % 2 ? 1 : -1
+			return sp
+		})
+	}, [])
 	// محورِ نگاه → +Z تا yaw/pitch بیرونی مستقیم «نگاه» را بچرخاند
 	const faceFix = useMemo(() => new THREE.Quaternion().setFromUnitVectors(FACE, new THREE.Vector3(0, 0, 1)), [])
 	const target = useMemo(() => ({ body: new THREE.Color(), eye: new THREE.Color(), accent: new THREE.Color() }), [])
@@ -72,7 +89,7 @@ function Bot({ status, pulse, still, pointer, anchor, emotion = 'neutral' }: { s
 	}, [theme, target, still, invalidate])
 	const outer = useRef<THREE.Group>(null)
 	const first = useRef(true)
-	const sim = useRef({ yaw: REST.yaw, pitch: REST.pitch, vy: 0, vp: 0, s: 1, vs: 0, blinkAt: 2.5, blink: 0, flash: 0, pulse })
+	const sim = useRef({ yaw: REST.yaw, pitch: REST.pitch, vy: 0, vp: 0, s: 1, vs: 0, blinkAt: 2.5, blink: 0, flash: 0, pulse, ang: 0 })
 
 	useFrame((st, dt0) => {
 		const dt = Math.min(dt0, 1 / 30)
@@ -83,7 +100,15 @@ function Bot({ status, pulse, still, pointer, anchor, emotion = 'neutral' }: { s
 		// رنگ‌ها: lerp به سمتِ توکن‌های تم (بارِ اول مستقیم)
 		const k = first.current ? 1 : 1 - Math.exp(-dt * 6)
 		first.current = false
-		parts.body.color.lerp(target.body, k)
+		bodyBase.lerp(target.body, k)
+		s.ang += ((emotion === 'angry' || emotion === 'annoyed' ? 1 : 0) - s.ang) * (still ? 1 : 1 - Math.exp(-dt * 5))
+		parts.body.color.copy(bodyBase).lerp(RED, 0.85 * s.ang)
+		smoke.forEach((sp, i) => {
+			const ph = still ? 0.15 + 0.7 * sp.userData.ph : (t * 0.5 + sp.userData.ph) % 1
+			sp.position.set(sp.userData.side * (0.2 + 0.1 * ph + 0.03 * Math.sin(ph * 7 + i)), 0.34 + ph * 0.3, 0.12)
+			sp.scale.setScalar(0.09 + ph * 0.2)
+			;(sp.material as THREE.SpriteMaterial).opacity = s.ang * (1 - ph) * Math.min(1, ph * 6)
+		})
 		for (const e of parts.eyes) { e.color.lerp(target.eye, k); e.emissive.lerp(target.eye, k) }
 		// ابزار اجرا شد → ضربه + فلشِ accent
 		if (pulse !== s.pulse) { s.pulse = pulse; s.vs += 3.2; s.flash = 1 }
@@ -153,6 +178,7 @@ function Bot({ status, pulse, still, pointer, anchor, emotion = 'neutral' }: { s
 			<group quaternion={faceFix}>
 				<primitive object={model} />
 			</group>
+			{smoke.map((sp, i) => <primitive key={i} object={sp} />)}
 		</group>
 	)
 }

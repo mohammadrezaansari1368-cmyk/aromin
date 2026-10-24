@@ -66,7 +66,7 @@ function DrawnBust({ seat, shape, cls }: { seat: Seat; shape: Shape; cls: string
 	)
 }
 const FRAMES: Record<string, Shape[]> = {}          // seats with talking frames on disk (the original twelve)
-for (const k of ['bezos', 'graham', 'garyvee', 'martell', 'buffett', 'musk', 'alavi', 'sadeghin', 'raftari']) FRAMES[k] = ['base', 'open', 'mid', 'blink']
+for (const k of ['bezos', 'graham', 'garyvee', 'martell', 'buffett', 'musk', 'alavi', 'sadeghin', 'raftari', 'freud', 'khosrowshahi']) FRAMES[k] = ['base', 'open', 'mid', 'blink']
 const src = (s: Seat, shape: Shape = 'base') => `/council/${s.key}-${FRAMES[s.key]?.includes(shape) ? shape : 'base'}.webp`
 
 function Bust({ seat, shape }: { seat: Seat; shape: Shape }) {

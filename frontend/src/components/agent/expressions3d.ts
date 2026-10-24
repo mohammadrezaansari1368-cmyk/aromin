@@ -24,7 +24,7 @@ const E = (o: Partial<Expr>): Expr => ({ eyeSY: 1, eyeSX: 1, eyeDY: 0, eyeAsym: 
 export const EXPR: Record<Reaction, Expr> = {
 	neutral: E({ face: 0 }),
 	joy: E({ eyeArc: 1, eyeSY: 0.05, eyeDY: 0.006, browY: 0.012, browRot: -0.18, mouth: 'smile', mouthS: 1.25, hop: 1, pop: 1.06, tint: 0xfcbf00, tintK: 0.13 }),
-	anger: E({ eyeSY: 0.5, eyeSX: 1.08, browY: -0.014, browRot: 0.55, mouth: 'frown', mouthS: 0.95, pitch: 0.14, jitter: 0.55, tint: 0xff2d2d, tintK: 0.30 }),
+	anger: E({ eyeSY: 0.5, eyeSX: 1.08, browY: -0.014, browRot: 0.55, mouth: 'frown', mouthS: 0.95, pitch: 0.14, jitter: 0.55, tint: 0xff2d2d, tintK: 0.45 }),
 	surprise: E({ eyeSY: 1.38, eyeSX: 1.22, browY: 0.032, browRot: -0.22, mouth: 'o', mouthS: 1.15, pitch: -0.14, pop: 1.12, tint: 0x8fdcff, tintK: 0.11 }),
 	sadness: E({ eyeSY: 0.68, eyeDY: -0.008, browY: 0.012, browRot: -0.5, mouth: 'frown', mouthS: 0.85, pitch: 0.26, sink: 0.05, tint: 0x3d6dff, tintK: 0.19 }),
 	fear: E({ eyeSY: 1.25, eyeSX: 0.82, browY: 0.028, browRot: -0.55, mouth: 'o', mouthS: 0.7, pitch: -0.1, yaw: -0.12, jitter: 1, pop: 0.94, tint: 0x9b5de5, tintK: 0.14 }),

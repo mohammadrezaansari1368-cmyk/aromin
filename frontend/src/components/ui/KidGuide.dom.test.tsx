@@ -17,7 +17,7 @@ afterEach(() => { act(() => root.unmount()); el.remove(); vi.unstubAllGlobals() 
 
 describe('KidGuide', () => {
 	it('covers every tab with three short steps', () => {
-		for (const id of ['dashboard', 'p-dash', 'p-inv', 'p-team', 'performance', 'p-ticket', 'forecast', 'council', 'p-ladder', 'import', 'p-report', 'p-calc', 'p-hire', 'p-set']) {
+		for (const id of ['dashboard', 'p-dash', 'p-inv', 'p-team', 'performance', 'forecast', 'council', 'p-ladder', 'import', 'p-report', 'p-calc', 'p-hire', 'p-set']) {
 			expect(GUIDES[id]?.steps.length).toBe(3)
 			expect(GUIDES[id].say.split(' ').length).toBeLessThanOrEqual(10)
 		}

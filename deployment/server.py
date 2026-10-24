@@ -9983,7 +9983,7 @@ _COUNCIL_ROWS = (
 )
 COUNCIL_SEATS = {r[0]: dict(zip(("key", "name", "short", "initials", "slug", "pillar", "question", "color"), r)) for r in _COUNCIL_ROWS}
 COUNCIL_DEFAULT = ("alavi", "bezos", "buffett", "khosrowshahi", "freud", "graham", "garyvee")
-COUNCIL_PORTRAITS = {"alavi", "sadeghin", "raftari", "bezos", "graham", "garyvee", "martell", "buffett", "musk"}
+COUNCIL_PORTRAITS = {"alavi", "freud", "khosrowshahi", "sadeghin", "raftari", "bezos", "graham", "garyvee", "martell", "buffett", "musk"}
 COUNCIL_BRAIN_FILES = ("_hot", "frameworks", "principles", "positions", "voice", "stories", "books")
 _council_brain_cache = {}
 

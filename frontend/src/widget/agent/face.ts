@@ -1,4 +1,4 @@
-/** چهرهٔ احساسیِ دستیار: SVG/CSSِ اختصاصیِ آرومین (بدونِ دارایی کپی‌شده). رنگ‌ها: آبی #004991، بنفش #910D6A، زرد #FCBF00. */
+/** چهرهٔ احساسیِ دستیار (3.9.81): به‌جای شکلکِ زردِ SVG، همان رباتِ سه‌بعدیِ آرومین در حالت‌های مختلف (/agent/<reaction>.webp)؛ عصبانی = قرمز با دود از سر. LOOKS برای سازگاری و آزمون می‌ماند. */
 import type { EmotionState } from './core'
 
 type Look = { m: string; bl: number; br: number; eye: number; by?: number; cls?: string }
@@ -27,44 +27,37 @@ export const LOOKS: Record<EmotionState, Look> = {
 	smug: { m: 'M25 43 Q34 45 41 40', bl: 4, br: -8, eye: 0.45, by: 1 },
 }
 
-export const FACE_SVG = '<svg class="af" viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g class="af-b">' +
-	'<circle class="af-h" cx="32" cy="32" r="28"/><circle class="af-ck" cx="17" cy="40" r="4"/><circle class="af-ck" cx="47" cy="40" r="4"/>' +
-	'<g class="af-g"><ellipse class="af-e" cx="23" cy="30" rx="3.6" ry="4.6"/><ellipse class="af-e" cx="41" cy="30" rx="3.6" ry="4.6"/></g>' +
-	'<path class="af-br l" d="M17 21 L28 21"/><path class="af-br r" d="M36 21 L47 21"/><path class="af-m" d="M23 42 Q32 45 41 42"/>' +
-	'<text class="af-z" x="46" y="16">z</text><text class="af-s" x="48" y="15">✦</text></g></svg>'
+/** EmotionState → one of the rendered 3D reactions in public/agent */
+export const FACE_OF: Record<EmotionState, string> = {
+	neutral: 'listening', idle: 'listening', listening: 'listening', thinking: 'lookdown', speaking: 'joy', happy: 'joy', laugh: 'joy', curious: 'listening',
+	surprised: 'surprise', concerned: 'sadness', confused: 'fear', serious: 'lookdown', annoyed: 'anger', angry: 'anger', success: 'joy', error: 'sadness',
+	sleeping: 'sleep', sad: 'sadness', fear: 'fear', disgust: 'disgust', smug: 'lookdown',
+}
+// widget-agent.js runs as a classic script from the dashboard origin: the images live next to it
+const CS = typeof document !== 'undefined' ? (document.currentScript as HTMLScriptElement | null) : null
+const FACE_BASE = CS && CS.src ? new URL(CS.src).origin : ''
+
+export const FACE_SVG = '<img class="af" alt="" aria-hidden="true" draggable="false" decoding="async">'
 
 export const FACE_CSS = `
-.af{width:100%;height:100%;display:block;overflow:visible}
-.af-h{fill:#FCBF00;stroke:#004991;stroke-width:2.5}
-.af-e{fill:#004991;transform-box:fill-box;transform-origin:center;transform:scaleY(var(--eye,1));transition:transform .25s}
-.af-g{transform:translate(var(--gx,0px),var(--gy,0px));transition:transform .2s}
-.af-br{stroke:#004991;stroke-width:2.6;stroke-linecap:round;fill:none;transform-box:fill-box;transform-origin:center;transition:transform .3s}
-.af-br.l{transform:translateY(var(--by,0px)) rotate(var(--bl,0deg))}.af-br.r{transform:translateY(var(--by,0px)) rotate(var(--br,0deg))}
-.af-m{fill:none;stroke:#910D6A;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round;transition:d .25s}
-.af.talk .af-m,.af.laugh .af-m,.af.surprised .af-m{fill:#910D6A}
-.af-ck{fill:#910D6A;opacity:0;transition:opacity .3s}.af.cheek .af-ck{opacity:.28}
-.af-z,.af-s{font:700 10px sans-serif;fill:#004991;opacity:0}.af.zz .af-z{opacity:1;animation:af-z 2.4s infinite}.af.star .af-s{opacity:1;fill:#910D6A}
-.af.err .af-h{stroke:#910D6A}.af.hot .af-h{fill:#ffb199}
-.af-b{transform-origin:32px 34px;animation:af-breathe 4s ease-in-out infinite}
-.af .af-e{animation:af-blink 5s infinite}.af.zz .af-e{animation:none}
-.af.talk .af-m{animation:af-talk .32s ease-in-out infinite alternate}
-.af.bounce .af-b{animation:af-bounce .5s ease-in-out infinite alternate}
-.af.think .af-g{--gx:2px;--gy:-2px}
-@keyframes af-blink{0%,94%,100%{transform:scaleY(var(--eye,1))}96%{transform:scaleY(.08)}}
-@keyframes af-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.025)}}
-@keyframes af-talk{from{transform:scaleY(.6)}to{transform:scaleY(1)}}
-@keyframes af-bounce{from{transform:translateY(0)}to{transform:translateY(-2px)}}
-@keyframes af-z{0%{transform:translate(0,0);opacity:0}30%{opacity:1}100%{transform:translate(4px,-6px);opacity:0}}
-.af-m{transform-box:fill-box;transform-origin:center}
-@media (prefers-reduced-motion:reduce){.af *,.af{animation:none!important;transition:none!important}}
+.af{width:100%;height:100%;display:block;object-fit:contain;transform-origin:50% 90%;animation:af-breathe 4s ease-in-out infinite}
+.af.talk,.af.speaking{animation:af-talk .5s ease-in-out infinite alternate}
+.af.happy,.af.laugh,.af.success{animation:af-hop .55s cubic-bezier(.3,.7,.4,1) 2}
+.af.angry,.af.annoyed{animation:af-shake .12s linear 6}
+.af.surprised{animation:af-pop .35s ease-out 1}
+@keyframes af-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.03)}}
+@keyframes af-talk{from{transform:translateY(0)}to{transform:translateY(-2px) scale(1.02)}}
+@keyframes af-hop{0%,100%{transform:translateY(0)}45%{transform:translateY(-18%)}}
+@keyframes af-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-2px)}75%{transform:translateX(2px)}}
+@keyframes af-pop{0%{transform:scale(.85)}60%{transform:scale(1.12)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion:reduce){.af{animation:none!important}}
 `
 
-/** حالت را روی SVG اعمال می‌کند (فقط ویژگی و متغیرِ CSS؛ بدونِ بازسازیِ DOM) */
-export function applyState(svg: SVGElement, s: EmotionState) {
+/** حالت را روی چهره اعمال می‌کند: فقط کلاس و تصویرِ همان واکنشِ سه‌بعدی (بدونِ بازسازیِ DOM) */
+export function applyState(el: Element, s: EmotionState) {
 	const L = LOOKS[s] || LOOKS.neutral
-	svg.setAttribute('class', 'af ' + s + ' ' + (L.cls || ''))
-	svg.querySelector('.af-m')?.setAttribute('d', L.m)
-	const st = (svg as unknown as HTMLElement).style
-	st.setProperty('--eye', String(L.eye)); st.setProperty('--bl', L.bl + 'deg'); st.setProperty('--br', L.br + 'deg'); st.setProperty('--by', (L.by || 0) + 'px')
-	svg.setAttribute('data-state', s)
+	el.setAttribute('class', 'af ' + s + ' ' + (L.cls || ''))
+	const src = FACE_BASE + '/agent/' + (FACE_OF[s] || 'listening') + '.webp'
+	if (el.getAttribute('src') !== src) el.setAttribute('src', src)
+	el.setAttribute('data-state', s)
 }

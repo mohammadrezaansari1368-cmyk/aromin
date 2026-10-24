@@ -28,15 +28,17 @@ const CSS = FACE_CSS + `
 export function start(h: Host) {
 	const R = h.root, W = window, $ = (s: string) => R.querySelector(s) as HTMLElement | null
 	const st = document.createElement('style'); st.textContent = CSS; R.appendChild(st)
-	const faces: SVGElement[] = []
+	const faces: HTMLElement[] = []
 	const mk = (parent: Element | null, before = true) => {
 		if (!parent || !h.cfg.emotion) return
 		const s = document.createElement('span'); s.className = 'ag-face'; s.innerHTML = FACE_SVG
 		if (before) parent.prepend(s)
 		else parent.appendChild(s)
-		const svg = s.querySelector('svg') as SVGElement; faces.push(svg); applyState(svg, 'neutral')
+		const face = s.querySelector('.af') as HTMLElement; faces.push(face); applyState(face, 'neutral')
 	}
-	mk($('.head'))
+	// widget.js already has the 3D avatar in the header (3.9.81) — drive it instead of adding a second face
+	const hav = $('.hav')
+	if (hav && h.cfg.emotion) { faces.push(hav); applyState(hav, 'neutral') } else mk($('.head'))
 	const emo = new EmotionController((s: EmotionState) => faces.forEach((f) => applyState(f, s)))
 	const greeting = greetingFor(h.cfg.greetings || {})
 	h.setWelcome(greeting)
