@@ -14,11 +14,13 @@ import { runPreset, setPageActions, setPageContext } from '@/lib/agent'
 import { fetchFull, saveState } from '@/lib/forecastStore'
 import Sortable from '@/components/ui/sortable'
 import Segmented from '@/components/ui/segmented'
+import { EditableDataTable, StatCard } from '@/components/ui/editable-data-table'
+import { CountUp } from '@/components/ui/count-up'
 import RadioGroupWithPlanCards, { type Plan } from '@/components/ui/radio-group-with-plan-cards'
 import CurrencyInput from 'react-currency-input-field'
 import ReactSelect from 'react-select'
 import { HeartHandshake, Rocket, ShieldCheck } from 'lucide-react'
-import { BentoGrid, Field, FieldDescription, FieldGroup, FieldLabel, InputGroup, InputGroupAddon, Markdown, MetricCard, ShCard, ShCardHeader, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/shadcn-kit'
+import { Field, FieldDescription, FieldGroup, FieldLabel, InputGroup, InputGroupAddon, Markdown, ShCard, ShCardHeader } from '@/components/ui/shadcn-kit'
 import { stripHtml, toBullets } from '@/lib/stripHtml'
 import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, FOCUS } from '@/components/ui/tokens'
 import {
@@ -761,34 +763,35 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 					</div>
 				</ShCard>
 
-				{/* G5) دادهٔ تاریخی — 3.9.86: Table (اسکرولِ افقی روی موبایل) + چهار MetricCard در BentoGrid؛ دکمهٔ ایمپورت حذف شد */}
-				<ShCard className="mx-auto max-w-6xl">
-					<ShCardHeader title="پیش‌بینی از داده‌ی تاریخی" sub="سه سال اخیر را وارد کن" />
-					<Table>
-						<TableHeader><TableRow className="border-t-0"><TableHead>سال</TableHead><TableHead>فروش ریالی (تومان)</TableHead><TableHead>میانگین نرخ دلار (تومان)</TableHead><TableHead>فروش دلاری</TableHead><TableHead>رشد ریالی</TableHead></TableRow></TableHeader>
-						<TableBody>
-							{[0, 1, 2].map((i) => {
-								const g = i === 1 ? r.g2 : i === 2 ? r.g3 : null
-								return (
-									<TableRow key={i} className={i === 2 ? 'bg-primary/[.06]' : ''}>
-										<TableCell><b>سال {fa(r.yrs[i])}</b>{i === 2 ? ' (جدیدترین)' : ''}</TableCell>
-										<TableCell>{txt('fcY' + (i + 1), { w: '!h-11' })}</TableCell>
-										<TableCell>{txt('fcD' + (i + 1), { w: '!h-11' })}</TableCell>
-										<TableCell>{r.dol[i] > 0 ? '$' + sep(Math.round(r.dol[i])) : '—'}</TableCell>
-										<TableCell>{i === 0 || g == null ? '—' : <Colored v={g}>{pct(g)}</Colored>}</TableCell>
-									</TableRow>
-								)
-							})}
-						</TableBody>
-					</Table>
-					<BentoGrid className="mt-6">
-						<MetricCard accent="yellow" title="پیش‌بینی سال بعد" value={sep(r.next)} unit="تومان" sub="بر پایه‌ی روند" />
-						<MetricCard accent="olive" title="رشد دلاری کل دوره" value={r.dg == null ? '—' : <Colored v={r.dg}>{pct(r.dg)}</Colored>} sub="تا با تورم گول نخوری" />
-						<MetricCard title="میانگین متحرک ۳ ساله" value={sep(r.ma3)} unit="تومان" sub="کف فروش عادی" />
-						<MetricCard title="میانگین رشد ریالی سالانه" value={r.grs.length ? pct(r.avgG) : '—'} sub="دو گذار اخیر" />
-					</BentoGrid>
-					<p className="mt-4 text-center text-xs leading-6 text-muted-foreground">نرخ دلار هر سال را هم پر کن تا رشد واقعی (دلاری) را ببینی و از تورم گول نخوری.</p>
-				</ShCard>
+				{/* G5) دادهٔ تاریخی — 3.9.88: کارتِ تیره، EditableDataTable (سه سال، ردیفِ جدیدترین با حاشیهٔ طلایی) + چهار StatCard با CountUp؛ بدونِ دکمهٔ ایمپورت */}
+				<section dir="rtl" className="mx-auto w-full max-w-6xl rounded-2xl bg-[#18181b] p-6 text-white shadow-sm">
+					<header className="mb-5">
+						<h3 className="text-xl font-bold leading-8">پیش‌بینی از داده‌ی تاریخی</h3>
+						<p className="mt-1 text-sm text-white/60">سه سال اخیر را وارد کن</p>
+					</header>
+					<EditableDataTable
+						rows={[0, 1, 2].map((i) => ({ id: String(i), i, highlight: i === 2 }))}
+						getValue={(row, key) => v(key + (row.i + 1))}
+						onCellChange={(row, key, d) => onText(key + (row.i + 1))(d)}
+						columns={[
+							{ key: 'year', header: 'سال', render: (row) => <span><b>سال {fa(r.yrs[row.i])}</b>{row.i === 2 ? <span className="ms-1 text-[#FCBF00]">(جدیدترین)</span> : ''}</span> },
+							{ key: 'fcY', header: 'فروش ریالی (تومان)', editable: true, placeholder: 'مثلاً 12,000,000,000' },
+							{ key: 'fcD', header: 'میانگین نرخ دلار (تومان)', editable: true, placeholder: 'اختیاری' },
+							{ key: 'usd', header: 'فروش دلاری', render: (row) => (r.dol[row.i] > 0 ? '$' + sep(Math.round(r.dol[row.i])) : '—') },
+							{ key: 'g', header: 'رشد ریالی', render: (row) => { const g = row.i === 1 ? r.g2 : row.i === 2 ? r.g3 : null; return row.i === 0 || g == null ? '—' : <Colored v={g}>{pct(g)}</Colored> } },
+						]} />
+					<div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+						<StatCard delay={0} className="bg-yellow-500 text-black ring-0" title="پیش‌بینی سال بعد" subtitle="بر پایه‌ی روند — تومان"
+							value={r.next ? <CountUp to={Math.round(r.next)} duration={2} startWhen /> : '—'} />
+						<StatCard delay={90} className="bg-[#3A3214]" title="رشد دلاری کل دوره" subtitle="تا از تورم گول نخوری"
+							value={r.dg == null ? '—' : <span className={r.dg >= 0 ? 'text-emerald-400' : 'text-rose-400'}><CountUp to={Math.round(r.dg * 10) / 10} decimals={1} duration={2} startWhen />٪</span>} />
+						<StatCard delay={180} className="bg-[#1F1F22]" title="میانگین متحرک ۳ ساله" subtitle="کف فروش عادی — تومان"
+							value={r.ma3 ? <CountUp to={Math.round(r.ma3)} duration={2} startWhen /> : '—'} />
+						<StatCard delay={270} className="bg-[#1F1F22]" title="میانگین رشد ریالی سالانه" subtitle="دو گذار اخیر"
+							value={r.grs.length ? <span className={r.avgG >= 0 ? 'text-emerald-400' : 'text-rose-400'}><CountUp to={Math.round(r.avgG * 10) / 10} decimals={1} duration={2} startWhen />٪</span> : '—'} />
+					</div>
+					<p className="mt-4 text-center text-xs leading-6 text-white/55">نرخ دلار هر سال را هم پر کن تا رشد واقعی (دلاری) را ببینی و از تورم گول نخوری.</p>
+				</section>
 
 				{/* ۱۱) آمادگی */}
 				<Card title="آمادگی پیش‌بینی: شش مؤلفه" sub="هرچه کامل‌تر، تخمین به تولرانس ۱۰–۲۰٪ نزدیک‌تر">
