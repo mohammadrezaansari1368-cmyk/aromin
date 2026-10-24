@@ -8,6 +8,13 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [resuming, setResuming] = useState(true)
   useEffect(() => { let live = true; resumeSession().then((s) => { if (live) { if (s) setSession(s); setResuming(false) } }); return () => { live = false } }, [])
+  // 3.9.85: tokens live 1 h — renew every 20 min while the dashboard is open (the legacy panel gets the new one via LegacyHost)
+  const signedIn = session?.user
+  useEffect(() => {
+    if (!signedIn) return
+    const t = setInterval(() => { resumeSession().then((s) => { if (s) setSession((p) => (p ? { ...p, token: s.token } : p)) }) }, 20 * 60 * 1000)
+    return () => clearInterval(t)
+  }, [signedIn])
   if (resuming) return <main dir="rtl" className="grid min-h-screen place-items-center text-muted-foreground" aria-busy="true">در حالِ بارگذاری…</main>
   if (!session) return <LoginPage onLogin={setSession} />
   if (session.must_change_password) return <ChangePassword session={session} onChanged={setSession} />

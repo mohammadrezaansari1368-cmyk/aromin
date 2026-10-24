@@ -221,7 +221,7 @@ export default function AppShell({ session, onLogout }: { session: Session; onLo
 							<ThemeSwitcher />
 						</div>
 					</header>
-					<main ref={mainRef} className="mx-auto w-full max-w-[1180px] flex-1 p-4 sm:p-6">
+					<main ref={mainRef} className={`mx-auto w-full flex-1 p-4 sm:p-6 ${active === 'council' ? 'max-w-none' : 'max-w-[1180px]'}`}>
 						<KidGuide tab={active} />
 						{tab.view && tab.view(session, go, setPanel)}
 						<LegacyHost ref={host} session={session} panel={panel} reload={reload} />

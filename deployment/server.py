@@ -688,6 +688,10 @@ def _state_credentials(old, st, ident):
             if any(w in key.lower() for w in ("pass", "hash")):
                 clean[key] = val
         password = rec.get("pass") if "pass" in rec else rec.get("password")
+        # 3.9.85: the legacy autosave echoes users with their (unchanged/empty) password every minute — re-hashing gave a new salt,
+        # changed _credential() and invalidated every signed-in session ("kicked out every minute"). Same/empty password = no change.
+        if password is not None and _stored_password(previous) and (str(password) == "" or _password_matches(str(password), _stored_password(previous))):
+            password = None
         if password is not None:
             if not admin:
                 return JSONResponse({"ok": False}, status_code=403)

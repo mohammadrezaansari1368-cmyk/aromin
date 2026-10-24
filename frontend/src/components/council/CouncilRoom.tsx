@@ -176,6 +176,11 @@ export default function CouncilRoom({ session }: { session: Session }) {
 	const by = (k: string | null) => seats.find((s) => s.key === k)
 	const table = pinAlavi(pick.map(by).filter(Boolean) as Seat[], (s) => s.key)
 	const [panelOpen, setPanelOpen] = useState(() => { try { return localStorage.getItem('aromin.council.panel') === '1' } catch { return false } })
+	// 3.9.85: the chair wears a gold lapel pin — Dr. Alavi (always in the middle) when seated, else the middle seat
+	const chairKey = table.some((s) => s.key === 'alavi') ? 'alavi' : table[Math.floor(table.length / 2)]?.key
+	const [fs, setFs] = useState(false)
+	useEffect(() => { const on = () => setFs(!!document.fullscreenElement); document.addEventListener('fullscreenchange', on); return () => document.removeEventListener('fullscreenchange', on) }, [])
+	const toggleFs = () => { const el = document.querySelector('.rr') as HTMLElement | null; if (document.fullscreenElement) void document.exitFullscreen?.(); else void el?.requestFullscreen?.() }
 	const togglePanel = (open?: boolean) => setPanelOpen((v) => { const n = open ?? !v; try { localStorage.setItem('aromin.council.panel', n ? '1' : '0') } catch { /* private mode */ } return n })
 
 	// The table is a globe seen from the front; seats sit along its far edge (middle seat farthest, ends nearest), as in the original.
@@ -315,6 +320,7 @@ export default function CouncilRoom({ session }: { session: Session }) {
 				<div className="top-actions">
 					<span className="usage">Chair: {chair || 'Coach agent'}</span>
 					<button className="ghost" type="button" aria-pressed={voice} title="Persian voice (fa-IR) from this browser, if it has one" onClick={toggleVoice}>{voice ? 'صدا: روشن' : 'صدا: خاموش'}</button>
+					<button className="ghost" type="button" aria-pressed={fs} onClick={toggleFs}>{fs ? 'خروج از تمام‌صفحه' : 'تمام‌صفحه'}</button>
 					{res && <button className="ghost" type="button" onClick={reset}>New question</button>}
 				</div>
 			</header>
@@ -350,6 +356,9 @@ export default function CouncilRoom({ session }: { session: Session }) {
 									onPointerDown={(e) => startDrag(e, s.key, 'seat')} onPointerMove={moveDrag} onPointerUp={() => { if (!endDrag()) setTab('feed') }}
 									onPointerCancel={() => setDrag(null)} onKeyDown={(e) => seatKey(e, s.key)}>
 									<Bust seat={s} shape={shapes[s.key] || 'base'} />
+									{s.key === chairKey && <span className="chair-pin" data-testid="council-chair" title={'رئیسِ جلسه — ' + (chair || 'ایجنتِ کوچ')}>
+										<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3l7 7-3 3-7-7z M10.5 6.5l-7 7 3 3 7-7 M3 21h10" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+										<span className="sr">{'رئیسِ جلسه: ' + (chair || 'ایجنتِ کوچ')}</span></span>}
 									<span className="think" aria-hidden="true"><i /><i /><i /></span>
 									{done && c?.stance && <span className={`vote ${STANCE[c.stance]}`}>{STANCE_EN[c.stance]}</span>}
 								</button>
@@ -406,10 +415,6 @@ export default function CouncilRoom({ session }: { session: Session }) {
 									<div className="row"><button type="button" onClick={() => setSheet(true)}>Read the verdict</button><button type="button" className="alt" onClick={reset}>New question</button></div>
 								</div>
 							)}
-						</div>
-						<div className="chair-plate" data-testid="council-chair" aria-label={'رئیسِ جلسه: ' + (chair || 'ایجنتِ کوچ')}>
-							<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3l7 7-3 3-7-7z M10.5 6.5l-7 7 3 3 7-7 M3 21h10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-							<span><small>رئیسِ جلسه</small><b>{chair || 'ایجنتِ کوچ'}</b></span>
 						</div>
 						{live && (
 							<div className="playbar">

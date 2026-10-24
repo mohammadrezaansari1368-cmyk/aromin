@@ -218,3 +218,12 @@
 .rr .chair-plate { left: 50% !important; right: auto !important; top: 10px !important; bottom: auto !important; transform: translateX(-50%); position: absolute !important; margin: 0 !important;
   padding: 7px 16px 7px 12px; border-width: 1.5px; box-shadow: 0 0 0 4px rgba(252,191,0,.12), 0 8px 24px rgba(0,0,0,.35); white-space: nowrap; }
 .rr .chair-plate b { font-size: 13.5px; } .rr .chair-plate small { color: #fcbf00; }
+
+/* 3.9.85: chair = gold lapel pin on the chair's jacket (no plate); full-width / full-screen room on desktop */
+.rr .chair-plate { display: none !important; }
+.rr .chair-pin { position: absolute; left: 34%; bottom: 9%; width: 13%; min-width: 18px; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center; z-index: 3; pointer-events: none;
+  background: radial-gradient(circle at 35% 30%, #fff6c8 0, #ffd84a 22%, #e0a800 58%, #8a6200 100%); color: #3b2a00;
+  box-shadow: 0 0 0 1.5px #fff3b0 inset, 0 2px 6px rgba(0,0,0,.55), 0 0 12px rgba(252,191,0,.55); }
+.rr .chair-pin svg { width: 62%; height: 62%; }
+.rr .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.rr:fullscreen { border-radius: 0; overflow: auto; background: var(--bg, #07121c); }
