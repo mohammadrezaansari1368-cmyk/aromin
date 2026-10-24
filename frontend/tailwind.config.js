@@ -1,3 +1,4 @@
+import typography from '@tailwindcss/typography'
 import containerQueries from '@tailwindcss/container-queries'
 
 // رنگ‌ها = توکن‌های تم (src/index.css)؛ <alpha-value> تا bg-primary/10 و مانندش کار کند
@@ -39,5 +40,5 @@ export default {
       fontFamily: { sans: ['PeydaWeb', 'Peyda', 'Vazirmatn', 'system-ui', 'sans-serif'] },
     },
   },
-  plugins: [containerQueries],
+  plugins: [containerQueries, typography],
 }

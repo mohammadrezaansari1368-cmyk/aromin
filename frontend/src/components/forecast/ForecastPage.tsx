@@ -13,6 +13,8 @@ import { isAdmin, type Session } from '@/lib/auth'
 import { runPreset, setPageActions, setPageContext } from '@/lib/agent'
 import { fetchFull, saveState } from '@/lib/forecastStore'
 import Sortable from '@/components/ui/sortable'
+import { BentoGrid, CurrencyInput, Field, FieldDescription, FieldGroup, FieldLabel, InputGroup, InputGroupAddon, Markdown, MetricCard, RadioGroupWithPlanCards, Segmented, Select, ShCard, ShCardHeader, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/shadcn-kit'
+import { stripHtml, toBullets } from '@/lib/stripHtml'
 import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, FOCUS } from '@/components/ui/tokens'
 import {
 	DEFAULTS, FC_IDS, GRP, FC_INDUSTRY, INDUSTRY_OPTS, M4TYPES, M4TYPE_OPTS, M4REAL_MSG, MARGIN_STD, STRAT_FA, FC_USD_HIST, LEVELW, MN,
@@ -367,7 +369,8 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 		}
 		next()
 	}
-	const doAutoSetup = () => {
+	// 3.9.86: the suggestion is computed live (shown in G3's panel) and applied only with «اعمال پیشنهاد»
+	const suggestSetup = () => {
 		const why: string[] = []
 		const ch = ctxRef.current.churn
 		const churnR = ch && ch.trans && ch.trans.length ? ch.trans[ch.trans.length - 1].rate : 0
@@ -382,6 +385,11 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 		else if (marginDrop || churnR > 30) { strat = 'hold'; why.push(marginDrop ? 'حاشیهٔ سود در حال افت است' : 'ریزشِ قابل‌توجه') }
 		else { strat = 'grow'; why.push('حاشیه و سود سالم است') }
 		const hMap: Record<string, number> = { survive: 3, hold: 4, grow: 6 }
+		return { strat, why: why.join('، '), horizon: hMap[strat], mkt: ({ survive: 4, hold: 6, grow: 12 } as Record<string, number>)[strat] }
+	}
+	const doAutoSetup = () => {
+		const { strat, why: w, horizon } = suggestSetup()
+		const why = [w], hMap: Record<string, number> = { [strat]: horizon }
 		update({ fcStrategy: strat, fcHorizon: String(hMap[strat]), fcHorizonUnit: '1' }, 'fcStrategy')
 		doUsdFetch()
 		setMsg('setup', '✓ استراتژی پیشنهادی: <b>' + STRAT_FA[strat] + '</b> (' + why.join('، ') + ') · افق: <b>' + fa(hMap[strat]) + ' ماه</b> · نرخ دلار به‌صورت آنلاین درخواست شد (اگر شبکه اجازه دهد). می‌توانی هرکدام را دستی تغییر بدهی.')
@@ -511,6 +519,8 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 			{label}
 		</label>
 	)
+	const sug = suggestSetup()
+	const applySuggestion = () => { doAutoSetup(); update({ fcMktPct: String(sug.mkt) }, 'fcMktPct') }
 	const ind = String(f.fcIndustry || '')
 	const indN = industryNote(ind, r.ty)
 	const usdCell = (t: number) => (r.usd > 0 && t > 0 ? '$' + sep(Math.round(t / r.usd)) : '—')
@@ -653,67 +663,105 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 			</section>
 
 			<Band tier="gold" title="فعالیت‌های فروش" desc="پایهٔ پیش‌بینی: صنعت، افق و استراتژی، دادهٔ تاریخی و آمادگی">
-				{/* ۱) صنعت */}
-				<Card title="صنعتِ کسب‌وکارت چیست؟" sub="اول صنعت را انتخاب کن تا پیش‌فرض‌های تخصصی (حاشیهٔ سود، الگوی فصلی، نرخ خرید…) خودکار اعمال شود">
-					<div className="grid items-start gap-4 @3xl:grid-cols-[minmax(0,380px)_1fr]">
-						<label className="block"><Label>صنعتِ کسب‌وکار: پیش‌فرض‌های تخصصی</Label>{sel('fcIndustry', INDUSTRY_OPTS, doIndustry)}</label>
-						{indN && <div className="rounded-xl bg-[var(--fc-brass-soft)] px-4 py-3 text-[12.5px] leading-7 text-foreground ring-1 ring-accent/35" dangerouslySetInnerHTML={{ __html: sanitizeForecastHtml(indN) }} />}
+				{/* G1) صنعت — 3.9.86: Card + Select (Radix) در ستونِ باریک، یادداشت به Markdownِ فهرستی (stripHtml) */}
+				<ShCard>
+					<ShCardHeader title="صنعت کسب‌وکار چیست؟" sub="اول صنعت را انتخاب کن تا پیش‌فرض‌های تخصصی (حاشیه سود، الگوی فصلی، نرخ خرید...) خودکار اعمال شود." />
+					<div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+						<div className="flex flex-col gap-4 lg:col-span-4">
+							<Field>
+								<FieldLabel>صنعت کسب‌وکار: پیش‌فرض‌های تخصصی</FieldLabel>
+								<Select value={v('fcIndustry')} onValueChange={doIndustry} options={INDUSTRY_OPTS.filter((o) => o[0])} placeholder="صنعت را انتخاب کن" ariaLabel="صنعت کسب‌وکار" />
+								<FieldDescription>تغییر صنعت، تمام مقادیر پیش‌فرض را بازنویسی می‌کند.</FieldDescription>
+							</Field>
+						</div>
+						<div className="rounded-lg border bg-muted/30 p-4 md:p-6 lg:col-span-8">
+							<div className="mb-4 font-semibold">جزئیات الگوها و پیش‌فرض‌ها</div>
+							<div className="prose prose-sm max-w-none text-foreground dark:prose-invert md:prose-base prose-li:my-1 prose-strong:text-foreground">
+								{indN ? <Markdown>{toBullets(stripHtml(indN))}</Markdown> : <p className="text-muted-foreground">صنعت را انتخاب کن تا الگوها و پیش‌فرض‌هایش این‌جا بیاید.</p>}
+							</div>
+						</div>
 					</div>
-				</Card>
+				</ShCard>
 
-				{/* ۳) افق، استراتژی، دلار */}
-				<Card title="پیش‌بینی فروش و بودجه‌بندی" sub="ابزار عملیِ برگرفته از جزوه‌ی «بودجه‌بندی و پیش‌بینی فروش»">
-					<p className="mb-3 text-[12.5px] leading-7 text-muted-foreground">پیش‌بینی فروش یعنی <b>تخمینِ</b> حجم فروشی که می‌توان «انتظار» داشت (نه آرزو)، در یک «افق زمانی» مشخص و با تولرانس ۱۰ تا ۲۰ درصد. این تب اعداد را از تو می‌گیرد و زنده محاسبه می‌کند؛ همه چیز روی سرور ذخیره می‌شود.</p>
-					<div className="grid items-end gap-4 @2xl:grid-cols-3">
-						<label className="block"><Label>افق دید برنامه (ماه / فصل / سال)</Label>
-							<div className="flex gap-1.5">{txt('fcHorizon')}{sel('fcHorizonUnit', [['1', 'ماه'], ['3', 'فصل'], ['12', 'سال']], undefined, '!w-24 shrink-0')}</div>
-						</label>
-						<label className="block"><Label>استراتژی امسال</Label>{sel('fcStrategy', [['survive', 'بقا (Survival) — فقط بمانم'], ['hold', 'حفظ (Hold) — سهم بازار را نگه دارم'], ['grow', 'رشد (Growth) — سهم بازار بگیرم']])}</label>
-						<p className="text-[12px] leading-6 text-muted-foreground">{r.stratNote}</p>
+				{/* G3) افق، استراتژی، دلار — 3.9.86: Segmented + کارت‌های استراتژی + CurrencyInput با دکمهٔ آنلاین + پنلِ پیشنهادِ خودکار */}
+				<ShCard>
+					<div className="pointer-events-none absolute -top-24 start-1/3 size-72 rounded-full bg-primary/10 blur-3xl" aria-hidden="true" />
+					<ShCardHeader title="پیش‌بینی فروش و بودجه‌بندی" sub="تخمین فروش قابل انتظار در افق مشخص، با تلورانس ±۱۰–۲۰٪"
+						info="پیش‌بینی فروش یعنی تخمینِ حجم فروشی که می‌توان «انتظار» داشت (نه آرزو)، در یک افق زمانیِ مشخص و با تولرانس ۱۰ تا ۲۰ درصد. اعداد زنده محاسبه و روی سرور ذخیره می‌شوند." />
+					<div className="relative grid grid-cols-1 gap-6 lg:grid-cols-12">
+						<FieldGroup className="lg:col-span-8">
+							<Field>
+								<FieldLabel>افق دید</FieldLabel>
+								<Segmented fullWidth label="افق دید" value={(v('fcHorizonUnit') || '1') as '1' | '3' | '12'} onChange={(u) => update({ fcHorizonUnit: u }, 'fcHorizonUnit')}
+									options={[{ value: '1', label: 'ماهانه' }, { value: '3', label: 'فصلی' }, { value: '12', label: 'سالانه' }]} />
+								<div className="flex items-center gap-2">
+									<span className="text-sm text-muted-foreground">طولِ افق:</span>
+									<div className="w-24">{txt('fcHorizon', { w: '!h-11' })}</div>
+									<span className="text-sm text-muted-foreground">{v('fcHorizonUnit') === '12' ? 'سال' : v('fcHorizonUnit') === '3' ? 'فصل' : 'ماه'}</span>
+								</div>
+							</Field>
+							<Field>
+								<FieldLabel>استراتژی امسال</FieldLabel>
+								<RadioGroupWithPlanCards label="استراتژی امسال" value={v('fcStrategy') || 'hold'} onValueChange={(s) => update({ fcStrategy: s }, 'fcStrategy')} options={[
+									{ value: 'survive', title: 'بقا', badge: 'Survival', desc: 'فقط بمانم؛ نقدینگی و هزینه‌ها اولویت دارند.' },
+									{ value: 'hold', title: 'حفظ', badge: 'Hold', desc: 'سهم بازار را نگه دارم و مشتری را حفظ کنم.' },
+									{ value: 'grow', title: 'رشد', badge: 'Growth', desc: 'سهم بازار بگیرم؛ بودجهٔ بازاریابی بیشتر.' },
+								]} />
+								{r.stratNote && <FieldDescription>{r.stratNote}</FieldDescription>}
+							</Field>
+							<Field>
+								<FieldLabel htmlFor="fcUsdIn">نرخ دلار امروز (تومان)</FieldLabel>
+								<InputGroup>
+									<CurrencyInput id="fcUsdIn" value={v('fcUsd')} onValueChange={(d) => onText('fcUsd')(d)} placeholder="مثلاً 187,515" suffix="تومان" />
+									<InputGroupAddon>
+										<button type="button" onClick={doUsdFetch} disabled={usdBusy} className="min-h-[36px] whitespace-nowrap rounded-lg bg-primary/10 px-3 text-sm font-semibold text-primary transition hover:bg-primary/15 disabled:opacity-50">
+											{usdBusy ? 'در حال دریافت…' : 'دریافت آنلاین'}
+										</button>
+									</InputGroupAddon>
+								</InputGroup>
+								<FieldDescription>{msg.usd ? stripHtml(msg.usd).replace(/\*\*/g, '') : 'مبنای محاسبهٔ دلاری؛ همهٔ اعداد معادلِ دلاری هم نشان داده می‌شوند تا از تورم گول نخوری.'}</FieldDescription>
+							</Field>
+						</FieldGroup>
+						<aside className="lg:col-span-4">
+							<div className="flex flex-col gap-3 rounded-xl border border-primary/20 bg-primary/10 p-5">
+								<div className="text-sm font-semibold text-primary">پیشنهاد خودکار</div>
+								<div className="text-2xl font-extrabold">بودجه پیشنهادی: {fa(sug.mkt)}٪</div>
+								<p className="text-xs leading-5 text-muted-foreground">استراتژی <b className="text-foreground">{STRAT_FA[sug.strat]}</b> · افق <b className="text-foreground">{fa(sug.horizon)} ماه</b> — {sug.why}. بودجهٔ بازاریابی از فروشِ هدف؛ نرخ دلار هم آنلاین گرفته می‌شود.</p>
+								<button type="button" onClick={applySuggestion} className="min-h-[44px] rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">اعمال پیشنهاد</button>
+								{msg.setup && <p className="text-xs leading-5 text-foreground/80">{stripHtml(msg.setup).replace(/\*\*/g, '')}</p>}
+							</div>
+						</aside>
 					</div>
-					<div className="mt-4"><Btn onClick={doAutoSetup}>پیشنهاد خودکار (افق، استراتژی و نرخ دلار)</Btn></div>
-					{msg.setup && <Html className="mt-1.5" h={msg.setup} />}
-					<div className="mt-5 grid items-end gap-4 border-t border-border/70 pt-4 @2xl:grid-cols-3">
-						<label className="block"><Label>نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری</Label>
-							<div className="flex gap-1.5">{txt('fcUsd', { ph: 'مثلاً ۱۸۷٬۵۱۵' })}<Btn kind="ghost" onClick={doUsdFetch} disabled={usdBusy}>دریافت آنلاین</Btn></div>
-						</label>
-						<div className="@2xl:col-span-2"><Html h={msg.usd || 'اولویت با نگاه دلاری است: نرخ دلار را وارد کن (یا آنلاین بگیر) تا همه‌ی اعداد معادل دلاری هم نشان داده شوند و از تورم گول نخوری.'} /></div>
-					</div>
-				</Card>
+				</ShCard>
 
-				{/* ۵) داده‌ی تاریخی */}
-				<Card title="پیش‌بینی از داده‌ی تاریخی" sub="قابل‌اعتمادترین داده؛ سه سال اخیر را وارد کن">
-					<div className="mb-3 flex flex-wrap items-center gap-3">
-						<Html h={'از فایل «صورت سود و زیان» (هر ماه یک شیت) خودکار استخراج می‌شود: <b>فروش خالص ماهانه</b> (→ داده‌ی تاریخی)، <b>حاشیه سود ناخالص</b> و <b>هزینهٔ ثابت (اداری/فروش)</b> (→ روش نقطه‌ی سربه‌سر). فایل نباید رمز داشته باشد.'} />
-						{importBtn}
-					</div>
-					<div className="overflow-auto rounded-xl ring-1 ring-border">
-						<table className="w-full min-w-[620px] text-[12.5px]">
-							<thead className="bg-muted/60"><tr><Th>سال</Th><Th>فروش ریالی (تومان)</Th><Th>میانگین نرخ دلار (تومان، اختیاری)</Th><Th>فروش دلاری</Th><Th>رشد ریالی</Th></tr></thead>
-							<tbody>
-								{[0, 1, 2].map((i) => {
-									const g = i === 1 ? r.g2 : i === 2 ? r.g3 : null
-									return (
-										<tr key={i}>
-											<Td><b>سال {fa(r.yrs[i])}</b>{i === 2 ? ' (جدیدترین)' : ''}</Td>
-											<Td>{txt('fcY' + (i + 1))}</Td>
-											<Td>{txt('fcD' + (i + 1))}</Td>
-											<Td>{r.dol[i] > 0 ? '$' + sep(Math.round(r.dol[i])) : '—'}</Td>
-											<Td>{i === 0 || g == null ? '—' : <Colored v={g}>{pct(g)}</Colored>}</Td>
-										</tr>
-									)
-								})}
-							</tbody>
-						</table>
-					</div>
-					<Figs>
-						<Fig k="میانگین رشد ریالی سالانه" v={r.grs.length ? pct(r.avgG) : '—'} u="دو گذار اخیر" />
-						<Fig k="میانگین متحرک ۳ ساله" v={sep(r.ma3)} u="تومان — کف فروش عادی" />
-						<Fig kind="gold" k="رشد دلاری کل دوره" v={r.dg == null ? '—' : <Colored v={r.dg}>{pct(r.dg)}</Colored>} u="تا از تورم گول نخوری" />
-						<Fig kind="total" k="پیش‌بینی سال بعد (خطی)" v={sep(r.next)} u="تومان — بر پایه‌ی روند" />
-					</Figs>
-					<Html className="mt-2" h={r.histNote} />
-				</Card>
+				{/* G5) دادهٔ تاریخی — 3.9.86: Table (اسکرولِ افقی روی موبایل) + چهار MetricCard در BentoGrid؛ دکمهٔ ایمپورت حذف شد */}
+				<ShCard className="mx-auto max-w-6xl">
+					<ShCardHeader title="پیش‌بینی از داده‌ی تاریخی" sub="سه سال اخیر را وارد کن" />
+					<Table>
+						<TableHeader><TableRow className="border-t-0"><TableHead>سال</TableHead><TableHead>فروش ریالی (تومان)</TableHead><TableHead>میانگین نرخ دلار (تومان)</TableHead><TableHead>فروش دلاری</TableHead><TableHead>رشد ریالی</TableHead></TableRow></TableHeader>
+						<TableBody>
+							{[0, 1, 2].map((i) => {
+								const g = i === 1 ? r.g2 : i === 2 ? r.g3 : null
+								return (
+									<TableRow key={i} className={i === 2 ? 'bg-primary/[.06]' : ''}>
+										<TableCell><b>سال {fa(r.yrs[i])}</b>{i === 2 ? ' (جدیدترین)' : ''}</TableCell>
+										<TableCell>{txt('fcY' + (i + 1), { w: '!h-11' })}</TableCell>
+										<TableCell>{txt('fcD' + (i + 1), { w: '!h-11' })}</TableCell>
+										<TableCell>{r.dol[i] > 0 ? '$' + sep(Math.round(r.dol[i])) : '—'}</TableCell>
+										<TableCell>{i === 0 || g == null ? '—' : <Colored v={g}>{pct(g)}</Colored>}</TableCell>
+									</TableRow>
+								)
+							})}
+						</TableBody>
+					</Table>
+					<BentoGrid className="mt-6">
+						<MetricCard accent="yellow" title="پیش‌بینی سال بعد" value={sep(r.next)} unit="تومان" sub="بر پایه‌ی روند" />
+						<MetricCard accent="olive" title="رشد دلاری کل دوره" value={r.dg == null ? '—' : <Colored v={r.dg}>{pct(r.dg)}</Colored>} sub="تا با تورم گول نخوری" />
+						<MetricCard title="میانگین متحرک ۳ ساله" value={sep(r.ma3)} unit="تومان" sub="کف فروش عادی" />
+						<MetricCard title="میانگین رشد ریالی سالانه" value={r.grs.length ? pct(r.avgG) : '—'} sub="دو گذار اخیر" />
+					</BentoGrid>
+					<p className="mt-4 text-center text-xs leading-6 text-muted-foreground">نرخ دلار هر سال را هم پر کن تا رشد واقعی (دلاری) را ببینی و از تورم گول نخوری.</p>
+				</ShCard>
 
 				{/* ۱۱) آمادگی */}
 				<Card title="آمادگی پیش‌بینی: شش مؤلفه" sub="هرچه کامل‌تر، تخمین به تولرانس ۱۰–۲۰٪ نزدیک‌تر">
