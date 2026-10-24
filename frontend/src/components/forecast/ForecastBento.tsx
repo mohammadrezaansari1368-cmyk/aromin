@@ -3,8 +3,10 @@
  * فارسی، راست‌به‌چپ، توکن‌های تمِ آرومین، بدونِ محتوای رمزارز). هیچ محاسبهٔ تازه‌ای ندارد: همهٔ اعداد از خروجیِ موتورِ پیش‌بینی
  * (compute در lib/forecast.ts) و همان معاملاتِ صفحه می‌آیند. حرکت با prefers-reduced-motion خاموش می‌شود.
  */
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { MONTHS } from '@/engines/commission'
+
+const VioletSwirl = lazy(() => import('./VioletSwirl'))
 
 export interface ForecastBentoProps {
 	year: number
@@ -86,7 +88,9 @@ function HeroTile({ p, reduced }: { p: ForecastBentoProps; reduced: boolean }) {
 	const max = Math.max(1, ...p.actual, ...(p.forecast || [0]))
 	return (
 		<Tile className="sm:col-span-2 lg:col-span-2" testid="fb-hero">
-			<div className="flex flex-wrap items-start justify-between gap-5">
+			<Suspense fallback={null}><VioletSwirl /></Suspense>
+			<div aria-hidden className="absolute inset-0 bg-gradient-to-b from-card/88 via-card/60 to-card/92" />
+			<div className="relative z-10 flex flex-wrap items-start justify-between gap-5">
 				<div className="min-w-0">
 					<p className="text-[24px] font-extrabold leading-tight sm:text-[30px]">سالِ <span className="text-primary-ink">{faN(p.year).replace(/٬/g, '')}</span> در یک نگاه</p>
 					<p className="mt-1 text-[13px] text-muted-foreground">پیش‌بینی، فروشِ واقعی و فاصله تا هدف — از همین موتورِ پیش‌بینی.</p>
@@ -98,7 +102,7 @@ function HeroTile({ p, reduced }: { p: ForecastBentoProps; reduced: boolean }) {
 						{gap >= 0 ? '▲ جلوتر از برنامه ' : '▼ عقب‌تر از برنامه '}{mt(Math.abs(gap))} تومان</p>}
 				</div>
 			</div>
-			<div className="mt-5 flex flex-1 flex-col">
+			<div className="relative z-10 mt-5 flex flex-1 flex-col">
 				<div className="flex flex-1 items-end gap-1.5" style={{ minHeight: 84 }} onPointerLeave={() => setHover(null)} dir="rtl">
 					{MONTHS.map((name, i) => {
 						const a = p.actual[i] || 0, f = p.forecast?.[i] || 0
