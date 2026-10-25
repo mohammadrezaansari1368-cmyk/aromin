@@ -43,13 +43,25 @@ function Trend({ v }: { v: number | null }) {
 }
 
 /** یک گیجِ مستقل. `pinned` فقط مقدار را عوض می‌کند و به منبعِ زندهٔ داشبورد نمی‌نویسد. */
-export function GaugeTile({ id, hero = false, pinned }: { id: GaugeId; hero?: boolean; pinned?: { value: number; max: number; spec?: Partial<GaugeSpec> } }) {
+export function GaugeTile({ id, hero = false, pinned, face, onHub, hubLabel = 'دریافت آنلاین نرخ دلار', hubBusy = false }: { id: GaugeId; hero?: boolean; pinned?: { value: number; max: number; spec?: Partial<GaugeSpec> }; face?: 'bugatti'; onHub?: () => void; hubLabel?: string; hubBusy?: boolean }) {
 	const { readings, sweep, mode, specs, empty } = useGaugeReadings()
 	const s = pinned ? { ...GAUGE_SPECS[id], ...pinned.spec, max: pinned.max } : (specs?.[id] ?? GAUGE_SPECS[id])
 	const r = pinned ? { value: pinned.value, max: pinned.max, trend: null, updatedAt: null } : readings[id]
 	const none = pinned ? false : !!empty?.[id]
 	const [live, setLive] = useState<number | null>(null)
 	const shown = Math.max(0, Math.min(live ?? r.value, r.max ?? s.max))
+	if (face === 'bugatti') {
+		return (
+			<div className="grid h-full w-full place-items-center" dir="ltr">
+				<div className="relative aspect-square h-full max-h-full w-full max-w-full">
+					<AnalogGauge face="bugatti" spec={s} value={r.value} max={r.max} sweep={0} tilt={false} onFrame={setLive} />
+					<button type="button" aria-label={hubLabel} disabled={hubBusy || !onHub} onClick={onHub}
+						className="absolute left-1/2 top-1/2 z-10 aspect-square w-[15%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,.95),0_1px_3px_rgba(0,0,0,.45)] disabled:opacity-60"
+						style={{ background: 'radial-gradient(circle at 35% 30%, #ffffff 0%, #e7edf2 45%, #9aa3ae 78%, #f8fafc 100%)' }} />
+				</div>
+			</div>
+		)
+	}
 	return (
 		<GaugeShell icon={s.icon} title={s.label} code={s.code} status={pinned ? undefined : none ? 'idle' : gaugeStatus(s, r)} mock={pinned ? false : mode === 'mock'}>
 			{/* گیج = کوچک‌ترِ عرض و ارتفاعِ فضای موجود (container size) — در کاشیِ بلند و کوتاه هر دو جا می‌شود */}

@@ -767,8 +767,8 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 						}))} />
 						{r.stratNote && <FieldDescription>{r.stratNote}</FieldDescription>}
 					</Field>
-					<div className="mx-auto h-[360px] w-full max-w-[300px]" data-testid="fc-usd-gauge">
-						<GaugeTile id="speed" hero pinned={{ value: r.usd / 1000, max: 400, spec: { label: 'نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری', unit: 'هزار تومان', faceUnit: 'هزار تومان', code: '0–400', step: 100, minor: 2, decimals: 3, redFrom: undefined, redTo: undefined } }} />
+					<div className="mx-auto aspect-square w-full max-w-[320px]" data-testid="fc-usd-gauge">
+						<GaugeTile id="speed" hero face="bugatti" onHub={doUsdFetch} hubBusy={usdBusy} hubLabel="دریافت آنلاین نرخ دلار" pinned={{ value: r.usd / 1000, max: 1001, spec: { label: '$', unit: '$', faceUnit: '$', code: '0–1001', step: 100, minor: 4, decimals: 3, redFrom: undefined, redTo: undefined } }} />
 					</div>
 					<Field>
 						<FieldLabel htmlFor="fcUsdIn">نرخ دلار امروز (تومان)</FieldLabel>
