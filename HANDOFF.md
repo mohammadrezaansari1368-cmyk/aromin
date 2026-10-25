@@ -1,3 +1,5 @@
+2026-10-25 · feat/forecast-on-3.9.89 (3.9.91): بلوک‌های بازماندهٔ تبِ پیش‌بینی با SpotlightCard و MagicBentoِ React Bits عوض شد (صنعت، افق/استراتژی، دادهٔ تاریخی و پوسته‌ی بقیهٔ کارت‌ها)؛ سرعت‌سنجِ دلار دست نخورد. سلامت‌سنجِ نصب حالا دلیلِ رد را می‌نویسد و migrate.py را هم کپی/رول‌بک می‌کند. vitest 268/1، tsc، lint، build.
+
 2026-10-25 · feat/forecast-on-3.9.89 (3.9.90): بازطراحیِ تبِ پیش‌بینی (feat/forecast-tab-redesign، PR #23) روی 3.9.89 cherry-pick شد؛ در تداخل‌ها کارت‌های G1/G3/G5 نسخهٔ 3.9.86–3.9.89 حفظ شد. نرخ دلارِ پیش‌بینی روی سرعت‌سنجِ داشبورد (`GaugeTile` id=speed): نرخ ÷ ۱۰۰۰ روی مقیاس ۰–۴۰۰، بدون نوشتن در منبعِ زندهٔ داشبورد. منطق/داده/API بدون تغییر.
 
 2026-10-24 · Claude Code · release/agent-p0 (3.9.89): اسکیلِ react-bits ساخته شد (~/.claude/skills/react-bits: کلِ src/ts-tailwind مخزنِ DavidHDev/react-bits، ۲۱۸ کامپوننت، آفلاین؛ با sparse-clone). CountUp و FadeContentِ اصلی در ui/reactbits/ کپی شد و ui/count-up.tsx فقط پوششِ نازک است (ms→s، جداکنندهٔ ,). بدونِ وابستگیِ تازه (motion و gsap از قبل). vitest 267/1، tsc، build.
