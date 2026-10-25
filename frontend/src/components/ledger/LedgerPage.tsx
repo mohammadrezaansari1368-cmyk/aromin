@@ -1,5 +1,7 @@
 'use client'
 
+import EngineAssembly from './EngineAssembly'
+
 /**
  * تبِ «دفتر فروش» — بومی (C1 میزِ کارِ مالی/فروش + C2…C6 خلاصه‌ها).
  * محاسبه‌ها فقط از موتورِ پورسانت (engines/commission، برابرِ ۱۰۰٪ با اپِ کامل)؛ نوعِ مشتری از engines/customer؛ ایمپورت از engines/deal-import.
@@ -552,8 +554,9 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 					<p className="mt-1 text-[11.5px] text-muted-foreground">قابلِ پرداختِ همین حالا (نقد)</p>
 					<Split parts={[{ k: 'نقد', v: T.payNow, c: 'bg-success' }, { k: 'چک (پس از وصول)', v: T.payCheck, c: 'bg-warning' }, { k: 'معلق', v: T.payPend, c: 'bg-error' }]} />
 				</Tile>
-				<Tile key="c4" title="فروش روزانهٔ ماه جاری" code="C4" className="md:col-span-2">
-					<SalesTrend deals={allRows.map(r => ({ ...r.d, saleDate: r.saleDate }))} />
+				<Tile key="c4" title="موتور هفت مرحلهٔ فروش" code="C4" className="md:col-span-2">
+					<EngineAssembly rows={allRows} />
+					<details className="mt-4"><summary className="cursor-pointer text-xs">فروش روزانهٔ ماه جاری</summary><SalesTrend deals={allRows.map(r => ({ ...r.d, saleDate: r.saleDate }))} /></details>
 				</Tile>
 				<Tile key="c2" title="قیف" code="C2" month={gm}>
                     <StageFunnel data={funnelReach(T.funnel).map(r => ({ label: FUNNEL_EN[r.key], value: r.value }))} lost={T.funnel.lost?.n || 0} />
