@@ -56,3 +56,16 @@ describe('backup payload (3.9.92)', () => {
 		expect(b.payload).toMatchObject({ fy: '1405' })
 	})
 })
+
+describe('lead generator = «ثبت‌کننده» (3.9.93)', () => {
+	it('a registrar who is not a salesperson is stored as leadGen, without a new person or a «new name» warning', () => {
+		const rows = [row('L-1', 'بستن', 50, { 'ثبت‌کننده': 'Arash lead Generation' }), row('L-2', 'آغاز کردن', 0, { 'ثبت‌کننده': 'Arash lead Generation' })]
+		const P = planDealImport(rows, fresh(), opts)
+		expect(P.newNames).toEqual({})
+		expect(P.leadNames).toEqual({ 'Arash lead Generation': 2 })
+		const full = fresh()
+		applyDealImport(full, rows, { ...opts, fileName: 'f', sig: 's', custbook: null })
+		expect(full.people.map((p) => p.name)).toEqual(['سارا'])
+		expect(full.people[0].invY['1405'].map((d: { leadGen: string }) => d.leadGen)).toEqual(['Arash lead Generation', 'Arash lead Generation'])
+	})
+})

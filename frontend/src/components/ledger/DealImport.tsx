@@ -97,6 +97,11 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 							این نام‌ها در سیستم نیستند و با ثبت، کارشناسِ تازه ساخته می‌شود (به هیچ کارشناسِ موجودی خودکار وصل نمی‌شوند): {newNames.map(([n, c]) => `${n} (${fa(c)})`).join('، ')}. اگر املای دیگرِ یک کارشناسِ موجود است، پیش از ثبت نام را یکسان کنید.
 						</p>
 					)}
+					{Object.keys(plan.leadNames).length > 0 && (
+						<p className="mt-2 rounded-md bg-muted px-3 py-2 text-[12.5px] leading-6 text-foreground ring-1 ring-inset ring-border" role="note">
+							لیدساز (ستونِ «ثبت‌کننده» جولیو) روی همان فاکتورها ثبت می‌شود و کارشناسِ تازه ساخته نمی‌شود: {Object.entries(plan.leadNames).map(([n, c]) => `${n} (${fa(c)})`).join('، ')}
+						</p>
+					)}
 					<p className="mt-2 text-sm" role="status">تاریخ فروش: {plan.saleDateColumn ? `ستون «${plan.saleDateColumn}»` : 'ستون یافت نشد'} · {fa(plan.dateUpdates.length)} تاریخ خالیِ فاکتور موجود تکمیل می‌شود. {plan.missingSaleDates > 0 && `${fa(plan.missingSaleDates)} ردیف تاریخ فروش ندارد و در نمودار روزانه نمایش داده نمی‌شود.`}</p>
                     {prevY.length > 0 && (
 						<p className="mt-2 rounded-md bg-warning/10 px-3 py-2 text-[12.5px] leading-6 text-foreground ring-1 ring-inset ring-warning/30" role="note">

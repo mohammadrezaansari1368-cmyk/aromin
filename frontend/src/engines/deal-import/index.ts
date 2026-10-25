@@ -203,7 +203,8 @@ export function planDealImport(rowsJson: Record<string, unknown>[], full: any, o
 		const cell = (sr.months[mm] ||= { n: 0, amount: 0 }); cell.n++; cell.amount += amt
 		if (c.noRep) P.noRep++
 		else if (!known.has(c.rep)) P.newNames[c.rep] = (P.newNames[c.rep] || 0) + 1
-		if (c.lead) { P.leadNames[c.lead] = (P.leadNames[c.lead] || 0) + 1; if (!known.has(c.lead)) P.newNames[c.lead] = (P.newNames[c.lead] || 0) + 1 }
+		// 3.9.93: لیدساز = «ثبت‌کننده»ِ جولیو؛ فقط روی فاکتور (leadGen) می‌نشیند — کارشناسِ تازه نیست و هشدارِ «نامِ تازه» نمی‌گیرد
+		if (c.lead) P.leadNames[c.lead] = (P.leadNames[c.lead] || 0) + 1
 		if (!P.groups[c.rep]) { P.groups[c.rep] = []; P.order.push(c.rep) }
 		P.groups[c.rep].push(c.d)
 	}
@@ -245,8 +246,7 @@ export function applyDealImport(full: any, rowsJson: Record<string, unknown>[], 
 		for (const d of P.groups[rep]) { const nd = { ...d, id: nextId() }; added.add(nd); arr.push(nd) }
 		commit(person, arr)
 	}
-	// لیدسازانی که کارشناس نیستند (همان doImport)
-	for (const nm of Object.keys(P.leadNames)) if (!P.order.includes(nm) && !byName(nm)) { people.push({ id: nextId(), name: nm, inv: [], invY: {}, S: freshS(), role: 'sales' }); created++ }
+	// 3.9.93: برای لیدسازی که کارشناس نیست شخصِ تازه ساخته نمی‌شود؛ پاداشِ لید با همان نامِ leadGen حساب می‌شود
 	full.gid = gid
 	if (!full.years || typeof full.years !== 'object') full.years = {}
 	if (!full.years[TARGET_FY]) full.years[TARGET_FY] = { budget: full.budget || {}, targets: full.targets || {} }

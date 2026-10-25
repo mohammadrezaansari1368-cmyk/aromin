@@ -55,9 +55,8 @@ const COLS: Col[] = [
 	{ k: 'amount', t: 'خالص فاکتور', w: 128, edit: 'money', sort: true, tier: 1 },
 	{ k: 'stage', t: 'مرحله و وزنِ ۷گانه', w: 262, tier: 1 },
 	{ k: 'settle', t: 'تسویه', w: 138, edit: 'select', tier: 1 },
-	{ k: 'next', t: 'اقدام بعدی', w: 138, tier: 1 },
-	{ k: 'owner', t: 'کارشناس', w: 118, tier: 2 },
-	{ k: 'leadGen', t: 'لیدساز', w: 124, edit: 'select', tier: 2 },
+	{ k: 'owner', t: 'کارشناس', w: 118, tier: 1 },
+	{ k: 'leadGen', t: 'لیدساز (ثبت‌کننده)', w: 150, edit: 'select', tier: 1 },
 	{ k: 'date', t: 'تاریخ', w: 122, edit: 'text', sort: true, tier: 1 },
 	{ k: 'change', t: 'تغییر مرحله', w: 135, edit: 'select', tier: 1 },
 	{ k: 'kind', t: 'نوع خرید', w: 118, edit: 'select', tier: 2 },
@@ -426,7 +425,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 			setColMsg('ترتیب ستون‌ها ذخیره شد')
 		}).catch(() => { setColOrder(previous); setColMsg('ذخیره ناموفق بود؛ ترتیب ستون‌ها بازگردانده شد') }).finally(() => { columnSaving.current = false })
 	}, [session, colOrder])
-	const cols = useMemo(() => colOrder.map((k) => COLS.find((c) => c.k === k)!).filter((c) => c && (c.k !== 'owner' || scope === ALL) && (wide || c.tier === 1 || c.k === 'act')), [colOrder, scope, wide])
+	const cols = useMemo(() => colOrder.map((k) => COLS.find((c) => c.k === k)!).filter((c) => c && (wide || c.tier === 1 || c.k === 'act')), [colOrder, scope, wide])
 	const [cur, setCur] = useState<{ r: number; c: number }>({ r: 0, c: 0 })
 	const [edit, setEdit] = useState<{ key: string; col: ColK } | null>(null)
 	const [stageFor, setStageFor] = useState<string | null>(null)
