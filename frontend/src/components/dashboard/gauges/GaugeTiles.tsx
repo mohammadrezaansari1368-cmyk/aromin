@@ -56,8 +56,8 @@ export function GaugeTile({ id, hero = false, pinned, face, onHub, hubLabel = 'Ø
 				<div className="relative aspect-square h-full max-h-full w-full max-w-full">
 					<AnalogGauge face="bugatti" spec={s} value={r.value} max={r.max} sweep={0} tilt={false} onFrame={setLive} />
 					<button type="button" aria-label={hubLabel} disabled={hubBusy || !onHub} onClick={onHub}
-						className="absolute left-1/2 top-1/2 z-10 aspect-square w-[15%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,.95),0_1px_3px_rgba(0,0,0,.45)] disabled:opacity-60"
-						style={{ background: 'radial-gradient(circle at 35% 30%, #ffffff 0%, #e7edf2 45%, #9aa3ae 78%, #f8fafc 100%)' }} />
+						className="absolute left-1/2 top-1/2 z-10 aspect-square w-[14.5%] -translate-x-1/2 -translate-y-1/2 rounded-full border-0 disabled:opacity-60"
+						style={{ background: 'radial-gradient(circle at 36% 30%, #ffffff 0%, #f4f7fa 18%, #d5dce4 48%, #8e98a4 78%, #c5ced6 100%)', boxShadow: 'inset 0 1.5px 1px rgba(255,255,255,.95), inset 0 -5px 6px rgba(30,40,50,.5), 0 2px 3px rgba(0,0,0,.45), 0 0 0 1px rgba(70,80,90,.55)' }} />
 				</div>
 			</div>
 		)
