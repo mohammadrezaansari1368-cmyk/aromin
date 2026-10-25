@@ -13,6 +13,7 @@ import { isAdmin, type Session } from '@/lib/auth'
 import { runPreset, setPageActions, setPageContext } from '@/lib/agent'
 import { fetchFull, saveState } from '@/lib/forecastStore'
 import Sortable from '@/components/ui/sortable'
+import { GaugeTile } from '@/components/dashboard/gauges/GaugeTiles'
 import { BTN, BTN_GHOST, BTN_PRIMARY, FOCUS } from '@/components/ui/tokens'
 import {
 	DEFAULTS, FC_IDS, GRP, FC_INDUSTRY, INDUSTRY_OPTS, M4TYPES, M4TYPE_OPTS, M4REAL_MSG, MARGIN_STD, STRAT_FA, FC_USD_HIST, LEVELW, MN,
@@ -691,11 +692,16 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 					</div>
 					<div className="mt-4"><Btn onClick={doAutoSetup}>پیشنهاد خودکار (افق، استراتژی و نرخ دلار)</Btn></div>
 					{msg.setup && <Html className="mt-1.5" h={msg.setup} />}
-					<div className="mt-5 grid items-end gap-4 border-t border-border/70 pt-4 @2xl:grid-cols-3">
-						<label className="block"><Label>نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری</Label>
-							<div className="flex gap-1.5">{txt('fcUsd', { ph: 'مثلاً ۱۸۷٬۵۱۵' })}<Btn kind="ghost" onClick={doUsdFetch} disabled={usdBusy}>دریافت آنلاین</Btn></div>
-						</label>
-						<div className="@2xl:col-span-2"><Html h={msg.usd || 'اولویت با نگاه دلاری است: نرخ دلار را وارد کن (یا آنلاین بگیر) تا همه‌ی اعداد معادل دلاری هم نشان داده شوند و از تورم گول نخوری.'} /></div>
+					<div className="mt-5 grid items-center gap-4 border-t border-border/70 pt-4 @3xl:grid-cols-[minmax(0,300px)_1fr]">
+						<div className="mx-auto h-[360px] w-full max-w-[300px]" data-testid="fc-usd-gauge">
+							<GaugeTile id="speed" hero pinned={{ value: r.usd / 1000, max: 400, spec: { label: 'نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری', unit: 'هزار تومان', faceUnit: 'هزار تومان', code: '0–400', step: 100, minor: 2, decimals: 3, redFrom: undefined, redTo: undefined } }} />
+						</div>
+						<div className="min-w-0">
+							<label className="block"><Label>نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری</Label>
+								<div className="flex gap-1.5">{txt('fcUsd', { ph: 'مثلاً ۱۸۷٬۵۱۵' })}<Btn kind="ghost" onClick={doUsdFetch} disabled={usdBusy}>دریافت آنلاین</Btn></div>
+							</label>
+							<Html className="mt-3" h={msg.usd || 'اولویت با نگاه دلاری است: نرخ دلار را وارد کن (یا آنلاین بگیر) تا همه‌ی اعداد معادل دلاری هم نشان داده شوند و از تورم گول نخوری.'} />
+						</div>
 					</div>
 				</Card>
 

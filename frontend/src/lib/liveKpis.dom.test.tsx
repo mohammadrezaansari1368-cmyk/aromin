@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { dealKpis, niceScale, radarAxes } from './liveKpis'
 import ForecastBento from '@/components/forecast/ForecastBento'
 import { GaugeTile } from '@/components/dashboard/gauges/GaugeTiles'
-import { setLiveGauges, GAUGE_SPECS } from '@/components/dashboard/gauges/kpi'
+import { setLiveGauges, GAUGE_SPECS, liveGaugeSource } from '@/components/dashboard/gauges/kpi'
 import HarikanStatus from '@/components/performance/HarikanStatus'
 import type { Session } from '@/lib/auth'
 
@@ -69,6 +69,20 @@ describe('tiles', () => {
 		}))
 		expect(el.textContent).toContain('تماس‌های پاسخ‌دادهٔ امروز')
 		expect(el.textContent).not.toContain('داده‌ای نیست')          // the value itself animates (needle sweep)
+	})
+	it('the speedometer can show the forecast USD rate divided by 1000 on a 0–400 scale without writing the dashboard source', async () => {
+		vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }))
+		const before = JSON.stringify(liveGaugeSource.get())
+		await act(async () => root.render(<GaugeTile id="speed" hero pinned={{ value: 187515 / 1000, max: 400, spec: { label: 'نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری', unit: 'هزار تومان', faceUnit: 'هزار تومان', code: '0–400', step: 100, minor: 2, decimals: 3, redFrom: undefined, redTo: undefined } }} />))
+		await flush()
+		const dial = el.querySelector('svg[aria-label]')!.getAttribute('aria-label')!
+		expect(dial).toContain('۱۸۷٫۵۱۵')
+		expect(dial).toContain('۴۰۰')
+		expect(dial).toContain('هزار تومان')
+		expect(dial).not.toContain('km/h')
+		expect(el.textContent).not.toContain('داده‌ای نیست')
+		expect(el.textContent).not.toContain('نمونه')
+		expect(JSON.stringify(liveGaugeSource.get())).toBe(before)
 	})
 	it('forecast bento renders engine numbers and empty states', async () => {
 		vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener() {}, removeEventListener() {} }))   // reduced motion → final numbers at once
