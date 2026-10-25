@@ -4003,7 +4003,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     officialDeduct:10, months:{} }; }
 
   /* ---------- چند کارشناس ---------- */
-  var APP_VERSION = "3.9.93";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
+  var APP_VERSION = "3.9.94";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
   var DATA_VERSION=3;             // نسخه‌ی ساختار داده (برای مهاجرت خودکار)
   var PEOPLE=[], activePid=null, gid=1;
   var SALESCRISIS=false;   // شرایطِ بحرانی: مدیرِ فروش هم تارگت می‌گیرد و می‌فروشد
@@ -4403,6 +4403,9 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   window.loginByMobile=loginByMobile;
   window.arominTenant=function(){return TENANT||"team";};
   window.arominAcceptSession=acceptSession;
+  // 3.9.94: a fresh token from the dashboard (already verified by the server on resume) — no re-login, no UI change
+  window.arominSetToken=function(t){ if(t && typeof t==="string") SESSION_TOKEN=t; };
+  window.arominHasSession=function(){ return !!(session && SESSION_TOKEN); };
   window.arominGoogleLogin=function(credential){ return sessionLogin({credential:credential}); };
   window.syncUsers=syncUsers;
   window.USERS=USERS;
@@ -13502,7 +13505,11 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
       whenReady(function(ok){
         if(!ok) return reply({ok:false,error:"اپِ کامل آماده نشد (اتصال به سرور؟)"});
         // اول تازه‌ترین دادهٔ سرور (ممکن است نسخهٔ بومی از بارِ قبل چیزی ذخیره کرده باشد — مثلاً ایمپورتِ معاملات در دفترِ بومی)
-        window.__arominReload().then(function(rok){
+        // 3.9.94: sign this hidden engine in with the dashboard's current token (it may never have had a session, or its 1-hour token expired)
+        var auth = !m.token ? Promise.resolve() : window.arominHasSession() ? Promise.resolve(window.arominSetToken(m.token))
+          : fetch("/api/auth/session",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+String(m.token)},body:JSON.stringify({tenant:window.arominTenant(),resume:true})})
+              .then(function(r){ return r.json(); }).then(function(d){ return window.arominAcceptSession(d); }).catch(function(){});
+        auth.then(function(){ return window.__arominReload(); }).then(function(rok){
         if(!rok) return reply({ok:false,error:"دادهٔ تازهٔ سرور خوانده نشد؛ برای امنیت، ایمپورت انجام نشد."});
         backupNow("پیش از ایمپورت از نسخهٔ جدید").then(function(bok){
         if(!bok) return reply({ok:false,error:"بک‌آپِ پیش از ایمپورت روی سرور گرفته نشد؛ برای امنیت، ایمپورت انجام نشد."});
@@ -14218,6 +14225,7 @@ var CALC_B64="PCFkb2N0eXBlIGh0bWw+CjxodG1sIGxhbmc9ImZhIiBkaXI9InJ0bCI+CjxoZWFkPg
           .then(function(r){return r.json();}).then(function(d){return window.arominAcceptSession(d);}).then(function(err){post({type:"auth",ok:!err,error:err,tab:err?null:openTab()});});
         return;
       }
+      if(typeof window.arominSetToken==="function") window.arominSetToken(m.token);   // 3.9.94: keep the renewed token
       setTimeout(function(){ post({type:"auth",ok:true,tab:openTab()}); },250);
     })(0);
   });

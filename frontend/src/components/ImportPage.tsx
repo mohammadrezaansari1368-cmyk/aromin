@@ -11,7 +11,7 @@ import * as XLSX from 'xlsx'
 import { Shell, Big, faNum } from '@/components/ui/kit'
 import { useAromin, dataTag, ensureTenant, currentTenant, type ImportLogItem } from '@/lib/data'
 import { KINDS, kindOf, detectImportType, type ImportKind } from '@/lib/importTypes'
-import { authHeaders, isAdmin, type Session } from '@/lib/auth'
+import { authHeaders, isAdmin, storedToken, type Session } from '@/lib/auth'
 import KnowledgeTile from '@/components/KnowledgeTile'
 import { canSeeAll } from '@/lib/performance'
 import Sortable from '@/components/ui/sortable'
@@ -234,7 +234,8 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		const res = (await new Promise<unknown>((resolve) => {
 			pending.current = { id, resolve }
 			frame.current!.contentWindow!.postMessage(
-				{ aromin: 'import', id, files: eng.map((q) => ({ name: q.name, buf: q.buf })) },
+				// 3.9.94: the dashboard's current (renewed) token travels with the files — the hidden import engine's own session may be missing or expired
+				{ aromin: 'import', id, token: storedToken() || session?.token || '', files: eng.map((q) => ({ name: q.name, buf: q.buf })) },
 				location.origin,
 			)
 			window.setTimeout(() => {
