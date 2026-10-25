@@ -134,13 +134,12 @@ describe('مهاجرتِ یک‌بارهٔ IndexedDB ← سرور', () => {
 		expect(srv.st.calls.filter((c) => c.method === 'POST')).toHaveLength(1)
 		expect(local()).toEqual([false, false])
 	})
-	it('نگاشتِ دستیِ محلی ← scan با personId (تأیید نمی‌شود)؛ قواعدِ محلی فقط اگر سرور ندارد', async () => {
+	it('3.9.92: نگاشتِ هویت حذف شد — پیوندِ محلی به سرور نمی‌رود؛ قواعدِ محلی فقط اگر سرور ندارد', async () => {
 		LS.set('aromin.perf.links.team', JSON.stringify({ 'کریمی': { person: 'زهرا کریمی' } }))
 		LS.set('aromin.perf.settings.team', JSON.stringify({ workEnd: '17:00' }))
 		await seed({ 'کریمی': month(9, '06', [1]) })
 		await migrateLocalAttendance(ADMIN)
-		expect(srv.st.calls.find((c) => c.path === '/api/identity/scan')!.body).toMatchObject({ items: [{ kind: 'card', key: '9', source: 'migration', personId: '2' }] })
-		expect(srv.st.aliases.get('9')?.status).toBe('suggested')
+		expect(srv.st.calls.some((c) => c.path.startsWith('/api/identity'))).toBe(false)
 		expect(srv.st.settings).toEqual({ workEnd: '17:00' })
 	})
 	it('برای فروش اجرا نمی‌شود و دادهٔ محلی دست نمی‌خورد', async () => {

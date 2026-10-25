@@ -25,7 +25,9 @@ async function backup(full: any, tag: string) {
 	const r = await fetch('/api/backup', {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', ...activeAuthHeaders() },
-		body: JSON.stringify({ tenant: currentTenant(), tag, payload: JSON.stringify(full) }),
+		// 3.9.92: the state as an OBJECT — the same state as an escaped JSON string (~2 MB) is dropped by the CDN/WAF edge (connection reset,
+		// never reaches the app), so every «backup → save» (deal import, forecast) failed with «بک‌آپ گرفته نشد». The server stores both forms the same way.
+		body: JSON.stringify({ tenant: currentTenant(), tag, payload: full }),
 	})
 	const d = await r.json().catch(() => null)
 	if (!r.ok || !d || !d.ok) throw new Error('backup')

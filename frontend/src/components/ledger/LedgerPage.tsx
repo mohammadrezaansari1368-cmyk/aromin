@@ -50,7 +50,7 @@ const NOF: Filters = { no: '', q: '', funnel: '', settle: '', kind: '', channel:
 
 const ALL = '__all__'
 const COLS: Col[] = [
-	{ k: 'no', t: 'شماره فاکتور', w: 124, sort: true, tier: 1 },
+	{ k: 'no', t: 'شماره فاکتور', w: 152, sort: true, tier: 1 },
 	{ k: 'name', t: 'مشتری', w: 200, edit: 'text', sort: true, tier: 1 },
 	{ k: 'amount', t: 'خالص فاکتور', w: 128, edit: 'money', sort: true, tier: 1 },
 	{ k: 'stage', t: 'مرحله و وزنِ ۷گانه', w: 262, tier: 1 },
@@ -778,7 +778,9 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 		}
         case 'stage': {
    const fk = funnelOf(d), progress = selectedProgress(d, r.S.weights || DEFAULT_WEIGHTS)
-   return <span data-sales-progress={progress.percent} role="button" tabIndex={0} aria-label="انتخاب مراحل هفت‌گانه" onMouseEnter={e => openStages(r, e.currentTarget)} onClick={e => { e.stopPropagation(); openStages(r, e.currentTarget) }} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openStages(r, e.currentTarget) } }} className="flex w-full min-w-0 cursor-pointer flex-col gap-1">
+   // 3.9.92: no hover-to-open — edit with the ✎ button (same as the other editable cells); Enter/Space on the cell still opens it
+   return <span data-sales-progress={progress.percent} tabIndex={0} aria-label="مراحل هفت‌گانه" onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openStages(r, e.currentTarget) } }} className="relative flex w-full min-w-0 flex-col gap-1 pl-7">
+    <button type="button" aria-label="ویرایشِ مراحل هفت‌گانه" title="ویرایشِ مراحل" onClick={e => { e.stopPropagation(); openStages(r, e.currentTarget.parentElement as HTMLElement) }} className="absolute left-0 top-0 grid size-6 place-items-center rounded text-[12px] text-muted-foreground hover:bg-primary/10 hover:text-primary-ink">✎</button>
     <span className="flex items-center gap-1.5"><span className={`${BADGE} ${FUN_TONE[fk] || FUN_TONE.advance}`}>{funLabel(fk)}</span><b className="text-primary-ink tabular-nums">{fa(progress.percent)}٪</b><span className="mr-auto text-xs">{fa(progress.stages.length)}/{fa(STAGES.length)}</span></span>
     <StageBar d={d} />
     <span className="text-xs text-muted-foreground">{d.finBy ? `تأیید مالی: ${d.finBy}` : 'بدون تأیید مالی'}</span>
@@ -940,7 +942,7 @@ function Grid(P: GridProps) {
 	return (
 		<div
 			ref={gridRef} tabIndex={0} role="grid" aria-label="دفترِ فاکتورهای ۱۴۰۵" aria-rowcount={rows.length + 1} aria-colcount={cols.length} aria-activedescendant={activeId}
-			onKeyDown={P.onKey} onScroll={onScroll}
+			onKeyDown={P.onKey} onScroll={onScroll} data-lenis-prevent=""
 			className={`relative mt-2 max-h-[min(74vh,860px)] min-h-[320px] overflow-auto overscroll-contain outline-none [contain:strict] [transform:translateZ(0)] focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-ring/25`}
 			style={{ height: Math.min(rows.length * rh + hh + 2, 860) }}>
 			<div style={{ width, height: rows.length * rh + hh, position: 'relative' }}>
@@ -990,7 +992,7 @@ const GridRow = memo(function GridRow({ r, ri, y, h, tpl, cols, curC, editCol, d
 						onDoubleClick={() => P.startEdit(ri, ci)}
 						className={`relative flex min-w-0 items-center overflow-hidden px-2.5 ${s !== null ? 'sticky z-10 bg-card group-hover/row:bg-muted' : ''} ${ci === 0 && att ? 'border-r-[3px] ' + (att === 'check' ? 'border-r-warning' : att === 'fin' ? 'border-r-primary' : 'border-r-error') : ''} ${ci === 1 ? 'border-l border-border' : ''} ${active ? 'outline outline-2 -outline-offset-2 outline-primary/60' : ''} ${c.edit && canEdit ? 'cursor-text' : ''}`}
 						style={s !== null ? { right: s, ...(rowSel(sel, editCol, staging)) } : undefined}>
-						{c.k === 'no' && <RowGrip rowKey={rowOrderKey(r)} />}{editing ? (
+						{c.k === 'no' && <><span className="me-1 w-7 shrink-0 text-center text-[11px] font-bold tabular-nums text-muted-foreground" aria-label={'ردیف ' + (ri + 1)}>{fa(ri + 1)}</span><RowGrip rowKey={rowOrderKey(r)} /></>}{editing ? (
 							<CellEditor r={r} col={c.k} leadNames={P.leadNames} onCommit={(v) => { P.commit(r, c.k, v); P.endEdit() }} onCancel={P.endEdit} onStep={(v, dir) => { P.commit(r, c.k, v); P.step(ri, ci, dir) }} />
 						) : (
 							<>

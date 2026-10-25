@@ -18,7 +18,6 @@ import Sortable from '@/components/ui/sortable'
 import { CARD } from '@/components/ui/tokens'
 import DealImport, { importSummary } from '@/components/ledger/DealImport'
 const HarikanStatus = lazy(() => import('@/components/performance/HarikanStatus'))
-const IdentityReview = lazy(() => import('@/components/identity/IdentityReview'))
 import CallSummaryOptions from '@/components/import/CallSummaryOptions'
 import { callOptsError, ingestCallFile, resetCallsCache, type CallDetailItem, type CallOpts } from '@/lib/callsApi'
 import { ingestTicketFile } from '@/lib/ticketsApi'
@@ -320,7 +319,6 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 					</Shell>
 				</Card>
 				{/* نگاشتِ هویت (کارت‌های حضور، کاربرانِ جولیو) — فقط مدیران/مالی */}
-				{session && canSeeAll(session) && <Card key="identity" className="lg:col-span-3"><Suspense fallback={null}><IdentityReview session={session} /></Suspense></Card>}
 			</Sortable>
 
 			{/* صف */}
@@ -442,7 +440,16 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 					</Shell>
 				</Card>
 				{/* Dynamic Knowledge Base — فقط مدیر (سرور هم نقش را بررسی می‌کند) */}
-				{session && isAdmin(session.role) && <Card className="lg:col-span-3"><KnowledgeTile session={session} /></Card>}
+				{session && isAdmin(session.role) && <Card className="lg:col-span-3">
+					{/* 3.9.92: پایگاهِ دانش جمع‌شونده (پیش‌فرض بسته) */}
+					<details className="group">
+						<summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-1 text-[15px] font-bold [&::-webkit-details-marker]:hidden">
+							<span>پایگاه دانش</span>
+							<svg viewBox="0 0 24 24" className="size-5 text-muted-foreground transition-transform group-open:rotate-180" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+						</summary>
+						<div className="mt-3"><KnowledgeTile session={session} /></div>
+					</details>
+				</Card>}
 			</Sortable>
 
 

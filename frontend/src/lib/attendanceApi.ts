@@ -27,16 +27,6 @@ export interface ServerAttendance {
 }
 export interface Unmapped { cardNo: string; sheetName: string; rawName: string; status: string }
 export interface PostResult { ok: true; duplicate: boolean; batch: AttendanceBatch; skipped?: { sheet: string; reason: string }[]; unmapped?: Unmapped[]; sheetCards: Record<string, string> }
-export type AliasKind = 'card' | 'julio' | 'ext' | 'name'
-export type AliasStatus = 'confirmed' | 'suggested' | 'review' | 'rejected'
-export interface Candidate { personId: string; personName?: string | null; confidence: string; reasons: string[] }
-export interface Alias {
-	id: number; kind: AliasKind; key: string; raw: string; source: string; personId: string | null; personName: string | null; status: AliasStatus
-	confidence: string; candidates: Candidate[]; decidedBy: string | null; decidedAt: string | null; updatedAt: string | null
-}
-export interface IdentityPerson { id: string; name: string; role: string; inactive: boolean }
-export interface IdentityList { ok: true; people: IdentityPerson[]; aliases: Alias[]; counts: Record<AliasStatus, number> }
-export interface ScanItem { kind: AliasKind; key: string; raw: string; source: string; personId?: string }
 
 export class ApiError extends Error {
 	status: number
@@ -69,10 +59,6 @@ export const putOverride = (s: Session, cardNo: string, date: string, fields: Re
 export const putOverridesBatch = (s: Session, items: { cardNo: string; date: string; fields: Record<string, unknown> }[]) =>
 	call<{ ok: true; written: number; skipped: number }>(s, 'PUT', '/api/performance/attendance/overrides/batch', { items, ifAbsent: true })
 export const putSettings = (s: Session, settings: Record<string, unknown>) => call<{ ok: true; settings: Record<string, unknown> }>(s, 'PUT', '/api/performance/attendance/settings', { settings })
-export const fetchIdentity = (s: Session, status = '') => call<IdentityList>(s, 'GET', '/api/identity?' + qs({ status }))
-export const scanIdentity = (s: Session, items: ScanItem[]) => call<{ ok: true; created: number; updated: number; unchanged: number }>(s, 'POST', '/api/identity/scan', { items })
-export const decideIdentity = (s: Session, p: { id: number; action: 'confirm' | 'reject' | 'reset'; personId?: string; updatedAt?: string | null }) =>
-	call<{ ok: true; alias: Alias }>(s, 'POST', '/api/identity/decide', p)
 
 /* ---------------- SHA-256 (crypto.subtle روی http در دسترس نیست → پیاده‌سازیِ کوچکِ خالص) ---------------- */
 const K = new Uint32Array([
@@ -143,11 +129,6 @@ export interface MigrationResult { status: 'none' | 'done' | 'kept' | 'failed'; 
 const attempted = new Set<string>()
 const lsRead = <T,>(key: string, fb: T): T => { try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : fb } catch { return fb } }
 const lsKey = (s: string, tenant: string) => 'aromin.perf.' + s + '.' + tenant
-const firstName = (rows: Row[]) => {
-	const r = rows.find((x) => Object.keys(x).some((k) => /نام/.test(k))) || {}
-	const v = (re: RegExp) => String(Object.entries(r).find(([k]) => re.test(k.replace(/ي/g, 'ی')))?.[1] ?? '').trim()
-	return (v(/^نام$/) + ' ' + v(/^نام خانوادگی$/)).replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/\s+/g, ' ').trim()
-}
 export const MIGRATION_FAILED = 'انتقال حضور به سرور انجام نشد؛ دادهٔ این مرورگر حفظ شد'
 const keptMsg = (n: number) => `${n.toLocaleString('fa-IR')} شیت بدون شماره کارت منتقل نشد و در این مرورگر ماند`
 
@@ -183,16 +164,7 @@ export async function migrateLocalAttendance(session: Session): Promise<Migratio
 		}
 		const items = Object.entries(ov).flatMap(([k, fields]) => { const card = sheetCards[sheetOf(k)]; return card && fields ? [{ cardNo: card, date: k.slice(k.lastIndexOf('|') + 1), fields }] : [] })
 		for (let i = 0; i < items.length; i += 2000) await putOverridesBatch(session, items.slice(i, i + 2000))
-		const links = lsRead<Record<string, { person?: string }>>(lsKey('links', tenant), {})
-		const linked = Object.entries(links).filter(([sh, l]) => l?.person && sheetCards[sh])
-		if (linked.length) {
-			const ids = new Map((await fetchIdentity(session)).people.map((p) => [p.name, p.id]))
-			const scan: ScanItem[] = linked.flatMap(([sh, l]) => {
-				const pid = ids.get(l.person!)
-				return pid ? [{ kind: 'card' as const, key: sheetCards[sh], raw: firstName(sheets[sh] || []) || sh, source: 'migration', personId: pid }] : []
-			})
-			for (let i = 0; i < scan.length; i += 500) await scanIdentity(session, scan.slice(i, i + 500))
-		}
+		// 3.9.92: «نگاشتِ هویت» از داده حذف شد — پیوندهای محلیِ شیت→شخص دیگر به سرور فرستاده نمی‌شوند
 		const skipped = Object.keys(sheets).filter((sh) => !sheetCards[sh])
 		// Overrideهایی که به سرور نرفتند (شیتِ بی‌کارت یا شیتی که قبلاً حذف شده ولی ویرایش‌هایش نگه داشته شده) محلی می‌مانند
 		const keep = Object.fromEntries(Object.entries(ov).filter(([k]) => !sheetCards[sheetOf(k)]))

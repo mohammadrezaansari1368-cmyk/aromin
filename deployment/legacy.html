@@ -4003,7 +4003,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     officialDeduct:10, months:{} }; }
 
   /* ---------- چند کارشناس ---------- */
-  var APP_VERSION = "3.9.91";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
+  var APP_VERSION = "3.9.92";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
   var DATA_VERSION=3;             // نسخه‌ی ساختار داده (برای مهاجرت خودکار)
   var PEOPLE=[], activePid=null, gid=1;
   var SALESCRISIS=false;   // شرایطِ بحرانی: مدیرِ فروش هم تارگت می‌گیرد و می‌فروشد
@@ -13275,7 +13275,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var snap; try{ snap=snapshot(); }catch(e){ return; }
     try{
       fetch(API.base+"/api/backup",{method:"POST",headers:aiHeaders(),
-        body:JSON.stringify({tenant:TENANT||"team", tag:String(tag||""), payload:snap})}).catch(function(){});
+        body:JSON.stringify({tenant:TENANT||"team", tag:String(tag||""), payload:JSON.parse(snap)})}).catch(function(){});   // 3.9.92: object, not an escaped string (the CDN edge drops that)
     }catch(e){}
   }
 
@@ -13467,7 +13467,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
         try{
           if(!session || !isAdmin(session.role) || !SESSION_TOKEN || !(API.on && API.ready) || !_hasRealData()) return res(false);
           fetch(API.base+"/api/backup",{method:"POST",headers:aiHeaders(),
-            body:JSON.stringify({tenant:TENANT||"team",tag:String(tag||""),payload:snapshot()})})
+            body:JSON.stringify({tenant:TENANT||"team",tag:String(tag||""),payload:JSON.parse(snapshot())})})   // 3.9.92: object payload
             .then(function(r){ return r.json(); }).then(function(j){ res(!!(j&&j.ok)); }).catch(function(){ res(false); });
         }catch(e){ res(false); }
       });
