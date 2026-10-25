@@ -13,6 +13,7 @@ import { isAdmin, type Session } from '@/lib/auth'
 import { runPreset, setPageActions, setPageContext } from '@/lib/agent'
 import { fetchFull, saveState } from '@/lib/forecastStore'
 import Sortable from '@/components/ui/sortable'
+import { GaugeTile } from '@/components/dashboard/gauges/GaugeTiles'
 import Segmented from '@/components/ui/segmented'
 import { EditableDataTable, StatCard } from '@/components/ui/editable-data-table'
 import { CountUp } from '@/components/ui/count-up'
@@ -753,6 +754,9 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 								<RadioGroupWithPlanCards label="استراتژی امسال" value={v('fcStrategy') || 'hold'} onValueChange={(x) => update({ fcStrategy: x }, 'fcStrategy')} plans={STRAT_PLANS} />
 								{r.stratNote && <FieldDescription>{r.stratNote}</FieldDescription>}
 							</Field>
+							<div className="mx-auto h-[360px] w-full max-w-[300px]" data-testid="fc-usd-gauge">
+								<GaugeTile id="speed" hero pinned={{ value: r.usd / 1000, max: 400, spec: { label: 'نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری', unit: 'هزار تومان', faceUnit: 'هزار تومان', code: '0–400', step: 100, minor: 2, decimals: 3, redFrom: undefined, redTo: undefined } }} />
+							</div>
 							<Field>
 								<FieldLabel htmlFor="fcUsdIn">نرخ دلار امروز (تومان)</FieldLabel>
 								<InputGroup>
