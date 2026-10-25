@@ -4,10 +4,15 @@ import base64
 import hashlib
 import io
 import os
+import re
+import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import unittest
+import zipfile
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -163,6 +168,63 @@ class VersionChecks(unittest.TestCase):
         self.assertNotIn("grep -q 'APP_VERSION='", sh)
         legacy = (Path(server.HERE) / "legacy.html").read_text(encoding="utf-8-sig")
         self.assertIsNotNone(server.app_version_of(legacy))                     # the shipped file passes the server check
+
+    def test_legacy_app_version_matches_package_and_health_probe(self):
+        """The package version is the APP_VERSION marker in legacy.html.
+
+        3.9.94 rolled back: healthy() pipes curl into grep -q under pipefail, so a match
+        in the middle of the 3MB body is reported as "legacy APP_VERSION missing".
+        The marker the checker reads must be the package version and sit in the last 4KB.
+        """
+        path = Path(server.HERE) / "legacy.html"
+        raw = path.read_bytes()
+        text = raw.decode("utf-8-sig")
+        matches = list(re.finditer(r'APP_VERSION\s*=\s*"([0-9.]+)"', text))
+        self.assertEqual(len(matches), 1, "legacy.html must contain exactly one APP_VERSION marker")
+        version = matches[0].group(1)
+        self.assertEqual(server.app_version_of(text), version)
+        self.assertRegex(text, r'var APP_VERSION = "%s";' % re.escape(version))
+        self.assertGreaterEqual(matches[0].start(), len(text) - 4096)
+        parts = version.split(".")
+        self.assertIn('var APP_VERSION = ["%s"].join(".");' % '","'.join(parts), text)
+        sh = (Path(server.HERE) / "aromin-autoupdate.sh").read_text(encoding="utf-8")
+        self.assertIn('curl -fsS "http://127.0.0.1:$PORT/legacy" -o "$leg"', sh)
+        self.assertNotIn('curl -fsS "http://127.0.0.1:$PORT/legacy" 2>/dev/null | grep', sh)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("aromin-deploy/legacy.html", raw)
+        with zipfile.ZipFile(io.BytesIO(buf.getvalue())) as z:
+            packed = z.read("aromin-deploy/legacy.html").decode("utf-8")
+        self.assertEqual(server.app_version_of(packed), version)
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+            def log_message(self, fmt, *args):
+                return
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        port = httpd.server_address[1]
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            probe = r'''
+set -o pipefail
+url="http://127.0.0.1:%d/"
+# The checker already installed on the server (3.9.91–3.9.94) still pipes into grep -q.
+if ! curl -fsS "$url" 2>/dev/null | grep -qE 'APP_VERSION *= *"[0-9.]+"'; then echo PIPE_FAIL; exit 1; fi
+leg=$(mktemp)
+if ! curl -fsS "$url" -o "$leg" 2>/dev/null || ! grep -qE 'APP_VERSION *= *"[0-9.]+"' "$leg"; then echo FILE_FAIL; exit 1; fi
+rm -f "$leg"
+echo OK
+''' % port
+            got = subprocess.run(["bash", "-c", probe], capture_output=True, text=True, timeout=30)
+            self.assertEqual(got.returncode, 0, got.stdout + got.stderr)
+            self.assertIn("OK", got.stdout)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
 
 
 if __name__ == "__main__":

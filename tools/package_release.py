@@ -37,6 +37,13 @@ with zipfile.ZipFile(output) as z:
     for line in manifest.splitlines():
         digest, name = line.split('  ', 1)
         assert hashlib.sha256(z.read('aromin-deploy/' + name)).hexdigest() == digest
+    packed = z.read('aromin-deploy/legacy.html').decode('utf-8')
+    packed_ver = re.search(r'APP_VERSION\s*=\s*"([0-9.]+)"', packed)
+    assert packed_ver and packed_ver.group(1) == version, 'packaged legacy.html APP_VERSION does not match the package version'
+    assert re.search(r'APP_VERSION *= *"[0-9.]+"', packed), 'packaged legacy.html fails the health-check APP_VERSION grep'
+    # The installer already on the server pipes curl into grep -q under pipefail. That exits
+    # before a match in the middle of this file is accepted. The marker has to be at the end.
+    assert packed_ver.start() >= len(packed) - 4096, 'APP_VERSION marker must be in the last 4KB of legacy.html'
 output.with_suffix('.zip.sha256').write_text(hashlib.sha256(output.read_bytes()).hexdigest() + '  ' + output.name + '\n')
 print(str(output))
 print(f'{len(files)} files; {output.stat().st_size} bytes; ZIP CRC and SHA-256 entries verified')

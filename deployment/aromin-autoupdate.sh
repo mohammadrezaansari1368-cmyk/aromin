@@ -13,14 +13,18 @@ exec 9>"$R/.lock"; flock -n 9 || exit 0
 status(){ printf '{"state":"%s","file":"%s","at":"%s","msg":"%s"}\n' "$1" "$2" "$(date -Iseconds)" "$3" > "$ST.tmp" && mv "$ST.tmp" "$ST"; chmod 644 "$ST"; }
 healthy(){
   # Each probe is named. A failed install used to roll back with only «ناسالم» and no failing check.
-  local why=""
+  # Do not pipe into grep -q: under pipefail, grep closes early and curl exits 23 (SIGPIPE),
+  # which this function used to report as "legacy APP_VERSION missing" on the 3MB /legacy body.
+  local why="" leg
   rm -f "$R/health-fail.txt"
+  leg="$(mktemp)"
+  trap 'rm -f "$leg"' RETURN
   for _ in $(seq 1 30); do
     sleep 2
     if ! systemctl is-active --quiet "$SERVICE"; then why="service inactive"; continue; fi
-    if ! curl -fsS "http://127.0.0.1:$PORT/api/spa-deploy/ping" 2>/dev/null | grep -qE '"deployed"[[:space:]]*:[[:space:]]*true'; then why="ping deployed is not true"; continue; fi
-    if ! curl -fsS "http://127.0.0.1:$PORT/" 2>/dev/null | grep -q 'id="root"'; then why="root missing id=root"; continue; fi
-    if ! curl -fsS "http://127.0.0.1:$PORT/legacy" 2>/dev/null | grep -qE 'APP_VERSION *= *"[0-9.]+"'; then why="legacy APP_VERSION missing"; continue; fi   # legacy.html: var APP_VERSION = "x.y.z"
+    if ! curl -fsS "http://127.0.0.1:$PORT/api/spa-deploy/ping" -o "$leg" 2>/dev/null || ! grep -qE '"deployed"[[:space:]]*:[[:space:]]*true' "$leg"; then why="ping deployed is not true"; continue; fi
+    if ! curl -fsS "http://127.0.0.1:$PORT/" -o "$leg" 2>/dev/null || ! grep -q 'id="root"' "$leg"; then why="root missing id=root"; continue; fi
+    if ! curl -fsS "http://127.0.0.1:$PORT/legacy" -o "$leg" 2>/dev/null || ! grep -qE 'APP_VERSION *= *"[0-9.]+"' "$leg"; then why="legacy APP_VERSION missing"; continue; fi   # legacy.html: var APP_VERSION = "x.y.z"
     return 0
   done
   echo "   !! health-check failed: ${why:-timeout}" >> "$LOG"
