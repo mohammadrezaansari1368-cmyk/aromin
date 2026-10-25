@@ -21,6 +21,15 @@ import { HeartHandshake, Rocket, ShieldCheck } from 'lucide-react'
 import { Field, FieldDescription, FieldLabel, InfoTip, InputGroup, InputGroupAddon, Markdown } from '@/components/ui/shadcn-kit'
 import MagicBento, { type MagicBentoItem } from '@/components/ui/reactbits/MagicBento'
 import SpotlightCard from '@/components/ui/reactbits/SpotlightCard'
+import FlowingMenu from '@/components/ui/reactbits/FlowingMenu'
+import ElasticSlider from '@/components/ui/reactbits/ElasticSlider'
+import ScrollStack, { ScrollStackItem } from '@/components/ui/reactbits/ScrollStack'
+import Stepper, { Step } from '@/components/ui/reactbits/Stepper'
+import CardSwap, { Card as SwapCard } from '@/components/ui/reactbits/CardSwap'
+import AnimatedList from '@/components/ui/reactbits/AnimatedList'
+import OptionWheel from '@/components/ui/reactbits/OptionWheel'
+import Stack from '@/components/ui/reactbits/Stack'
+import Counter from '@/components/ui/reactbits/Counter'
 import { useTheme } from '@/lib/theme'
 import { stripHtml, toBullets } from '@/lib/stripHtml'
 import { BTN, BTN_GHOST, BTN_PRIMARY, FOCUS } from '@/components/ui/tokens'
@@ -177,6 +186,8 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 	const [marginStd, setMarginStd] = useState('')
 	const [usdBusy, setUsdBusy] = useState(false)
 	const [confirmApply, setConfirmApply] = useState(false)
+	const [guideAt, setGuideAt] = useState(0)
+	const [ratioAt, setRatioAt] = useState(0)
 	const mode = useTheme().mode
 	const reduceMotion = useReducedMotion()
 	const deck = {
@@ -611,92 +622,106 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 			</Suspense>
 			<PyramidOverview tiers={pyramid} badge={saveBadge} />
 
-			{/* ۲) راهنما */}
-			<SpotlightCard theme={mode} spotlightColor="#004991">
-				<details className="group">
-					<summary className={`flex cursor-pointer list-none items-center gap-3 rounded-2xl px-5 py-4 sm:px-6 [&::-webkit-details-marker]:hidden ${FOCUS}`}>
-						<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary-ink"><Icon n="book" className="size-[18px]" /></span>
-						<span className="min-w-0 flex-1">
-							<span className="block text-[15px] font-extrabold leading-7">راهنمای روش‌ها و فرمول‌ها</span>
-							<span className="block text-[12px] leading-5 text-muted-foreground">خلاصهٔ مرجعِ ۹ روش، فرمول‌ها و ابزارهای تعدیل</span>
-						</span>
-						<Icon n="chev" className="size-5 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
-					</summary>
-					<div className="space-y-4 border-t border-border/70 px-5 pb-6 pt-4 text-[12.5px] leading-7 sm:px-6">
-						<p className="text-muted-foreground">پیش‌بینی فروش = <b>تخمین + انتظار + دورهٔ برنامه</b> با تولرانسِ ۱۰ تا ۲۰٪. لازم نیست همهٔ روش‌ها را پر کنی؛ هرچه روش‌های بیشتری به هم نزدیک باشند، تخمین معتبرتر است. خروجیِ نهایی = <b>میانگینِ روش‌های انتخاب‌شده</b>.</p>
-						<div className={SCROLL}>
-							<table className="w-full min-w-[900px] border-collapse text-[12.5px]">
-								<thead className="sticky top-0 z-10"><tr className="bg-primary text-primary-foreground"><Th className="text-center">#</Th><Th>روش</Th><Th>چه می‌کند</Th><Th>فرمول</Th><Th>کِی</Th><Th className="bg-[#1E8E3E]">مثال (بر اساس صنعت)</Th></tr></thead>
-								<tbody className={ROWS_HOVER}>
-									{GUIDE.map((m, i) => (
-										<tr key={m[0]} className={i % 2 ? 'bg-[var(--fc-brass-soft)]' : ''}>
-											<td className="border-t border-border p-2.5 text-center"><span className="inline-grid size-[26px] place-items-center rounded-lg bg-accent font-extrabold text-[#3A2A00]">{m[0]}</span></td>
-											<td className="border-t border-border p-2.5"><b>{m[1]}</b><div dir="ltr" className="text-right text-[10.5px] text-muted-foreground">{m[2]}</div></td>
-											<td className="border-t border-border p-2.5 text-muted-foreground">{m[3]}</td>
-											<td className="border-t border-border p-2.5"><span className="inline-block rounded-lg bg-card px-2 py-1.5 font-mono text-[11.5px] leading-6 text-primary-ink ring-1 ring-border">{m[4]}</span></td>
-											<td className="border-t border-border p-2.5 text-[11.5px] text-muted-foreground">{m[5]}</td>
-											<td className="border-t border-border bg-success/[.07] p-2.5 text-[11.5px] text-success">{guideEx(m[0], ind)}</td>
-										</tr>
-									))}
-								</tbody>
-							</table>
-						</div>
-						<p className="text-muted-foreground">ستونِ <b>مثال</b> بر اساسِ صنعتِ انتخاب‌شده («<b>{indFa}</b>») نمایش داده می‌شود — صنعت را در گامِ ۱ عوض کنی، مثال‌ها هم عوض می‌شوند.</p>
-						<details open className="rounded-xl bg-primary/[.035] px-4 ring-1 ring-primary/15">
-							<summary className="flex cursor-pointer items-center gap-2 py-3 font-extrabold text-primary-ink"><Icon n="trend" />هموارسازیِ نمایی (Holt): توضیحِ دقیق</summary>
-							<div className="pb-3.5 text-muted-foreground">
-								<p className="mb-2">برخلافِ «میانگینِ متحرک» که همهٔ ماه‌ها را یکسان می‌بیند، Holt سریِ ماهانه را با <b>دو مؤلفهٔ زنده</b> دنبال می‌کند و هر ماه به‌روزشان می‌کند:</p>
-								<div dir="ltr" className="mb-2.5 rounded-lg bg-[var(--fc-brass-soft)] px-3 py-2.5 font-mono text-[12px] leading-8 text-primary-ink ring-1 ring-border">
-									Lₜ = α·xₜ + (1−α)·(Lₜ₋₁ + Tₜ₋₁) ← سطح (Level)<br />Tₜ = β·(Lₜ − Lₜ₋₁) + (1−β)·Tₜ₋₁ ← روند (Trend)<br />پیش‌بینیِ k ماهِ بعد = Lₜ + k·Tₜ
-								</div>
-								<ul className="list-disc space-y-1 pr-5">
-									<li><b>سطح (L):</b> برآوردِ «الانِ» فروش. <b>روند (T):</b> شیبِ تغییر (رشد یا افت در هر ماه).</li>
-									<li><b>α (آلفا):</b> وزنِ داده‌های اخیر. آلفای بالا (۰٫۷–۰٫۹) یعنی به فروشِ ماه‌های اخیر بیشتر بها بده — <b>مناسبِ بازارِ تورمیِ ایران</b> که سریع عوض می‌شود. آلفای پایین = هموارترِ ولی کندتر.</li>
-									<li><b>β (بتا):</b> وزنِ تغییرِ روند (پیش‌فرض ۰٫۱۵).</li>
-									<li>چون روند را می‌بیند، اگر فروش رو به رشد باشد Holt هم پیش‌بینیِ رو به رشد می‌دهد — نه یک عددِ صاف.</li>
-								</ul>
-								<p className="mt-2 rounded-lg bg-success/10 px-3 py-2 text-success"><b>مثالِ «{indFa}»:</b> {guideEx('۷', ind)} — یعنی روند در پیش‌بینی دیده می‌شود، نه فقط میانگین.</p>
-							</div>
-						</details>
-						<div className="rounded-xl bg-[var(--fc-brass-soft)] px-4 py-3.5 ring-1 ring-accent/40">
-							<b className="text-primary-ink">گامِ دومِ روش ۴ — تعدیلِ پتانسیلِ فروش (فصل ۱۸):</b>
-							<div className="mt-1.5 font-mono text-[12px] text-primary-ink">پتانسیلِ فروش = پتانسیلِ بازار × سهم٪ × (۱+برند٪) × (۱+اورنس٪) × (۱+کانال٪) × (۱+رقبا٪)</div>
-							<div className="mt-1.5 text-[12px] text-muted-foreground">مثالِ کافی‌شاپِ جزوه: عمقِ بازار ۵۰ میلیارد × سهمِ ۱۰٪ = ۵ میلیارد → ×۱٫۲ (برند) → ×۰٫۹ (کانالِ ضعیف) → ×۰٫۸۵ (رقبای قوی) = <b className="text-success">۴٫۵۹ میلیارد</b>. ضریبی اعمال می‌شوند، نه جمع‌وتفریقی.</div>
-							<div className={`mt-2.5 bg-card ${SCROLL}`}>
-								<table className="w-full min-w-[520px] text-[12px]">
-									<thead className="sticky top-0 z-10"><tr className="bg-primary text-primary-foreground"><Th>المان</Th><Th>معنی</Th><Th>بازهٔ عادی</Th></tr></thead>
-									<tbody className={ROWS_HOVER}>
-										{[
-											['سهم بالقوه', 'Share', 'چند درصد از کلِ بازار را هدف گرفته‌ای؟ = فروشِ پارسال ÷ عمقِ بازار.', '۱–۱۰۰٪'],
-											['برند', 'Brand', 'قدرتِ برند روی قیمت و وفاداری. در ایران تا سقفِ ~۲۰٪ منطقی است.', '۰ تا +۲۰٪'],
-											['اورنس', 'Awareness', 'شناخته‌شدگی: اگر بازار سه برندِ اولِ صنعت را نام ببرد، اسمِ تو هست؟ سطحش (محله/شهر/کشور) مهم است.', '−۲۰ تا +۲۰٪'],
-											['کانال', 'Channel', 'گستردگیِ توزیع/تعدادِ شعب و نقاطِ دسترسی. بیشتر = پتانسیلِ بالاتر.', '−۱۵ تا +۱۵٪'],
-											['رقبا', 'Competitors', 'قدرت و تعدادِ رقبا. رقیبِ قوی هم سهم و هم قدرتِ قیمت‌گذاری را کم می‌کند (معمولاً منفی).', '−۲۰ تا ۰٪'],
-										].map((q, i) => (
-											<tr key={q[0]} className={i % 2 ? 'bg-[var(--fc-brass-soft)]' : ''}>
-												<Td className="whitespace-normal"><b>{q[0]}</b> <span className="text-muted-foreground">({q[1]})</span></Td>
-												<Td className="whitespace-normal text-muted-foreground">{q[2]}</Td>
-												<Td>{q[3]}</Td>
-											</tr>
-										))}
-									</tbody>
-								</table>
-							</div>
-							<div className="mt-2 flex items-start gap-1.5 text-[12px] text-primary-ink"><Icon n="bulb" className="mt-1 size-3.5" /><span>دکمهٔ <b>«پیشنهاد خودکارِ سیستم»</b> در روش ۴، این چهار ضریب را از داده‌های موجود (فروش، عمقِ بازار، استراتژی، مؤلفه‌های آمادگی) خودکار پیشنهاد می‌دهد.</span></div>
-						</div>
-						<div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
-							{[
-								['توزیعِ فصلی و قمری', 'عددِ سالانهٔ روش‌های قضاوتی (۱–۴، ۸، ۹) با الگوی فصلیِ صنعت پخش می‌شود؛ ۵/۶/۷ مستقیم ماهانه‌اند. رمضان و محرم خودکار (قمری) اعمال می‌شوند.'],
-								['حاشیهٔ احتیاطِ ریسک', 'بر پایهٔ تعهدِ مالی، ریسک‌پذیری و دارایی: هدفِ امن = پیش‌بینی × (۱ − safety)'],
-								['شامخ ← سیاستِ فروش (فصل ۱۵)', 'مرزِ ۵۰: ≥۵۰ نقدی · <۵۰ اقساطی. قیمتِ مدت‌دار = نقدی × (۱+تورمِ‌ماهانه)^ماه ÷ (۱−ریسکِ‌چک).'],
-								['استراتژی ← بودجهٔ بازاریابی', 'بقا ۳–۵٪ · حفظ ۵–۱۰٪ · رشد ۱۰–۱۵٪ (درصدی از فروش).'],
-							].map((b) => (
-								<div key={b[0]} className="rounded-xl p-3.5 ring-1 ring-border"><b>{b[0]}</b><div className="mt-1 text-[12px] text-muted-foreground">{b[1]}</div></div>
-							))}
-						</div>
+			{/* ۲) راهنما — React Bits FlowingMenu */}
+			<section data-testid="fc-guide" className="overflow-hidden rounded-[28px] bg-[#120F17] text-white">
+				<div className="flex items-end justify-between gap-4 px-6 pb-2 pt-5">
+					<div>
+						<h3 className="text-[18px] font-extrabold leading-7">راهنمای روش‌ها و فرمول‌ها</h3>
+						<p className="text-[12.5px] leading-6 text-white/70">خلاصهٔ مرجعِ ۹ روش، فرمول‌ها و ابزارهای تعدیل</p>
 					</div>
-				</details>
-			</SpotlightCard>
+					<p className="hidden max-w-[36ch] text-[12px] leading-6 text-white/60 sm:block">پیش‌بینی فروش = تخمین + انتظار + دورهٔ برنامه با تولرانسِ ۱۰ تا ۲۰٪. خروجیِ نهایی = میانگینِ روش‌های انتخاب‌شده.</p>
+				</div>
+				<div className="h-[520px]">
+					<FlowingMenu
+						ariaLabel="راهنمای روش‌ها"
+						showIndex
+						activeIndex={guideAt}
+						onItemClick={(_, index) => setGuideAt(index)}
+						items={[
+							...GUIDE.map((m) => ({ text: m[1], meta: m[2], marquee: `${m[4]}  ·  ${m[5]}` })),
+							{ text: 'هموارسازیِ نمایی (Holt)', meta: 'سطح و روند', marquee: 'Lₜ = α·xₜ + (1−α)·(Lₜ₋₁ + Tₜ₋₁)    Tₜ = β·(Lₜ − Lₜ₋₁) + (1−β)·Tₜ₋₁' },
+							{ text: 'تعدیلِ پتانسیلِ فروش', meta: 'فصل ۱۸', marquee: 'پتانسیلِ فروش = پتانسیلِ بازار × سهم٪ × (۱+برند٪) × (۱+اورنس٪) × (۱+کانال٪) × (۱+رقبا٪)' },
+							...[
+								['سهم بالقوه', '۱–۱۰۰٪'], ['برند', '۰ تا +۲۰٪'], ['اورنس', '−۲۰ تا +۲۰٪'], ['کانال', '−۱۵ تا +۱۵٪'], ['رقبا', '−۲۰ تا ۰٪'],
+							].map(([name, band]) => ({ text: name, meta: band, marquee: band })),
+							...[
+								['توزیعِ فصلی و قمری', 'الگوی فصلیِ صنعت'],
+								['حاشیهٔ احتیاطِ ریسک', 'هدفِ امن = پیش‌بینی × (۱ − safety)'],
+								['شامخ ← سیاستِ فروش', 'مرزِ ۵۰'],
+								['استراتژی ← بودجهٔ بازاریابی', 'بقا ۳–۵٪ · حفظ ۵–۱۰٪ · رشد ۱۰–۱۵٪'],
+							].map(([name, band]) => ({ text: name, meta: band, marquee: band })),
+						]}
+					/>
+				</div>
+				<div className="border-t border-white/10 px-6 py-5 text-[12.5px] leading-7">
+					{guideAt < GUIDE.length ? (
+						<div className="grid gap-3 sm:grid-cols-2">
+							<div><div className="text-[11px] text-white/50">چه می‌کند</div><div>{GUIDE[guideAt][3]}</div></div>
+							<div><div className="text-[11px] text-white/50">فرمول</div><div className="font-mono text-[12.5px]">{GUIDE[guideAt][4]}</div></div>
+							<div><div className="text-[11px] text-white/50">کِی</div><div className="text-white/80">{GUIDE[guideAt][5]}</div></div>
+							<div><div className="text-[11px] text-white/50">مثال (بر اساس صنعت)</div><div className="text-emerald-300">{guideEx(GUIDE[guideAt][0], ind)}</div></div>
+						</div>
+					) : guideAt === GUIDE.length ? (
+						<div className="text-white/80">
+							<p className="mb-2">برخلافِ «میانگینِ متحرک» که همهٔ ماه‌ها را یکسان می‌بیند، Holt سریِ ماهانه را با دو مؤلفهٔ زنده دنبال می‌کند و هر ماه به‌روزشان می‌کند:</p>
+							<div dir="ltr" className="mb-2 rounded-lg bg-white/5 px-3 py-2 font-mono text-[12px] leading-8">Lₜ = α·xₜ + (1−α)·(Lₜ₋₁ + Tₜ₋₁) ← سطح (Level)<br />Tₜ = β·(Lₜ − Lₜ₋₁) + (1−β)·Tₜ₋₁ ← روند (Trend)<br />پیش‌بینیِ k ماهِ بعد = Lₜ + k·Tₜ</div>
+							<ul className="list-disc space-y-1 pr-5">
+								<li>سطح (L): برآوردِ «الانِ» فروش. روند (T): شیبِ تغییر (رشد یا افت در هر ماه).</li>
+								<li>α (آلفا): وزنِ داده‌های اخیر. آلفای بالا (۰٫۷–۰٫۹) یعنی به فروشِ ماه‌های اخیر بیشتر بها بده — مناسبِ بازارِ تورمیِ ایران. آلفای پایین = هموارترِ ولی کندتر.</li>
+								<li>β (بتا): وزنِ تغییرِ روند (پیش‌فرض ۰٫۱۵).</li>
+								<li>چون روند را می‌بیند، اگر فروش رو به رشد باشد Holt هم پیش‌بینیِ رو به رشد می‌دهد — نه یک عددِ صاف.</li>
+							</ul>
+							<p className="mt-2 text-emerald-300">مثالِ «{indFa}»: {guideEx('۷', ind)} — یعنی روند در پیش‌بینی دیده می‌شود، نه فقط میانگین.</p>
+						</div>
+					) : guideAt === GUIDE.length + 1 ? (
+						<div>
+							<div className="font-mono text-[12.5px]">پتانسیلِ فروش = پتانسیلِ بازار × سهم٪ × (۱+برند٪) × (۱+اورنس٪) × (۱+کانال٪) × (۱+رقبا٪)</div>
+							<p className="mt-2 text-white/75">مثالِ کافی‌شاپِ جزوه: عمقِ بازار ۵۰ میلیارد × سهمِ ۱۰٪ = ۵ میلیارد → ×۱٫۲ (برند) → ×۰٫۹ (کانالِ ضعیف) → ×۰٫۸۵ (رقبای قوی) = ۴٫۵۹ میلیارد. ضریبی اعمال می‌شوند، نه جمع‌وتفریقی.</p>
+							<p className="mt-2 text-white/75">دکمهٔ «پیشنهاد خودکارِ سیستم» در روش ۴، این چهار ضریب را از داده‌های موجود (فروش، عمقِ بازار، استراتژی، مؤلفه‌های آمادگی) خودکار پیشنهاد می‌دهد.</p>
+						</div>
+					) : guideAt < GUIDE.length + 7 ? (
+						<div>
+							{([
+								['سهم بالقوه', 'Share', 'چند درصد از کلِ بازار را هدف گرفته‌ای؟ = فروشِ پارسال ÷ عمقِ بازار.', '۱–۱۰۰٪'],
+								['برند', 'Brand', 'قدرتِ برند روی قیمت و وفاداری. در ایران تا سقفِ ~۲۰٪ منطقی است.', '۰ تا +۲۰٪'],
+								['اورنس', 'Awareness', 'شناخته‌شدگی: اگر بازار سه برندِ اولِ صنعت را نام ببرد، اسمِ تو هست؟ سطحش (محله/شهر/کشور) مهم است.', '−۲۰ تا +۲۰٪'],
+								['کانال', 'Channel', 'گستردگیِ توزیع/تعدادِ شعب و نقاطِ دسترسی. بیشتر = پتانسیلِ بالاتر.', '−۱۵ تا +۱۵٪'],
+								['رقبا', 'Competitors', 'قدرت و تعدادِ رقبا. رقیبِ قوی هم سهم و هم قدرتِ قیمت‌گذاری را کم می‌کند (معمولاً منفی).', '−۲۰ تا ۰٪'],
+							][guideAt - GUIDE.length - 2] || []).length ? (
+								<>
+									<div className="text-[18px] font-extrabold">{[
+										['سهم بالقوه', 'Share', 'چند درصد از کلِ بازار را هدف گرفته‌ای؟ = فروشِ پارسال ÷ عمقِ بازار.', '۱–۱۰۰٪'],
+										['برند', 'Brand', 'قدرتِ برند روی قیمت و وفاداری. در ایران تا سقفِ ~۲۰٪ منطقی است.', '۰ تا +۲۰٪'],
+										['اورنس', 'Awareness', 'شناخته‌شدگی: اگر بازار سه برندِ اولِ صنعت را نام ببرد، اسمِ تو هست؟ سطحش (محله/شهر/کشور) مهم است.', '−۲۰ تا +۲۰٪'],
+										['کانال', 'Channel', 'گستردگیِ توزیع/تعدادِ شعب و نقاطِ دسترسی. بیشتر = پتانسیلِ بالاتر.', '−۱۵ تا +۱۵٪'],
+										['رقبا', 'Competitors', 'قدرت و تعدادِ رقبا. رقیبِ قوی هم سهم و هم قدرتِ قیمت‌گذاری را کم می‌کند (معمولاً منفی).', '−۲۰ تا ۰٪'],
+									][guideAt - GUIDE.length - 2][0]} <span className="text-white/50">({[
+										['سهم بالقوه', 'Share'], ['برند', 'Brand'], ['اورنس', 'Awareness'], ['کانال', 'Channel'], ['رقبا', 'Competitors'],
+									][guideAt - GUIDE.length - 2][1]})</span></div>
+									<p className="mt-1 text-white/75">{[
+										['', '', 'چند درصد از کلِ بازار را هدف گرفته‌ای؟ = فروشِ پارسال ÷ عمقِ بازار.', '۱–۱۰۰٪'],
+										['', '', 'قدرتِ برند روی قیمت و وفاداری. در ایران تا سقفِ ~۲۰٪ منطقی است.', '۰ تا +۲۰٪'],
+										['', '', 'شناخته‌شدگی: اگر بازار سه برندِ اولِ صنعت را نام ببرد، اسمِ تو هست؟ سطحش (محله/شهر/کشور) مهم است.', '−۲۰ تا +۲۰٪'],
+										['', '', 'گستردگیِ توزیع/تعدادِ شعب و نقاطِ دسترسی. بیشتر = پتانسیلِ بالاتر.', '−۱۵ تا +۱۵٪'],
+										['', '', 'قدرت و تعدادِ رقبا. رقیبِ قوی هم سهم و هم قدرتِ قیمت‌گذاری را کم می‌کند (معمولاً منفی).', '−۲۰ تا ۰٪'],
+									][guideAt - GUIDE.length - 2][2]}</p>
+									<div className="mt-2 font-bold text-amber-200">بازهٔ عادی: {[
+										'۱–۱۰۰٪', '۰ تا +۲۰٪', '−۲۰ تا +۲۰٪', '−۱۵ تا +۱۵٪', '−۲۰ تا ۰٪',
+									][guideAt - GUIDE.length - 2]}</div>
+								</>
+							) : null}
+						</div>
+					) : (
+						<p className="text-white/80">{[
+							'عددِ سالانهٔ روش‌های قضاوتی (۱–۴، ۸، ۹) با الگوی فصلیِ صنعت پخش می‌شود؛ ۵/۶/۷ مستقیم ماهانه‌اند. رمضان و محرم خودکار (قمری) اعمال می‌شوند.',
+							'بر پایهٔ تعهدِ مالی، ریسک‌پذیری و دارایی: هدفِ امن = پیش‌بینی × (۱ − safety)',
+							'مرزِ ۵۰: ≥۵۰ نقدی · <۵۰ اقساطی. قیمتِ مدت‌دار = نقدی × (۱+تورمِ‌ماهانه)^ماه ÷ (۱−ریسکِ‌چک).',
+							'بقا ۳–۵٪ · حفظ ۵–۱۰٪ · رشد ۱۰–۱۵٪ (درصدی از فروش).',
+						][guideAt - GUIDE.length - 7]}</p>
+					)}
+					<p className="mt-3 text-[12px] text-white/50">ستونِ مثال بر اساسِ صنعتِ انتخاب‌شده («{indFa}») نمایش داده می‌شود — صنعت را در گامِ ۱ عوض کنی، مثال‌ها هم عوض می‌شوند.</p>
+				</div>
+			</section>
 
 			<Band tier="gold" title="فعالیت‌های فروش" desc="پایهٔ پیش‌بینی: صنعت، افق و استراتژی، دادهٔ تاریخی و آمادگی">
 				{/* G1) صنعت — React Bits MagicBento (same options, same doIndustry) */}
@@ -803,8 +828,19 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 					<p className="mt-4 text-center text-xs leading-6 opacity-60">نرخ دلار هر سال را هم پر کن تا رشد واقعی (دلاری) را ببینی و از تورم گول نخوری.</p>
 				</SpotlightCard>
 
-				{/* ۱۱) آمادگی */}
-				<Card title="آمادگی پیش‌بینی: شش مؤلفه" sub="هرچه کامل‌تر، تخمین به تولرانس ۱۰–۲۰٪ نزدیک‌تر">
+				{/* ۱۱) آمادگی — React Bits ElasticSlider */}
+				<section data-testid="fc-ready" className="px-1">
+					<div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+						<div>
+							<h3 className="text-[18px] font-extrabold leading-7">آمادگی پیش‌بینی: شش مؤلفه</h3>
+							<p className="text-[12.5px] leading-6 text-muted-foreground">هرچه کامل‌تر، تخمین به تولرانس ۱۰–۲۰٪ نزدیک‌تر</p>
+						</div>
+						<div className="text-left">
+							<div className="text-[11px] font-bold text-muted-foreground">نمره‌ی آمادگی · میانگین شش مؤلفه</div>
+							<div className="text-[28px] font-extrabold tabular-nums leading-none">{pct(r.ready)}</div>
+							<div className="mt-1 text-[12.5px] font-bold" style={{ color: r.tol.c }}>{r.tol.t}<span className="ms-2 font-medium text-muted-foreground">{r.tol.u}</span></div>
+						</div>
+					</div>
 					<Btn onClick={doAutoReady}>پرکردن خودکار از داده‌های موجود</Btn>
 					<details className="my-4 rounded-xl bg-muted/40 ring-1 ring-border">
 						<summary className="flex cursor-pointer items-center gap-2 px-3.5 py-2.5 font-bold text-primary-ink"><Icon n="info" />این شش مؤلفه چیستند و از کجا بدانم؟</summary>
@@ -818,50 +854,67 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 							دکمهٔ بالا مؤلفه‌های ۱، ۳، ۵ و ۶ را از داده‌ها پر می‌کند؛ ۲ و ۴ را چون قضاوتی‌اند خودت تنظیم کن.
 						</div>
 					</details>
-					<div className="grid items-start gap-6 @4xl:grid-cols-[1fr_300px]">
-					<div className="grid gap-x-6 gap-y-4 @xl:grid-cols-2">
+					<div className="mt-2 grid gap-6">
 						{[
 							['fcC1', '۱) داده‌های تاریخی'], ['fcC2', '۲) تحلیل بازار — رقبا، مصرف‌کننده، قانون/ارز'], ['fcC3', '۳) قیف فروش و CRM'],
 							['fcC4', '۴) شاخص‌های کلان — شامخ، تورم، ارز'], ['fcC5', '۵) تقویم فصلی کسب‌وکار'], ['fcC6', '۶) عوامل داخلی سازمان'],
 						].map(([id, l]) => (
-							<label key={id} className="block"><Label>{l} (۰–۱۰۰): <b className="text-foreground">{fa(fnum(f[id]))}</b></Label>{range(id, 0, 100, 5)}</label>
+							<div key={id}>
+								<div className="mb-1 text-[13px] font-bold">{l} <span className="font-medium text-muted-foreground">(۰–۱۰۰)</span></div>
+								<ElasticSlider ariaLabel={l} value={fnum(f[id])} startingValue={0} maxValue={100} isStepped stepSize={5} wheel={false}
+									leftIcon={<span />} rightIcon={<span />} valuePosition="bubble" thickness={14} activeThickness={26} formatValue={(n) => fa(Math.round(n))}
+									onChange={(n) => update({ [id]: String(n) }, id)} />
+							</div>
 						))}
 					</div>
-					<div className="grid grid-cols-2 gap-2.5 @4xl:grid-cols-1">
-						<Fig kind="total" k="نمره‌ی آمادگی" v={pct(r.ready)} u="میانگین شش مؤلفه" />
-						<Fig small k="کیفیت خروجی" v={<span style={{ color: r.tol.c }}>{r.tol.t}</span>} u={r.tol.u} />
-					</div>
-					</div>
-				</Card>
+				</section>
 			</Band>
 
 			<Band tier="purple" title="اهداف فروش" desc="فروشِ هدف، نُه روشِ پیش‌بینی، بودجهٔ ماهانه و حاشیهٔ احتیاط">
-				{/* ۴) هرم */}
-				<Card title="هرم سه‌گانه‌ی پیش‌بینی فروش" sub="اول عددِ فروش را تعیین کن، بعد بودجه را کنار بگذار، نه برعکس">
-					<div className="grid items-end gap-4 @2xl:grid-cols-3">
-						<label className="block"><Label>۱) فروش ریالی هدف، سالانه (تومان)</Label>{txt('fcRevenue')}</label>
-						<label className="block"><Label>۲) حجم فروش تعدادی، سالانه (عدد)</Label>{txt('fcVolume')}</label>
-						<label className="block"><Label>۳) بودجه‌ی بازاریابی (٪ از فروش)</Label>{txt('fcMktPct')}</label>
-						<label className="block"><Label>قیمت هر واحد (تومان، اختیاری)</Label>{txt('fcUnitPrice')}</label>
-						<p className="text-[12px] leading-6 text-muted-foreground @2xl:col-span-2">اگر «قیمت هر واحد» را پر کنی، <b>حجم فروش خودکار = فروش هدف ÷ قیمت</b> حساب می‌شود (نیمه‌خودکار). اگر خالی بگذاری، حجم را دستی وارد کن.</p>
-					</div>
-					<div className="mt-3 flex flex-wrap items-center gap-3">
+				{/* ۴) هرم — React Bits Stepper */}
+				<section data-testid="fc-pyramid">
+					<h3 className="text-[18px] font-extrabold leading-7">هرم سه‌گانه‌ی پیش‌بینی فروش</h3>
+					<p className="mb-4 text-[12.5px] leading-6 text-muted-foreground">اول عددِ فروش را تعیین کن، بعد بودجه را کنار بگذار، نه برعکس</p>
+					<Stepper theme={mode} linear={false} showFooter={false} accentColor="#910D6A" initialStep={1}>
+						<Step title="فروش هدف" description="تومان، سالانه">
+							<Label>۱) فروش ریالی هدف، سالانه (تومان)</Label>
+							{txt('fcRevenue')}
+							<div className="mt-4 text-[11px] font-bold text-muted-foreground">بودجه‌ی بازاریابی · تومان — مثل مالیات، اول کنار بگذار</div>
+							<div className="text-[32px] font-extrabold tabular-nums leading-none">{sep(r.mkt)}</div>
+						</Step>
+						<Step title="حجم" description="عدد در سال">
+							<Label>۲) حجم فروش تعدادی، سالانه (عدد)</Label>
+							{txt('fcVolume')}
+							<p className="mt-3 text-[12px] leading-6 text-muted-foreground">اگر «قیمت هر واحد» را پر کنی، <b>حجم فروش خودکار = فروش هدف ÷ قیمت</b> حساب می‌شود (نیمه‌خودکار). اگر خالی بگذاری، حجم را دستی وارد کن.</p>
+							<div className="mt-4 text-[11px] font-bold text-muted-foreground">میانگین قیمت هر واحد · تومان (فروش سالانه ÷ حجم سالانه)</div>
+							<div className="text-[32px] font-extrabold tabular-nums leading-none">{sep(r.avgP)}</div>
+						</Step>
+						<Step title="بودجه" description="٪ از فروش">
+							<Label>۳) بودجه‌ی بازاریابی (٪ از فروش)</Label>
+							{txt('fcMktPct')}
+							<div className="mt-4 text-[11px] font-bold text-muted-foreground">فروش لازم در هر ماه · تومان (فروش سالانه ÷ ۱۲)</div>
+							<div className="text-[32px] font-extrabold tabular-nums leading-none">{sep(r.perMonth)}</div>
+						</Step>
+						<Step title="قیمت واحد" description="اختیاری">
+							<Label>قیمت هر واحد (تومان، اختیاری)</Label>
+							{txt('fcUnitPrice')}
+							<div className="mt-4 text-[11px] font-bold text-muted-foreground">فروش لازم در افقِ انتخابی · تومان در {fa(r.Hm)} ماهِ افق</div>
+							<div className="text-[32px] font-extrabold tabular-nums leading-none">{sep(r.perHorizon)}</div>
+						</Step>
+					</Stepper>
+					<div className="mt-4 flex flex-wrap items-center gap-3">
 						<Html h={x.volSource ? 'حجم فروش از فایل «ProductRank»: <b>' + faGroup(x.volSource.sold) + '</b> واحد از <b>' + fa(x.volSource.nProd) + '</b> محصول (حملِ بار حذف شد).' : 'فایل «ProductRank» جولیو را بده؛ تعدادِ فروخته‌شده (ستون «بستن») همهٔ محصولات جمع می‌شود و <b>«حمل بار» و خدمات حمل خودکار حذف می‌شوند</b> → حجم فروش پر می‌شود.'} />
 						{importBtn}
+						<Btn onClick={doAutoPyramid}>پیشنهاد خودکار (فروش هدف و بودجهٔ بازاریابی)</Btn>
 					</div>
-					<Figs>
-						<Fig kind="total" k="بودجه‌ی بازاریابی" v={sep(r.mkt)} u="تومان — مثل مالیات، اول کنار بگذار" />
-						<Fig k="میانگین قیمت هر واحد" v={sep(r.avgP)} u="تومان (فروش سالانه ÷ حجم سالانه)" />
-						<Fig k="فروش لازم در هر ماه" v={sep(r.perMonth)} u="تومان (فروش سالانه ÷ ۱۲)" />
-						<Fig kind="gold" k="فروش لازم در افقِ انتخابی" v={sep(r.perHorizon)} u={'تومان در ' + fa(r.Hm) + ' ماهِ افق'} />
-					</Figs>
-					<div className="mt-4"><Btn onClick={doAutoPyramid}>پیشنهاد خودکار (فروش هدف و بودجهٔ بازاریابی)</Btn></div>
 					{msg.pyramid && <Html className="mt-1.5" h={msg.pyramid} />}
 					<Html className="mt-1.5" h={r.pyramidNote} />
-				</Card>
+				</section>
 
-				{/* ۸) نه روش */}
-				<Card title="نه روش پیش‌بینی فروش" sub="لازم نیست همه را پر کنی؛ ۵ روش هم کافی‌ست، بعد میانگین می‌گیریم">
+				{/* ۸) نه روش — React Bits ScrollStack */}
+				<section data-testid="fc-methods">
+					<h3 className="text-[18px] font-extrabold leading-7">نه روش پیش‌بینی فروش</h3>
+					<p className="text-[12.5px] leading-6 text-muted-foreground">لازم نیست همه را پر کنی؛ ۵ روش هم کافی‌ست، بعد میانگین می‌گیریم</p>
 					<p className="mb-2 text-[12.5px] leading-7 text-muted-foreground">همه‌ی اعداد به <b>تومان</b>اند. روش‌های «رگرسیون» و «میانگین متحرک» خودکار از جدول سه‌ساله‌ی بالا حساب می‌شوند. هرچه روش‌های بیشتری پر کنی و به هم نزدیک‌تر باشند، تخمین معتبرتر است.</p>
 					<details className="mb-3 rounded-xl bg-muted/40 ring-1 ring-border">
 						<summary className="flex cursor-pointer items-center gap-2 px-3.5 py-2.5 font-extrabold text-primary-ink"><Icon n="book" />راهنمای روش‌ها و مفاهیم</summary>
@@ -871,22 +924,31 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 							<p className="border-t border-dashed border-border pt-2"><b>آلفا (α) در هموارسازی نمایی:</b> ضریبی بین <b>۰ تا ۱</b> — پیش‌بینی = α×اخیر + (۱−α)×قبلی. α نزدیک ۱ = واکنش سریع به تغییرات تازه (بازار پرنوسان/تورمی)؛ α نزدیک ۰ = هموار و وزن به روند بلندمدت. طبق جزوه در تورم امروز α را بالاتر می‌گیریم؛ شروع خوب: ۰٫۴ تا ۰٫۶.</p>
 						</div>
 					</details>
-					<div className="flex flex-col gap-2.5">
-						<Method n="۱" t="نظر مدیریتی" h="شهودِ مدیرعامل" out={r.mR[1]}>
+					<div className="mt-4 h-[680px]">
+					<ScrollStack className="h-full" itemDistance={48} blurAmount={0} tiltAmount={2} useWindowScroll={false}>
+						<ScrollStackItem itemClassName="!h-auto min-h-[220px]">
+							<div className="flex items-start justify-between gap-4"><div><div className="text-[12px] font-bold opacity-60">۱</div><div className="text-[22px] font-extrabold leading-8">نظر مدیریتی</div><div className="text-[12.5px] opacity-70">شهودِ مدیرعامل</div></div><div className="text-[28px] font-extrabold tabular-nums">{r.mR[1] > 0 ? sep(r.mR[1]) : '—'}</div></div>
+							<div className="mt-4">
 							<div className="flex flex-wrap gap-2">{txt('fcM1', { w: '!w-[190px]' })}<Btn sm onClick={doM1Sug}><Icon n="bulb" className="size-3.5" />پیشنهاد سیستم</Btn></div>
 							<Html className="mt-1 !text-primary-ink" h={msg.m1 || 'پیشنهاد بر پایهٔ فروشِ آخرین سال + جهش دلار/تورم + استراتژی محاسبه می‌شود. <b>دو سالِ پرشده کافی است</b> (حتی یک سال).'} />
-						</Method>
-						<Method n="۲" t="تکنیک دلفی" h="اعداد کارشناسان → میانه" out={r.mR[2]}>
+						</div></ScrollStackItem>
+						<ScrollStackItem itemClassName="!h-auto min-h-[220px]">
+							<div className="flex items-start justify-between gap-4"><div><div className="text-[12px] font-bold opacity-60">۲</div><div className="text-[22px] font-extrabold leading-8">تکنیک دلفی</div><div className="text-[12.5px] opacity-70">اعداد کارشناسان → میانه</div></div><div className="text-[28px] font-extrabold tabular-nums">{r.mR[2] > 0 ? sep(r.mR[2]) : '—'}</div></div>
+							<div className="mt-4">
 							<div className="flex flex-wrap gap-2">
 								<input value={v('fcM2')} onChange={(e) => update({ fcM2: e.target.value }, 'fcM2')} onBlur={(e) => { if (e.target.value.replace(/[^\d۰-۹]/g, '') !== '') update({ fcM2: fcGroupList(e.target.value) }, 'fcM2') }} placeholder="با ویرگول: ۹۰۰٬۰۰۰٬۰۰۰، ۱٬۱۰۰٬۰۰۰٬۰۰۰" className={`${inCls} min-w-[200px] flex-1`} />
 								<Btn sm onClick={doM2Sug}><Icon n="bulb" className="size-3.5" />پیشنهاد سیستم</Btn>
 							</div>
 							<Html className="mt-1 !text-primary-ink" h={msg.m2 || 'سه عددِ محافظه‌کار/پایه/خوش‌بینانه پیشنهاد می‌شود؛ میانهٔ آن‌ها = تخمینِ دلفی. <b>دو سالِ پرشده کافی است</b>.'} />
-						</Method>
-						<Method n="۳" t="نظرسنجی تیم فروش" h="تخمین هر فروشنده → جمع" out={r.mR[3]}>
+						</div></ScrollStackItem>
+						<ScrollStackItem itemClassName="!h-auto min-h-[200px]">
+							<div className="flex items-start justify-between gap-4"><div><div className="text-[12px] font-bold opacity-60">۳</div><div className="text-[22px] font-extrabold leading-8">نظرسنجی تیم فروش</div><div className="text-[12.5px] opacity-70">تخمین هر فروشنده → جمع</div></div><div className="text-[28px] font-extrabold tabular-nums">{r.mR[3] > 0 ? sep(r.mR[3]) : '—'}</div></div>
+							<div className="mt-4">
 							<input value={v('fcM3')} onChange={(e) => update({ fcM3: e.target.value }, 'fcM3')} onBlur={(e) => { if (e.target.value.replace(/[^\d۰-۹]/g, '') !== '') update({ fcM3: fcGroupList(e.target.value) }, 'fcM3') }} placeholder="با ویرگول: ۵۰۰٬۰۰۰٬۰۰۰، ۳۰۰٬۰۰۰٬۰۰۰" className={inCls} />
-						</Method>
-						<Method n="۴" t="نظرسنجی مشتری" h="تعداد بالقوه × میانگین خرید × نرخ خرید" out={r.mR[4]}>
+						</div></ScrollStackItem>
+						<ScrollStackItem itemClassName="!h-auto min-h-[280px]">
+							<div className="flex items-start justify-between gap-4"><div><div className="text-[12px] font-bold opacity-60">۴</div><div className="text-[22px] font-extrabold leading-8">نظرسنجی مشتری</div><div className="text-[12.5px] opacity-70">تعداد بالقوه × میانگین خرید × نرخ خرید</div></div><div className="text-[28px] font-extrabold tabular-nums">{r.mR[4] > 0 ? sep(r.mR[4]) : '—'}</div></div>
+							<div className="mt-4">
 							<div className="grid grid-cols-2 gap-2 @xl:grid-cols-4">
 								<label><Label>تعداد</Label>{txt('fcM4n')}</label>
 								<label><Label>× خرید</Label>{txt('fcM4a')}</label>
@@ -914,13 +976,23 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 								</div>
 								<Html className="mt-1.5 !text-primary-ink" h={msg.m4adj || r.m4adjNote || 'فرمولِ جزوه (ضریبی، نه جمعی): پتانسیلِ فروش = پتانسیلِ بازار × سهم × (۱+برند) × (۱+اورنس) × (۱+کانال) × (۱+رقبا). <b>اورنس (Awareness) = شناخته‌شدگیِ برند</b>: اگر بازارِ هدف سه برندِ اولِ صنعت را نام ببرد، اسمِ تو هست؟ +۱۰ تا +۲۰٪ اگر شناخته‌شده‌ای، ۰ اگر معمولی، منفی اگر ناشناس. مثالِ کافی‌شاپ: سهم ۱۰٪ → ۵ میلیارد، ×۱٫۲ برند، ×۰٫۹ کانالِ ضعیف، ×۰٫۸۵ رقبای قوی = ۴٫۵۹ میلیارد.'} />
 							</details>
-						</Method>
-						<Method n="۵" t="رگرسیون" h="روند خطی از ۳ سال" out={r.mR[5]}><span className="text-[12.5px] text-muted-foreground">خودکار از جدول بالا</span></Method>
-						<Method n="۶" t="میانگین متحرک" h="کف فروش عادی" out={r.mR[6]}><span className="text-[12.5px] text-muted-foreground">خودکار از جدول بالا</span></Method>
-						<Method n="۷" t="هموارسازی نمایی (Holt)" h={<>دنباله‌ای + روند · آلفا = <b>{fa(r.alpha)}</b> (بازار تورمی: ۰٫۷–۰٫۹)</>} out={r.mR[7]}>
+						</div></ScrollStackItem>
+						<ScrollStackItem itemClassName="!h-auto min-h-[160px]">
+							<div className="flex items-start justify-between gap-4"><div><div className="text-[12px] font-bold opacity-60">۵</div><div className="text-[22px] font-extrabold leading-8">رگرسیون</div><div className="text-[12.5px] opacity-70">روند خطی از ۳ سال</div></div><div className="text-[28px] font-extrabold tabular-nums">{r.mR[5] > 0 ? sep(r.mR[5]) : '—'}</div></div>
+							<div className="mt-4"><span className="text-[12.5px] text-muted-foreground">خودکار از جدول بالا</span></div>
+						</ScrollStackItem>
+						<ScrollStackItem itemClassName="!h-auto min-h-[160px]">
+							<div className="flex items-start justify-between gap-4"><div><div className="text-[12px] font-bold opacity-60">۶</div><div className="text-[22px] font-extrabold leading-8">میانگین متحرک</div><div className="text-[12.5px] opacity-70">کف فروش عادی</div></div><div className="text-[28px] font-extrabold tabular-nums">{r.mR[6] > 0 ? sep(r.mR[6]) : '—'}</div></div>
+							<div className="mt-4"><span className="text-[12.5px] text-muted-foreground">خودکار از جدول بالا</span></div>
+						</ScrollStackItem>
+						<ScrollStackItem itemClassName="!h-auto min-h-[200px]">
+							<div className="flex items-start justify-between gap-4"><div><div className="text-[12px] font-bold opacity-60">۷</div><div className="text-[22px] font-extrabold leading-8">هموارسازی نمایی (Holt)</div><div className="text-[12.5px] opacity-70">دنباله‌ای + روند · آلفا = <b>{fa(r.alpha)}</b> (بازار تورمی: ۰٫۷–۰٫۹)</div></div><div className="text-[28px] font-extrabold tabular-nums">{r.mR[7] > 0 ? sep(r.mR[7]) : '—'}</div></div>
+							<div className="mt-4">
 							{range('fcAlpha', 0.1, 0.9, 0.1)}
-						</Method>
-						<Method n="۸" t="نقطه‌ی سربه‌سر" h="مدل بقا" out={r.mR[8]}>
+						</div></ScrollStackItem>
+						<ScrollStackItem itemClassName="!h-auto min-h-[260px]">
+							<div className="flex items-start justify-between gap-4"><div><div className="text-[12px] font-bold opacity-60">۸</div><div className="text-[22px] font-extrabold leading-8">نقطه‌ی سربه‌سر</div><div className="text-[12.5px] opacity-70">مدل بقا</div></div><div className="text-[28px] font-extrabold tabular-nums">{r.mR[8] > 0 ? sep(r.mR[8]) : '—'}</div></div>
+							<div className="mt-4">
 							<div className="grid grid-cols-2 gap-2 sm:max-w-[420px]">
 								<label><Label>هزینه ثابت</Label>{txt('fcFixed')}</label>
 								<label><Label>÷ حاشیه٪</Label>{txt('fcMargin')}</label>
@@ -933,8 +1005,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 								<Btn sm kind="ghost" onClick={() => doAi('margin')}><Icon n="sparkle" className="size-3.5 text-primary-ink" />پیشنهاد هوش مصنوعی</Btn>
 							</div>
 							<Html className="mt-1 !text-primary-ink" h={msg.margin || 'این‌ها <b>حاشیهٔ ناخالص/مشارکتی</b> (فروش منهای هزینهٔ متغیر) بر پایهٔ استانداردِ جهانی‌اند — همان چیزی که نقطهٔ سربه‌سر لازم دارد (نه سودِ خالص). برای ایران کمی تعدیل کن؛ یا با دکمهٔ «هوش مصنوعی» متناسبِ کسب‌وکارت پیشنهاد بگیر.'} />
-						</Method>
-						<Method n="۹" t="ظرفیت (Capacity)" h="وقتی تقاضا > عرضه: سقفِ فروش = سقفِ تحویل" out={r.mR[9]}>
+						</div></ScrollStackItem>
+						<ScrollStackItem itemClassName="!h-auto min-h-[220px]">
+							<div className="flex items-start justify-between gap-4"><div><div className="text-[12px] font-bold opacity-60">۹</div><div className="text-[22px] font-extrabold leading-8">ظرفیت (Capacity)</div><div className="text-[12.5px] opacity-70">وقتی تقاضا &gt; عرضه: سقفِ فروش = سقفِ تحویل</div></div><div className="text-[28px] font-extrabold tabular-nums">{r.mR[9] > 0 ? sep(r.mR[9]) : '—'}</div></div>
+							<div className="mt-4">
 							<div className="grid grid-cols-2 gap-2 @xl:grid-cols-4">
 								<label><Label>نیرو (کافه=۱)</Label>{txt('fcCapWorkers')}</label>
 								<label><Label>× روزانه/فیش</Label>{txt('fcCapDaily')}</label>
@@ -942,20 +1016,23 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 								<label><Label>× قیمت/میانگینِ‌فیش</Label>{txt('fcCapP')}</label>
 							</div>
 							<Html className="mt-1 !text-primary-ink" h={r.capNote} />
-						</Method>
+						</div></ScrollStackItem>
+					</ScrollStack>
 					</div>
-					<Figs>
-						<Fig kind="total" k="میانگین روش‌های پرشده" v={sep(r.consensus)} u="تومان — پیش‌بینی نهایی" />
-						<Fig k="میانه‌ی روش‌ها" v={sep(r.median)} u="تومان" />
-						<Fig kind="gold" small k="پراکندگی روش‌ها" v={r.spread ? sep(r.spread[0]) + ' — ' + sep(r.spread[1]) : '—'} u="کمینه تا بیشینه" />
-						<Fig k="روش‌های پرشده" v={fa(r.filled.length)} u="از ۹" />
-					</Figs>
+					<div className="mt-4 flex flex-wrap items-end gap-x-8 gap-y-2 border-t border-border/70 pt-3 text-[13px]">
+						<div><div className="text-[11px] font-bold text-muted-foreground">میانگین روش‌های پرشده</div><div className="text-[22px] font-extrabold tabular-nums">{sep(r.consensus)} <span className="text-[12px] font-medium text-muted-foreground">تومان — پیش‌بینی نهایی</span></div></div>
+						<div><div className="text-[11px] font-bold text-muted-foreground">میانه‌ی روش‌ها</div><div className="text-[22px] font-extrabold tabular-nums">{sep(r.median)} <span className="text-[12px] font-medium text-muted-foreground">تومان</span></div></div>
+						<div><div className="text-[11px] font-bold text-muted-foreground">پراکندگی روش‌ها</div><div className="text-[18px] font-extrabold tabular-nums">{r.spread ? sep(r.spread[0]) + ' — ' + sep(r.spread[1]) : '—'} <span className="text-[12px] font-medium text-muted-foreground">کمینه تا بیشینه</span></div></div>
+						<div><div className="text-[11px] font-bold text-muted-foreground">روش‌های پرشده</div><div className="text-[22px] font-extrabold tabular-nums">{fa(r.filled.length)} <span className="text-[12px] font-medium text-muted-foreground">از ۹</span></div></div>
+					</div>
 					<Html className="mt-2" h={r.methodsNote} />
-				</Card>
+				</section>
 
-				{/* ۹) پیش‌بینی ماهانه */}
-				<Card id="fcMonthlyCard" title="پیش‌بینی ماهانه‌ی بودجه: چندروشی" sub="داده‌ی ماهانه‌ی سه‌ساله را وارد کن، روش‌ها را انتخاب کن، پیش‌بینی ماه‌به‌ماه بگیر">
-					<p className="mb-4 flex items-start gap-2 rounded-xl bg-[var(--fc-brass-soft)] px-3.5 py-2.5 text-[12.5px] leading-7 ring-1 ring-accent/35"><Icon n="info" className="mt-1.5 size-4 text-accent-ink" /><span>این پیش‌بینی <b>همیشه برای کلِ سالِ هدف و ماه‌به‌ماه</b> است (سالانه، ۱۲ ماه) — مستقل از «افق دید». «افق دید» فقط اندازهٔ هدفِ هر دوره را در <b>هرمِ بالا</b> تعیین می‌کند. اگر سالِ جاری چند ماهش پر باشد، آن ماه‌ها <b>واقعی (✓)</b> و بقیه <b>پیش‌بینی</b> نمایش داده می‌شوند.</span></p>
+				{/* ۹) پیش‌بینی ماهانه — React Bits CardSwap */}
+				<section id="fcMonthlyCard" data-testid="fc-monthly">
+					<h3 className="text-[18px] font-extrabold leading-7">پیش‌بینی ماهانه‌ی بودجه: چندروشی</h3>
+					<p className="text-[12.5px] leading-6 text-muted-foreground">داده‌ی ماهانه‌ی سه‌ساله را وارد کن، روش‌ها را انتخاب کن، پیش‌بینی ماه‌به‌ماه بگیر</p>
+					<p className="mb-4 mt-3 flex items-start gap-2 text-[12.5px] leading-7 text-muted-foreground"><Icon n="info" className="mt-1.5 size-4" /><span>این پیش‌بینی <b>همیشه برای کلِ سالِ هدف و ماه‌به‌ماه</b> است (سالانه، ۱۲ ماه) — مستقل از «افق دید». «افق دید» فقط اندازهٔ هدفِ هر دوره را در <b>هرمِ بالا</b> تعیین می‌کند. اگر سالِ جاری چند ماهش پر باشد، آن ماه‌ها <b>واقعی (✓)</b> و بقیه <b>پیش‌بینی</b> نمایش داده می‌شوند.</span></p>
 					<div className="flex flex-wrap items-end gap-3">
 						{importBtn}
 						<Btn kind="ghost" sm onClick={doClearMonth}>پاک کردن داده‌ی ماهانه</Btn>
@@ -965,48 +1042,6 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 						</label>
 					</div>
 					<Html className="mt-2" h={msg.month || (x.hist && x.hist.length ? '<b>' + fa(x.hist.length) + '</b> سال داده‌ی ماهانه در سیستم (' + x.hist.map((h: any) => fa(h.year)).join('، ') + ')' + (x.ytd ? ' + سالِ جاری <b>' + fa(x.ytd.year) + '</b> با <b>' + fa(x.ytd.mfilled || 0) + '</b> ماهِ پرشده' : '') + '.' + (x._dollarWarn && x._dollarWarn.length ? " <span style='color:var(--fc-rose)'>⚠️ سلولِ «فروش دلاری» سال‌های " + x._dollarWarn.map(fa).join('، ') + ' در فایل نامعتبر بود — نرخ دلار آن سال را دستی وارد کن.</span>' : '') : 'قالب اکسل: هر ردیف یک سال، ستون‌ها «سال، فروردین … اسفند». حداقل دو سال داده لازم است. کل برنامه با <b>تومان</b> کار می‌کند؛ اگر اعداد فایل ریال‌اند، واحد را روی «ریال» بگذار تا خودکار تقسیم بر ۱۰ شود.')} />
-
-					{mo && (
-						<>
-							<h4 className="mb-2 mt-5 text-[13.5px] font-extrabold">داده‌ی واردشده <span className="text-[11.5px] font-medium text-muted-foreground">سال‌های کامل + سالِ جاری (واقعی + پیش‌بینی)</span></h4>
-							<div className={SCROLL}>
-								<table className="w-full min-w-[900px] text-[11px]">
-									<thead className="sticky top-0 z-10 bg-muted"><tr><Th>سال</Th>{MN.map((m) => <Th key={m}>{m}</Th>)}<Th>کل (تومان)</Th><Th className="bg-secondary/10 text-secondary-ink">فروش دلاری</Th><Th className="bg-secondary/10 text-secondary-ink">میانگین نرخ دلار</Th><Th className="bg-[var(--fc-brass-soft)]">رشد نسبت به سال قبل</Th></tr></thead>
-									<tbody className={ROWS}>
-										{mo.histRows.map((yr) => (
-											<tr key={yr.year}>
-												<Td><b>{fa(yr.year)}</b></Td>
-												{yr.months.map((q, i) => <Td key={i}>{q > 0 ? sep(q) : '—'}</Td>)}
-												<Td><b>{sep(yr.total)}</b></Td>
-												<Td className="bg-secondary/5 font-bold text-secondary-ink">{yr.rateOk && yr.dsales > 0 ? '$' + sep(yr.dsales) : <span style={{ color: ROSE }}>نامعتبر</span>}</Td>
-												<Td className="bg-secondary/5 font-bold text-secondary-ink">{yr.rateOk ? sep(yr.drate) + ' ت' : <span style={{ color: ROSE }}>— دستی وارد کن</span>}</Td>
-												<Td className="bg-[var(--fc-brass-soft)] font-extrabold">{yr.g == null ? '—' : <Colored v={yr.g}>{pct(yr.g)}</Colored>}</Td>
-											</tr>
-										))}
-										{mo.blTot > 0 && (() => {
-											const dS = r.usd > 0 ? Math.round(mo.blTot / r.usd) : 0
-											const prevY = mo.lastHistTotal, gY = prevY > 0 ? (mo.blTot / prevY - 1) * 100 : null
-											return (
-												<tr className="border-t-2 border-accent-ink">
-													<Td><b>{fa(r.ty)}</b><div className="text-[10px] text-accent-ink">واقعی+پیش‌بینی</div></Td>
-													{mo.fin.map((q, m) => {
-														const isA = !!(mo.actualM && mo.actualM[m] > 0)
-														return <Td key={m} className={isA ? 'font-extrabold text-secondary-ink' : 'bg-[var(--fc-brass-soft)] font-semibold italic text-accent-ink'}>{q > 0 ? sep(q) : '—'}{isA ? ' ✓' : ''}</Td>
-													})}
-													<Td><b>{sep(mo.blTot)}</b></Td>
-													<Td className="bg-secondary/5 font-bold text-secondary-ink">{dS > 0 ? '$' + sep(dS) : '—'}</Td>
-													<Td className="bg-secondary/5 font-bold text-secondary-ink">{r.usd > 0 ? sep(r.usd) + ' ت' : '—'}</Td>
-													<Td className="bg-[var(--fc-brass-soft)] font-extrabold">{gY == null ? '—' : <Colored v={gY}>{pct(gY)}</Colored>}</Td>
-												</tr>
-											)
-										})()}
-									</tbody>
-								</table>
-							</div>
-							{mo.blTot > 0 && <p className="mt-1.5 text-[12px] text-muted-foreground">ردیفِ <b>{fa(r.ty)}</b>: <span className="font-extrabold text-secondary-ink">آبی ✓ = عددِ واقعیِ ثبت‌شده ({fa(mo.nAct)} ماه)</span> · <span className="font-bold italic text-accent-ink">طلاییِ کج = پیش‌بینیِ ۹ روش</span> برای ماه‌های باقی‌مانده.</p>}
-						</>
-					)}
-
 					<h4 className="mb-2 mt-6 text-[13.5px] font-extrabold">انتخاب روش‌ها برای پیش‌بینی <span className="text-[11.5px] font-medium text-muted-foreground">یک روش، دو روش یا هر ۹ روش</span></h4>
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-2">
 						{[1, 2, 3, 4, 5, 6, 7, 8, 9].map((k) => <span key={k}>{check('fcUse' + k, fa(k) + ' ' + LBL[k])}</span>)}
@@ -1014,40 +1049,75 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 						<Btn kind="ghost" sm onClick={() => doSel(false)}>هیچ</Btn>
 					</div>
 					<p className="mt-1.5 text-[12px] leading-6 text-muted-foreground">روش‌های ۵/۶/۷ مستقیم روی سری ماهانه محاسبه می‌شوند؛ روش‌های قضاوتی (۱–۴، ۸، ۹) عددِ سالانه‌شان با <b>الگوی فصلی</b> بین ماه‌ها پخش می‌شود (چون اقتصاد ایران فصلی است). ستون «پیش‌بینی» میانگینِ روش‌های انتخاب‌شده است.</p>
-
-					{mo ? (
-						<>
-							<div className={`mt-3 max-h-[520px] ${SCROLL}`}>
-								<table className="w-full min-w-[760px] text-[11px]">
-									<thead className="sticky top-0 z-10 bg-muted"><tr><Th>ماه</Th>{mo.sel.map((k) => <Th key={k}>{LBL[k]}</Th>)}<Th className="bg-accent/15">{mo.nAct ? 'واقعی/پیش‌بینی' : 'پیش‌بینی'} (تومان)</Th><Th className="bg-[#E0EBF8] text-secondary-ink">$ لازم</Th></tr></thead>
-									<tbody className={ROWS}>
-										{MN.map((mn, m) => {
-											const isAct = !!(mo.actualM && mo.actualM[m] > 0)
-											return (
-												<tr key={mn}>
-													<Td><b>{mn}</b></Td>
-													{mo.sel.map((k) => <Td key={k}>{mo.perM[k][m] > 0 ? sep(mo.perM[k][m]) : '—'}</Td>)}
-													<Td className="bg-[var(--fc-brass-soft)] font-extrabold text-primary-ink">{sep(mo.fin[m])}{isAct && <span title="عددِ واقعیِ ثبت‌شده" className="text-success"> ✓</span>}</Td>
-													<Td className="bg-secondary/5 font-extrabold text-secondary-ink">{usdCell(mo.fin[m])}</Td>
-												</tr>
-											)
-										})}
-									</tbody>
-									<tfoot>
-										<tr className="bg-muted/60"><Td><b>کل سال</b></Td>{mo.colTot.map((q, i) => <Td key={i}><b>{sep(q)}</b></Td>)}<Td className="bg-[var(--fc-brass-soft)] font-extrabold">{sep(mo.blTot)}</Td><Td className="bg-secondary/5 font-extrabold text-secondary-ink">{usdCell(mo.blTot)}</Td></tr>
-									</tfoot>
-								</table>
-							</div>
-							<Html className="mt-2" h={(mo.nAct ? "<b style='color:#1E8E3E'>✓ = عددِ واقعیِ ثبت‌شدهٔ " + fa(r.ty) + ' (' + fa(mo.nAct) + ' ماه)</b>؛ بقیهٔ ماه‌ها پیش‌بینیِ ۹ روش است. ' : '') + (r.usd > 0 && mo.blTot > 0 ? 'برای رشدِ واقعی (نه فقط تورمی)، فروشِ <b>دلاری</b> هر ماه باید از همان ماهِ سال قبل بیشتر باشد. مثال: در <b>' + MN[mo.peak[0]] + "</b> باید حدود <b style='direction:ltr;display:inline-block'>$" + sep(Math.round(mo.peak[1] / r.usd)) + '</b> بفروشی. (نرخ دلار: ' + faGroup(r.usd) + ' تومان)' : 'نرخ دلار را در گام «افق دید» وارد کن تا ستونِ «$ لازم» و هدفِ دلاریِ هر ماه نمایش داده شود.')} />
-							<div className="mt-4 grid grid-cols-1 gap-2.5 @xl:grid-cols-3">
-								<Fig kind="total" k="پیش‌بینی کل سال هدف" v={sep(mo.blTot)} u={<span dangerouslySetInnerHTML={{ __html: sanitizeForecastHtml('تومان — سال ' + fa(r.ty) + (mo.sel.length ? ' · ' + fa(mo.sel.length) + ' روش' : ' · روشی انتخاب نشده') + (r.usd > 0 && mo.blTot > 0 ? ' · ≈ <b>$' + sep(Math.round(mo.blTot / r.usd)) + '</b>' : '')) }} />} />
-								<Fig small k="بهترین ماه (اوج فصلی)" v={mo.blTot > 0 ? MN[mo.peak[0]] : '—'} u={mo.blTot > 0 ? sep(mo.peak[1]) : '—'} />
-								<Fig small k="ضعیف‌ترین ماه" v={mo.blTot > 0 ? MN[mo.low[0]] : '—'} u={mo.blTot > 0 ? sep(mo.low[1]) : '—'} />
-							</div>
-						</>
-					) : (
-						<p className="mt-3 rounded-xl bg-muted/50 p-4 text-center text-[12.5px] text-muted-foreground">هنوز داده‌ی ماهانه وارد نشده — از «مرکز ایمپورت» فایلِ فروش ماهانه یا صورت سود و زیان را بده.</p>
-					)}
+					<div className="relative mx-auto mt-4 h-[560px] w-full max-w-[720px]">
+						<CardSwap theme={mode} autoplay={false} draggable width={300} height={460} visibleCards={3}>
+							{mo ? mo.histRows.map((yr) => (
+								<SwapCard key={'y' + yr.year}>
+									<div className="flex h-full flex-col gap-1.5 overflow-hidden p-4 text-[12px] leading-5">
+										<div className="text-[11px] opacity-60">داده‌ی واردشده · سال</div>
+										<div className="text-[28px] font-extrabold leading-none">{fa(yr.year)}</div>
+										<div className="mt-1 grid grid-cols-3 gap-x-2 gap-y-0.5">
+											{MN.map((name, i) => <div key={name} className="truncate"><span className="opacity-50">{name}</span> {yr.months[i] > 0 ? sep(yr.months[i]) : '—'}</div>)}
+										</div>
+										<div className="mt-auto">کل (تومان) <b>{sep(yr.total)}</b></div>
+										<div>فروش دلاری {yr.rateOk && yr.dsales > 0 ? '$' + sep(yr.dsales) : <span style={{ color: ROSE }}>نامعتبر</span>}</div>
+										<div>میانگین نرخ دلار {yr.rateOk ? sep(yr.drate) + ' ت' : <span style={{ color: ROSE }}>— دستی وارد کن</span>}</div>
+										<div>رشد نسبت به سال قبل {yr.g == null ? '—' : <Colored v={yr.g}>{pct(yr.g)}</Colored>}</div>
+									</div>
+								</SwapCard>
+							)) : null}
+							{mo && mo.blTot > 0 ? (
+								<SwapCard key="blend">
+									<div className="flex h-full flex-col gap-1.5 overflow-hidden p-4 text-[12px] leading-5">
+										<div className="text-[11px] opacity-60">سال {fa(r.ty)} · واقعی+پیش‌بینی</div>
+										<div className="text-[28px] font-extrabold leading-none">{sep(mo.blTot)} <span className="text-[12px] font-medium">تومان</span></div>
+										<div className="grid grid-cols-3 gap-x-2">
+											{MN.map((name, m) => {
+												const isA = !!(mo.actualM && mo.actualM[m] > 0)
+												return <div key={name} className={isA ? 'font-extrabold' : 'italic opacity-80'}>{name} {mo.fin[m] > 0 ? sep(mo.fin[m]) : '—'}{isA ? ' ✓' : ''}</div>
+											})}
+										</div>
+										<div className="mt-auto">فروش دلاری {r.usd > 0 ? '$' + sep(Math.round(mo.blTot / r.usd)) : '—'}</div>
+										<div>میانگین نرخ دلار {r.usd > 0 ? sep(r.usd) + ' ت' : '—'}</div>
+										<div>رشد نسبت به سال قبل {mo.lastHistTotal > 0 ? <Colored v={(mo.blTot / mo.lastHistTotal - 1) * 100}>{pct((mo.blTot / mo.lastHistTotal - 1) * 100)}</Colored> : '—'}</div>
+										<p className="text-[11px] opacity-70">آبی ✓ = عددِ واقعیِ ثبت‌شده ({fa(mo.nAct)} ماه) · طلاییِ کج = پیش‌بینیِ ۹ روش</p>
+									</div>
+								</SwapCard>
+							) : null}
+							{mo ? MN.map((mn, m) => {
+								const isAct = !!(mo.actualM && mo.actualM[m] > 0)
+								return (
+									<SwapCard key={mn}>
+										<div className="flex h-full flex-col gap-1 overflow-hidden p-4 text-[12.5px] leading-6">
+											<div className="text-[11px] opacity-60">ماه</div>
+											<div className="text-[30px] font-extrabold leading-none">{mn}{isAct ? <span className="ms-2 text-[16px] text-emerald-600">✓</span> : null}</div>
+											{mo.sel.map((k) => <div key={k} className="flex justify-between gap-2"><span>{LBL[k]}</span><b className="tabular-nums">{mo.perM[k][m] > 0 ? sep(mo.perM[k][m]) : '—'}</b></div>)}
+											<div className="mt-auto flex justify-between gap-2 font-extrabold"><span>{mo.nAct ? 'واقعی/پیش‌بینی' : 'پیش‌بینی'} (تومان)</span><span className="tabular-nums">{sep(mo.fin[m])}</span></div>
+											<div className="flex justify-between gap-2 font-extrabold"><span>$ لازم</span><span>{usdCell(mo.fin[m])}</span></div>
+										</div>
+									</SwapCard>
+								)
+							}) : (
+								<SwapCard key="empty">
+									<div className="grid h-full place-items-center p-6 text-center text-[13px] leading-7">هنوز داده‌ی ماهانه وارد نشده — از «مرکز ایمپورت» فایلِ فروش ماهانه یا صورت سود و زیان را بده.</div>
+								</SwapCard>
+							)}
+							{mo ? (
+								<SwapCard key="year-total">
+									<div className="flex h-full flex-col gap-1 overflow-hidden p-4 text-[12.5px] leading-6">
+										<div className="text-[11px] opacity-60">کل سال</div>
+										<div className="text-[28px] font-extrabold leading-none">{sep(mo.blTot)}</div>
+										{mo.colTot.map((q, i) => <div key={i} className="flex justify-between"><span>{LBL[mo.sel[i]] || 'روش'}</span><b>{sep(q)}</b></div>)}
+										<div className="font-extrabold">پیش‌بینی کل سال هدف {sep(mo.blTot)} تومان — سال {fa(r.ty)}{mo.sel.length ? ' · ' + fa(mo.sel.length) + ' روش' : ' · روشی انتخاب نشده'}{r.usd > 0 && mo.blTot > 0 ? ' · ≈ $' + sep(Math.round(mo.blTot / r.usd)) : ''}</div>
+										<div>$ لازم {usdCell(mo.blTot)}</div>
+										<div>بهترین ماه (اوج فصلی) {mo.blTot > 0 ? MN[mo.peak[0]] + ' · ' + sep(mo.peak[1]) : '—'}</div>
+										<div>ضعیف‌ترین ماه {mo.blTot > 0 ? MN[mo.low[0]] + ' · ' + sep(mo.low[1]) : '—'}</div>
+									</div>
+								</SwapCard>
+							) : null}
+						</CardSwap>
+					</div>
+					{mo && <Html className="mt-2" h={(mo.nAct ? "<b style='color:#1E8E3E'>✓ = عددِ واقعیِ ثبت‌شدهٔ " + fa(r.ty) + ' (' + fa(mo.nAct) + ' ماه)</b>؛ بقیهٔ ماه‌ها پیش‌بینیِ ۹ روش است. ' : '') + (r.usd > 0 && mo.blTot > 0 ? 'برای رشدِ واقعی (نه فقط تورمی)، فروشِ <b>دلاری</b> هر ماه باید از همان ماهِ سال قبل بیشتر باشد. مثال: در <b>' + MN[mo.peak[0]] + "</b> باید حدود <b style='direction:ltr;display:inline-block'>$" + sep(Math.round(mo.peak[1] / r.usd)) + '</b> بفروشی. (نرخ دلار: ' + faGroup(r.usd) + ' تومان)' : 'نرخ دلار را در گام «افق دید» وارد کن تا ستونِ «$ لازم» و هدفِ دلاریِ هر ماه نمایش داده شود.')} />}
 					<div className="mt-4 flex flex-wrap items-center gap-2">
 						{!confirmApply ? (
 							<Btn kind="gold" onClick={() => setConfirmApply(true)}>اعمال بودجهٔ ماهانه به تارگت‌ها + تقسیم بین کارشناسان (بر اساس سطح)</Btn>
@@ -1060,107 +1130,167 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 						)}
 					</div>
 					<Html className="mt-1.5" h={msg.apply || 'این دکمه بودجهٔ پیش‌بینی هر ماه را در «تارگت فروش ماه» می‌گذارد و بین کارشناسان فروش بر اساس تجربه تقسیم می‌کند: ارشد ۱٫۵ ، میانی ۱ ، تازه‌کار ۰٫۶ برابر. نتیجه در داشبورد مدیریتی دیده می‌شود.'} />
-				</Card>
+				</section>
 
-				{/* ۱۲) ریسک */}
-				<Card title="خودارزیابی ریسکِ مدیرعامل" sub="این سه عدد تعیین می‌کنند چقدر محافظه‌کار برنامه بریزی">
-					<div className="grid items-start gap-6 @3xl:grid-cols-[1fr_320px]">
-					<div className="grid gap-4">
-						<label className="block"><Label>ریسک‌پذیری امسال (۱–۱۰۰): <b className="text-foreground">{fa(fnum(f.fcRisk))}</b></Label>{range('fcRisk', 1, 100, 1)}</label>
-						<label className="block"><Label>تعهد/مسئولیت مالی، «چاله‌ها» (۱–۱۰): <b className="text-foreground">{fa(fnum(f.fcOblig))}</b></Label>{range('fcOblig', 1, 10, 1)}</label>
-						<label className="block"><Label>آمادگی تزریق دارایی شخصی (۱–۱۰): <b className="text-foreground">{fa(fnum(f.fcAsset))}</b></Label>{range('fcAsset', 1, 10, 1)}</label>
-					</div>
-					<div className="grid grid-cols-2 gap-2.5 @3xl:grid-cols-1">
-						<Fig kind="warn" k="حاشیه‌ی احتیاط پیشنهادی" v={pct(r.safety)} u="زیر هدف برنامه ببند" />
-						<Fig kind="total" k="هدفِ محافظه‌کارانه" v={sep(r.safeT)} u="تومان، هدف پس از حاشیه" />
-					</div>
-					</div>
-					<Html className="mt-4" h={'هرچه تعهد مالی‌ات بیشتر و ریسک‌پذیری‌ات کمتر باشد، باید محافظه‌کارتر برنامه ببندی. با اعداد فعلی، پیشنهاد این است که برنامه را حدود <b>' + pct(r.safety) + '</b> زیر هدف (' + sep(r.safeT) + ' تومان) ببندی تا اگر فروش کمتر از انتظار شد، نقدینگی‌ات قفل نشود.'} />
-				</Card>
-			</Band>
-
-			<Band tier="blue" title="نتایج کسب‌وکار" desc="واقعی در برابر پیش‌بینی، سقفِ هزینه‌ها و اثرِ تورم">
-				{/* ۱۰) واقعی در برابر پیش‌بینی */}
-				<Card title="واقعی در برابر پیش‌بینی" sub="پیش‌بینی ملاک است؛ با ورود معاملاتِ هر ماه، عقب/جلو بودن نسبت به پیش‌بینی محاسبه می‌شود">
-					{(() => {
-						const va = r.va, gap = va.sumA - va.sumF, gvr = va.sumF > 0 ? (gap / va.sumF) * 100 : 0, gc = gap >= 0 ? GREEN : ROSE
-						return (
-							<>
-								<div className="grid grid-cols-1 gap-2.5 @xl:grid-cols-3">
-									<Fig kind="total" k="واقعیِ تا این‌جا" v={sep(Math.round(va.sumA))} u={r.monthlyForecast ? fa(va.nM) + ' ماهِ دارای واقعی' : '— ماه'} />
-									<Fig kind="gold" k="پیش‌بینیِ همان ماه‌ها" v={sep(Math.round(va.sumF))} u="تومان" />
-									<Fig k="عقب/جلو" v={r.monthlyForecast && va.nM ? <span style={{ color: gc }}>{gap >= 0 ? '▲ جلو ' : '▼ عقب '}{pct(Math.abs(gvr))}</span> : '—'} u={r.monthlyForecast && va.nM ? <span style={{ color: gc }}>{(gap >= 0 ? '+' : '−') + sep(Math.abs(Math.round(gap)))} تومان</span> : 'نسبت به پیش‌بینی'} />
-								</div>
-								<div className={`mt-3 ${SCROLL}`}>
-									<table className="w-full min-w-[620px] text-[12.5px]">
-										<thead className="sticky top-0 z-10 bg-muted"><tr><Th>ماه</Th><Th>پیش‌بینی (ملاک)</Th><Th>واقعی</Th><Th>اختلاف</Th><Th>عقب/جلو</Th></tr></thead>
-										<tbody className={ROWS}>
-											{!r.monthlyForecast ? (
-												<tr><td colSpan={5} className="py-4 text-center text-muted-foreground">اول در همین تب پیش‌بینی را بساز (روش‌ها را انتخاب کن) تا ملاک ساخته شود.</td></tr>
-											) : va.rows.length ? (
-												va.rows.map((q) => {
-													const col = q.diff >= 0 ? GREEN : ROSE
-													return (
-														<tr key={q.m}>
-															<Td><b>{MN[q.m]}</b></Td><Td>{sep(Math.round(q.f))}</Td><Td>{sep(Math.round(q.a))}</Td>
-															<Td style={{ color: col }} className="font-bold">{(q.diff >= 0 ? '+' : '−') + sep(Math.abs(Math.round(q.diff)))}</Td>
-															<Td style={{ color: col }} className="font-extrabold">{(q.diff >= 0 ? '▲ جلو ' : '▼ عقب ') + pct(Math.abs(q.vr))}</Td>
-														</tr>
-													)
-												})
-											) : (
-												<tr><td colSpan={5} className="py-4 text-center text-muted-foreground">هنوز ماهی داده‌ی واقعی ندارد. معاملاتِ ماه را ایمپورت کن (یا فایلِ فروش ماهانه) تا مقایسه انجام شود.</td></tr>
-											)}
-										</tbody>
-									</table>
-								</div>
-								<Html className="mt-2" h={!r.monthlyForecast ? 'برای مقایسه، اول پیش‌بینیِ ماهانه باید محاسبه شده باشد.' : va.nM ? 'تا این‌جا (' + fa(va.nM) + ' ماه) مجموعِ واقعی <b>' + sep(Math.round(va.sumA)) + '</b> در برابرِ پیش‌بینیِ <b>' + sep(Math.round(va.sumF)) + '</b> تومان — یعنی ' + (gap >= 0 ? "<b style='color:#1E8E3E'>" + pct(Math.abs(gvr)) + ' جلوتر</b>' : "<b style='color:var(--fc-rose)'>" + pct(Math.abs(gvr)) + ' عقب‌تر</b>') + ' از پیش‌بینی. واقعیِ هر ماه از معاملاتِ بسته‌شدهٔ همان ماه (یا فایلِ فروش ماهانه) می‌آید.' : 'با ورودِ معاملاتِ هر ماه (تبِ عملکرد ← ایمپورتِ معاملات)، عقب/جلو بودنِ آن ماه نسبت به پیش‌بینی این‌جا نشان داده می‌شود.'} />
-							</>
-						)
-					})()}
-				</Card>
-				{/* ۶) نسبت‌های طلایی */}
-				<Card title="نسبت‌های طلاییِ تخصیص منابع" sub="سقف استانداردهای عملیاتی، برگرفته از جزوه">
-					<div className="grid grid-cols-2 gap-3 @xl:grid-cols-3 @5xl:grid-cols-6">
-						{[
-							{ n: 'کمیسیون فروش', mn: 5, mx: 15 },
-							{ n: 'بازاریابی', mn: 5, mx: 10 },
-							{ n: 'تبلیغات', mn: 1, mx: 5 },
-							{ n: 'اجاره', mn: 15, mx: 20 },
-							{ n: 'حقوق شرکت‌های تولیدی', mn: 19, mx: 20 },
-							{ n: 'حقوق شرکت‌های خدماتی', mn: 25, mx: 35 },
-						].map((o) => {
-							const Cc = 2 * Math.PI * 34, len = Cc * (o.mx / 100)
+				{/* ۱۲) ریسک — React Bits Counter */}
+				<section data-testid="fc-risk">
+					<h3 className="text-[18px] font-extrabold leading-7">خودارزیابی ریسکِ مدیرعامل</h3>
+					<p className="text-[12.5px] leading-6 text-muted-foreground">این سه عدد تعیین می‌کنند چقدر محافظه‌کار برنامه بریزی. روی هر شمارنده بکش، یا با دکمه‌ها کم و زیاد کن.</p>
+					<div className="mt-5 grid gap-4 md:grid-cols-3">
+						{([
+							['fcRisk', 'ریسک‌پذیری امسال', 1, 100, 1],
+							['fcOblig', 'تعهد/مسئولیت مالی، «چاله‌ها»', 1, 10, 1],
+							['fcAsset', 'آمادگی تزریق دارایی شخصی', 1, 10, 1],
+						] as const).map(([id, label, min, max, step]) => {
+							const value = fnum(f[id])
+							const nudge = (dir: number) => {
+								const next = Math.min(max, Math.max(min, Math.round((value + dir * step) * 1000) / 1000))
+								update({ [id]: String(next) }, id)
+							}
 							return (
-								<div key={o.n} className="flex flex-col items-center gap-1 rounded-xl bg-muted/40 p-3 text-center ring-1 ring-border/80">
-									<svg viewBox="0 0 104 104" className="h-auto w-full max-w-[112px]">
-										<circle cx="52" cy="52" r="34" fill="none" stroke="hsl(var(--border))" strokeWidth="13" />
-										<circle cx="52" cy="52" r="34" fill="none" stroke={RING} strokeWidth="13" strokeLinecap="round" strokeDasharray={Cc.toFixed(1)} strokeDashoffset={(Cc - len).toFixed(1)} transform="rotate(-90 52 52)" className="transition-[stroke-dashoffset] duration-700" />
-										<text x="52" y="56" textAnchor="middle" fontSize="13" fontWeight="800" fill="hsl(var(--secondary-ink))">{fa(o.mn)}٪ تا {fa(o.mx)}٪</text>
-									</svg>
-									<div className="text-[12px] font-bold">{o.n}</div>
-									{r.R > 0 && <div className="text-[11px] text-muted-foreground">≈ {sep((r.R * o.mn) / 100)} تا {sep((r.R * o.mx) / 100)} تومان</div>}
+								<div
+									key={id}
+									role="slider"
+									tabIndex={0}
+									aria-label={label}
+									aria-valuemin={min}
+									aria-valuemax={max}
+									aria-valuenow={value}
+									className="cursor-ew-resize select-none rounded-[28px] bg-[#120F17] px-5 py-6 text-white outline-none focus-visible:ring-2 focus-visible:ring-[#FCBF00]"
+									onKeyDown={(e) => {
+										if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); nudge(1) }
+										if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); nudge(-1) }
+									}}
+									onPointerDown={(e) => {
+										const el = e.currentTarget
+										el.setPointerCapture(e.pointerId)
+										el.dataset.x = String(e.clientX)
+										el.dataset.v = String(value)
+									}}
+									onPointerMove={(e) => {
+										const el = e.currentTarget
+										if (!el.hasPointerCapture(e.pointerId) || el.dataset.x == null || el.dataset.v == null) return
+										const dx = e.clientX - Number(el.dataset.x)
+										const next = Math.min(max, Math.max(min, Math.round((Number(el.dataset.v) + dx / 8) / step) * step))
+										if (next !== fnum(f[id])) update({ [id]: String(next) }, id)
+									}}
+								>
+									<div className="text-[12px] leading-6 text-white/60">{label}</div>
+									<div className="text-[11px] text-white/40">{fa(min)} تا {fa(max)}</div>
+									<Counter value={value} locale="fa-IR" fontSize={56} fontWeight={800} textColor="#FCBF00" duration={0.35} />
+									<div className="mt-3 flex gap-2">
+										<button type="button" className="grid size-10 place-items-center rounded-full bg-white/10 text-lg font-bold" onPointerDown={(e) => e.stopPropagation()} onClick={() => nudge(-1)} aria-label={`${label} کمتر`}>−</button>
+										<button type="button" className="grid size-10 place-items-center rounded-full bg-white/10 text-lg font-bold" onPointerDown={(e) => e.stopPropagation()} onClick={() => nudge(1)} aria-label={`${label} بیشتر`}>+</button>
+									</div>
 								</div>
 							)
 						})}
 					</div>
-					<p className="mt-2 text-[12px] leading-6 text-muted-foreground">این اعداد <b>سقف</b> استانداردهای عملیاتی هستند و بسته به مدل کسب‌وکار بهینه‌سازی می‌شوند. اگر «فروش هدف» را پر کرده باشی، معادل تومانیِ هر بازه هم زیر آن نشان داده می‌شود.</p>
-				</Card>
-
-				{/* ۷) سناریوهای تورمی */}
-				<Card title="سناریوهای تورمی" sub="تورم ۵۰٪، ۷۰٪ و ۱۲۰٪؛ هر سناریو تصمیم متفاوتی می‌طلبد">
-					<p className="mb-3 text-[12.5px] leading-7 text-muted-foreground">مبنا: همان «فروش ریالی هدف» بالا. جدول نشان می‌دهد برای <b>حفظ ارزش واقعی</b> در هر سناریوی تورم، فروش اسمی باید چقدر شود؛ و اگر فروش اسمی ثابت بماند، ارزش واقعی چقدر آب می‌رود.</p>
-					<div className={SCROLL}>
-						<table className="w-full min-w-[520px] text-[12.5px]">
-							<thead className="sticky top-0 z-10 bg-muted"><tr><Th>سناریوی تورم</Th><Th>فروش اسمی لازم برای حفظ ارزش</Th><Th>ارزش واقعی اگر فروش ثابت بماند</Th><Th>افت قدرت خرید</Th></tr></thead>
-							<tbody className={ROWS}>
-								{r.scen.map((s) => (
-									<tr key={s.s}><Td><b>تورم {fa(s.s)}٪</b></Td><Td>{sep(s.need)}</Td><Td>{sep(s.real)}</Td><Td style={{ color: ROSE }}>{pct(s.loss)}</Td></tr>
-								))}
-							</tbody>
-						</table>
+					<div className="mt-4 grid gap-4 md:grid-cols-2">
+						<div className="rounded-[28px] bg-[#120F17] px-6 py-7 text-white">
+							<div className="text-[12px] text-white/60">حاشیه‌ی احتیاط پیشنهادی · زیر هدف برنامه ببند</div>
+							<Counter value={Math.round((r.safety || 0) * 10) / 10} decimals={1} suffix="٪" locale="fa-IR" fontSize={72} fontWeight={800} textColor="#FCBF00" duration={0.8} />
+						</div>
+						<div className="rounded-[28px] bg-[#120F17] px-6 py-7 text-white">
+							<div className="text-[12px] text-white/60">هدفِ محافظه‌کارانه · تومان، هدف پس از حاشیه</div>
+							<Counter value={Math.round(r.safeT || 0)} locale="fa-IR" fontSize={48} fontWeight={800} textColor="#ffffff" duration={0.9} />
+						</div>
 					</div>
-				</Card>
+					<Html className="mt-4" h={'هرچه تعهد مالی‌ات بیشتر و ریسک‌پذیری‌ات کمتر باشد، باید محافظه‌کارتر برنامه ببندی. با اعداد فعلی، پیشنهاد این است که برنامه را حدود <b>' + pct(r.safety) + '</b> زیر هدف (' + sep(r.safeT) + ' تومان) ببندی تا اگر فروش کمتر از انتظار شد، نقدینگی‌ات قفل نشود.'} />
+				</section>
+			</Band>
+
+			<Band tier="blue" title="نتایج کسب‌وکار" desc="واقعی در برابر پیش‌بینی، سقفِ هزینه‌ها و اثرِ تورم">
+				{/* ۱۰) واقعی در برابر پیش‌بینی — React Bits AnimatedList */}
+				<section data-testid="fc-variance">
+					<h3 className="text-[18px] font-extrabold leading-7">واقعی در برابر پیش‌بینی</h3>
+					<p className="mb-3 text-[12.5px] leading-6 text-muted-foreground">پیش‌بینی ملاک است؛ با ورود معاملاتِ هر ماه، عقب/جلو بودن نسبت به پیش‌بینی محاسبه می‌شود</p>
+					{(() => {
+						const va = r.va, gap = va.sumA - va.sumF, gvr = va.sumF > 0 ? (gap / va.sumF) * 100 : 0, gc = gap >= 0 ? GREEN : ROSE
+						const rows = !r.monthlyForecast
+							? [{ title: 'ملاک هنوز ساخته نشده', description: 'اول در همین تب پیش‌بینی را بساز (روش‌ها را انتخاب کن) تا ملاک ساخته شود.', meta: '' }]
+							: va.rows.length
+								? [
+									{ title: 'واقعیِ تا این‌جا', description: sep(Math.round(va.sumA)) + ' تومان', meta: r.monthlyForecast ? fa(va.nM) + ' ماهِ دارای واقعی' : '— ماه' },
+									{ title: 'پیش‌بینیِ همان ماه‌ها', description: sep(Math.round(va.sumF)) + ' تومان', meta: 'تومان' },
+									{ title: 'عقب/جلو', description: (gap >= 0 ? '▲ جلو ' : '▼ عقب ') + pct(Math.abs(gvr)), meta: (gap >= 0 ? '+' : '−') + sep(Math.abs(Math.round(gap))) + ' تومان' },
+									...va.rows.map((q) => ({
+										title: MN[q.m],
+										description: 'پیش‌بینی (ملاک) ' + sep(Math.round(q.f)) + ' · واقعی ' + sep(Math.round(q.a)),
+										meta: (q.diff >= 0 ? '▲ جلو ' : '▼ عقب ') + pct(Math.abs(q.vr)) + ' · ' + (q.diff >= 0 ? '+' : '−') + sep(Math.abs(Math.round(q.diff))),
+									})),
+								]
+								: [{ title: 'بدون واقعی', description: 'هنوز ماهی داده‌ی واقعی ندارد. معاملاتِ ماه را ایمپورت کن (یا فایلِ فروش ماهانه) تا مقایسه انجام شود.', meta: '' }]
+						return (
+							<>
+								<AnimatedList theme={mode} items={rows} maxHeight={460} frame accentColor="#004991" selectOnHover={false} />
+								<Html className="mt-3" h={!r.monthlyForecast ? 'برای مقایسه، اول پیش‌بینیِ ماهانه باید محاسبه شده باشد.' : va.nM ? 'تا این‌جا (' + fa(va.nM) + ' ماه) مجموعِ واقعی <b>' + sep(Math.round(va.sumA)) + '</b> در برابرِ پیش‌بینیِ <b>' + sep(Math.round(va.sumF)) + '</b> تومان — یعنی ' + (gap >= 0 ? "<b style='color:#1E8E3E'>" + pct(Math.abs(gvr)) + ' جلوتر</b>' : "<b style='color:var(--fc-rose)'>" + pct(Math.abs(gvr)) + ' عقب‌تر</b>') + ' از پیش‌بینی. واقعیِ هر ماه از معاملاتِ بسته‌شدهٔ همان ماه (یا فایلِ فروش ماهانه) می‌آید.' : 'با ورودِ معاملاتِ هر ماه (تبِ عملکرد ← ایمپورتِ معاملات)، عقب/جلو بودنِ آن ماه نسبت به پیش‌بینی این‌جا نشان داده می‌شود.'} />
+							</>
+						)
+					})()}
+				</section>
+				{/* ۶) نسبت‌های طلایی — React Bits OptionWheel */}
+				<section data-testid="fc-ratios" className="grid items-center gap-4 lg:grid-cols-[minmax(0,280px)_1fr]">
+					<div>
+						<h3 className="text-[18px] font-extrabold leading-7">نسبت‌های طلاییِ تخصیص منابع</h3>
+						<p className="text-[12.5px] leading-6 text-muted-foreground">سقف استانداردهای عملیاتی، برگرفته از جزوه</p>
+						{(() => {
+							const bands = [
+								{ n: 'کمیسیون فروش', mn: 5, mx: 15 },
+								{ n: 'بازاریابی', mn: 5, mx: 10 },
+								{ n: 'تبلیغات', mn: 1, mx: 5 },
+								{ n: 'اجاره', mn: 15, mx: 20 },
+								{ n: 'حقوق شرکت‌های تولیدی', mn: 19, mx: 20 },
+								{ n: 'حقوق شرکت‌های خدماتی', mn: 25, mx: 35 },
+							]
+							const o = bands[Math.min(ratioAt, bands.length - 1)]
+							return (
+								<div className="mt-6">
+									<div className="text-[13px] font-bold text-muted-foreground">{o.n}</div>
+									<div className="text-[40px] font-extrabold leading-none tabular-nums">{fa(o.mn)}٪ تا {fa(o.mx)}٪</div>
+									{r.R > 0 && <div className="mt-2 text-[14px] text-muted-foreground">≈ {sep((r.R * o.mn) / 100)} تا {sep((r.R * o.mx) / 100)} تومان</div>}
+								</div>
+							)
+						})()}
+					</div>
+					<div className="h-[340px] overflow-hidden rounded-[28px] bg-[#0c0c0e]">
+						<OptionWheel
+							items={['کمیسیون فروش', 'بازاریابی', 'تبلیغات', 'اجاره', 'حقوق شرکت‌های تولیدی', 'حقوق شرکت‌های خدماتی']}
+							defaultSelected={0}
+							onChange={(index) => setRatioAt(index)}
+							side="right"
+							fontSize={1.15}
+							spacing={1.35}
+							textColor="#a1a1aa"
+							activeColor="#FCBF00"
+							soundUrl=""
+						/>
+					</div>
+					<p className="text-[12px] leading-6 text-muted-foreground lg:col-span-2">این اعداد <b>سقف</b> استانداردهای عملیاتی هستند و بسته به مدل کسب‌وکار بهینه‌سازی می‌شوند. اگر «فروش هدف» را پر کرده باشی، معادل تومانیِ هر بازه هم زیر آن نشان داده می‌شود.</p>
+				</section>
+				{/* ۷) سناریوهای تورمی — React Bits Stack */}
+				<section data-testid="fc-inflation">
+					<h3 className="text-[18px] font-extrabold leading-7">سناریوهای تورمی</h3>
+					<p className="mb-3 text-[12.5px] leading-6 text-muted-foreground">تورم ۵۰٪، ۷۰٪ و ۱۲۰٪؛ هر سناریو تصمیم متفاوتی می‌طلبد. مبنا: همان «فروش ریالی هدف» بالا. برای <b>حفظ ارزش واقعی</b> در هر سناریوی تورم، فروش اسمی باید چقدر شود؛ و اگر فروش اسمی ثابت بماند، ارزش واقعی چقدر آب می‌رود.</p>
+					<div className="relative mx-auto h-[380px] w-full max-w-[460px]">
+						<Stack
+							layout="fan"
+							visible={3}
+							spread={0.9}
+							autoplay={false}
+							sendToBackOnClick
+							cards={r.scen.map((s) => (
+								<div key={s.s} className="flex h-full flex-col justify-between bg-[#120F17] p-7 text-white">
+									<div className="text-[13px] text-white/60">سناریوی تورم</div>
+									<div className="text-[42px] font-extrabold leading-none">تورم {fa(s.s)}٪</div>
+									<div><div className="text-[12px] text-white/55">فروش اسمی لازم برای حفظ ارزش</div><div className="text-[22px] font-extrabold tabular-nums">{sep(s.need)}</div></div>
+									<div><div className="text-[12px] text-white/55">ارزش واقعی اگر فروش ثابت بماند</div><div className="text-[22px] font-extrabold tabular-nums">{sep(s.real)}</div></div>
+									<div><div className="text-[12px] text-white/55">افت قدرت خرید</div><div className="text-[22px] font-extrabold tabular-nums text-rose-300">{pct(s.loss)}</div></div>
+								</div>
+							))}
+						/>
+					</div>
+				</section>
 			</Band>
 
 		</div>
