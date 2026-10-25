@@ -3,8 +3,10 @@
  * فارسی، راست‌به‌چپ، توکن‌های تمِ آرومین، بدونِ محتوای رمزارز). هیچ محاسبهٔ تازه‌ای ندارد: همهٔ اعداد از خروجیِ موتورِ پیش‌بینی
  * (compute در lib/forecast.ts) و همان معاملاتِ صفحه می‌آیند. حرکت با prefers-reduced-motion خاموش می‌شود.
  */
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { MONTHS } from '@/engines/commission'
+
+const VioletSwirl = lazy(() => import('./VioletSwirl'))
 
 export interface ForecastBentoProps {
 	year: number
@@ -58,25 +60,42 @@ function useCountUp(target: number, enabled: boolean, ms = 1200) {
 	return v
 }
 
-function Tile({ title, action, className = '', children, testid }: { title?: ReactNode; action?: ReactNode; className?: string; children: ReactNode; testid?: string }) {
+/** کاشیِ پایه: قابِ شیشه‌ای (حاشیهٔ گرادیانی)، اسپات‌لایتِ دنبالِ ماوس، ورودِ نرم (با احترام به prefers-reduced-motion) */
+function Tile({ title, action, className = '', children, testid, reduced = false, index = 0 }: { title?: ReactNode; action?: ReactNode; className?: string; children: ReactNode; testid?: string; reduced?: boolean; index?: number }) {
+	const mounted = useMounted()
+	const [spot, setSpot] = useState<{ x: number; y: number } | null>(null)
 	return (
-		<section data-testid={testid} className={`relative flex min-w-0 flex-col overflow-hidden rounded-[22px] bg-card p-5 text-card-foreground ring-1 ring-border shadow-card ${className}`}>
-			{(title || action) && (
-				<header className="mb-3 flex items-center justify-between gap-3">
-					{title && <h3 className="text-[12.5px] font-bold text-muted-foreground">{title}</h3>}
-					{action}
-				</header>
-			)}
-			{children}
-		</section>
+		<div
+			className={`relative rounded-[23px] bg-gradient-to-br from-border/85 via-border/25 to-transparent p-px shadow-card ${className}`}
+			style={{ opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0)' : 'translateY(14px)', transition: reduced ? 'none' : `opacity 640ms ${EASE} ${index * 70}ms, transform 640ms ${EASE} ${index * 70}ms` }}
+		>
+			<section data-testid={testid}
+				onPointerMove={reduced ? undefined : (e) => { const r = e.currentTarget.getBoundingClientRect(); setSpot({ x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 }) }}
+				onPointerLeave={reduced ? undefined : () => setSpot(null)}
+				className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-[22px] bg-card/95 p-5 text-card-foreground backdrop-blur-xl">
+				<span aria-hidden className="pointer-events-none absolute inset-0 transition-opacity duration-300" style={{ zIndex: -1, opacity: spot ? 1 : 0, background: spot ? `radial-gradient(280px circle at ${spot.x}% ${spot.y}%, hsl(var(--primary)/.16), transparent 70%)` : undefined }} />
+				{(title || action) && (
+					<header className="mb-3 flex items-center justify-between gap-3">
+						{title && <h3 className="text-[12.5px] font-bold text-muted-foreground">{title}</h3>}
+						{action}
+					</header>
+				)}
+				{children}
+			</section>
+		</div>
 	)
 }
-function Empty({ children }: { children: ReactNode }) {
-	return <p className="m-auto py-6 text-center text-[12.5px] text-muted-foreground">{children}</p>
+function Empty({ children, className = '' }: { children: ReactNode; className?: string }) {
+	return (
+		<div className={`m-auto flex flex-col items-center gap-2 rounded-2xl border border-dashed border-current/15 px-5 py-6 text-center text-[12.5px] text-muted-foreground ${className}`}>
+			<span aria-hidden className="size-1.5 rounded-full bg-current/30" />
+			{children}
+		</div>
+	)
 }
 
 /** کاشیِ اصلی: پیش‌بینیِ سال، فاصله تا هدف، نوارِ ماه‌به‌ماهِ واقعی در برابرِ پیش‌بینی */
-function HeroTile({ p, reduced }: { p: ForecastBentoProps; reduced: boolean }) {
+function HeroTile({ p, reduced, index = 0 }: { p: ForecastBentoProps; reduced: boolean; index?: number }) {
 	const mounted = useMounted()
 	const fy = p.forecast ? sum(p.forecast) : 0
 	const act = sum(p.actual)
@@ -85,8 +104,10 @@ function HeroTile({ p, reduced }: { p: ForecastBentoProps; reduced: boolean }) {
 	const [hover, setHover] = useState<number | null>(null)
 	const max = Math.max(1, ...p.actual, ...(p.forecast || [0]))
 	return (
-		<Tile className="sm:col-span-2 lg:col-span-2" testid="fb-hero">
-			<div className="flex flex-wrap items-start justify-between gap-5">
+		<Tile className="sm:col-span-2 lg:col-span-2" testid="fb-hero" reduced={reduced} index={index}>
+			<Suspense fallback={null}><VioletSwirl /></Suspense>
+			<div aria-hidden className="absolute inset-0 bg-gradient-to-b from-card/88 via-card/60 to-card/92" />
+			<div className="relative z-10 flex flex-wrap items-start justify-between gap-5">
 				<div className="min-w-0">
 					<p className="text-[24px] font-extrabold leading-tight sm:text-[30px]">سالِ <span className="text-primary-ink">{faN(p.year).replace(/٬/g, '')}</span> در یک نگاه</p>
 					<p className="mt-1 text-[13px] text-muted-foreground">پیش‌بینی، فروشِ واقعی و فاصله تا هدف — از همین موتورِ پیش‌بینی.</p>
@@ -98,7 +119,7 @@ function HeroTile({ p, reduced }: { p: ForecastBentoProps; reduced: boolean }) {
 						{gap >= 0 ? '▲ جلوتر از برنامه ' : '▼ عقب‌تر از برنامه '}{mt(Math.abs(gap))} تومان</p>}
 				</div>
 			</div>
-			<div className="mt-5 flex flex-1 flex-col">
+			<div className="relative z-10 mt-5 flex flex-1 flex-col">
 				<div className="flex flex-1 items-end gap-1.5" style={{ minHeight: 84 }} onPointerLeave={() => setHover(null)} dir="rtl">
 					{MONTHS.map((name, i) => {
 						const a = p.actual[i] || 0, f = p.forecast?.[i] || 0
@@ -124,33 +145,43 @@ function HeroTile({ p, reduced }: { p: ForecastBentoProps; reduced: boolean }) {
 }
 
 /** تحققِ هدف: کاشیِ رنگیِ برجسته (همتای کاشیِ Staking) */
-function TargetTile({ p }: { p: ForecastBentoProps }) {
+function TargetTile({ p, reduced, index = 0 }: { p: ForecastBentoProps; reduced: boolean; index?: number }) {
+	const mounted = useMounted()
+	const [spot, setSpot] = useState<{ x: number; y: number } | null>(null)
 	const act = sum(p.actual)
 	const pct = p.target > 0 ? Math.min(999, (act / p.target) * 100) : null
 	const next = p.forecast?.[(p.month + 1) % 12] || 0
 	return (
-		<section data-testid="fb-target" className="relative flex min-w-0 flex-col overflow-hidden rounded-[22px] bg-primary p-5 text-primary-foreground shadow-card lg:row-span-2">
-			<header className="flex items-center justify-between"><h3 className="text-[12.5px] font-bold opacity-80">تحققِ هدفِ سال</h3>
-				<span className="rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[11px] font-bold">تا {MONTHS[p.month]}</span></header>
-			{pct == null ? <Empty>فروشِ هدف وارد نشده</Empty> : <>
-				<p className="mt-4 text-[48px] font-extrabold leading-none tabular-nums">{faN(pct, pct < 10 ? 1 : 0)}<span className="text-[20px]">٪</span></p>
-				<p className="mt-1 text-[12px] opacity-80">{mt(act)} از {mt(p.target)} تومان</p>
-				<div className="mt-4 h-2 overflow-hidden rounded-full bg-primary-foreground/20" role="progressbar" aria-valuenow={Math.round(Math.min(100, pct))} aria-valuemin={0} aria-valuemax={100} aria-label="تحققِ هدف">
-					<div className="h-full rounded-full bg-primary-foreground" style={{ width: `${Math.min(100, pct)}%` }} />
-				</div>
-			</>}
-			<dl className="mt-5 space-y-2 text-[12.5px]">
-				<div className="flex justify-between gap-2"><dt className="opacity-75">هدفِ محافظه‌کارانه</dt><dd className="font-bold tabular-nums">{p.safeTarget > 0 ? mt(p.safeTarget) : '—'}</dd></div>
-				<div className="flex justify-between gap-2"><dt className="opacity-75">پیش‌بینیِ {MONTHS[(p.month + 1) % 12]}</dt><dd className="font-bold tabular-nums">{next ? mt(next) : '—'}</dd></div>
-				<div className="flex justify-between gap-2"><dt className="opacity-75">آمادگیِ پیش‌بینی</dt><dd className="font-bold tabular-nums">{faN(Math.round(p.readiness))}٪</dd></div>
-			</dl>
-			<p className="mt-auto pt-5 text-[11.5px] leading-6 opacity-80">{pct == null ? '' : pct >= ((p.month + 1) / 12) * 100 ? 'طبقِ برنامه یا جلوتر — همین روند را نگه دارید.' : 'از سهمِ هدف تا امروز عقب‌تریم؛ قیف و معاملاتِ بیش از ۴۰ روز را ببینید.'}</p>
-		</section>
+		<div className="relative rounded-[23px] bg-gradient-to-br from-primary/70 via-primary/25 to-transparent p-px shadow-card lg:row-span-2"
+			style={{ opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0)' : 'translateY(14px)', transition: reduced ? 'none' : `opacity 640ms ${EASE} ${index * 70}ms, transform 640ms ${EASE} ${index * 70}ms` }}>
+			<section data-testid="fb-target"
+				onPointerMove={reduced ? undefined : (e) => { const r = e.currentTarget.getBoundingClientRect(); setSpot({ x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 }) }}
+				onPointerLeave={reduced ? undefined : () => setSpot(null)}
+				className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-[22px] bg-primary p-5 text-primary-foreground">
+				<span aria-hidden className="pointer-events-none absolute inset-0" style={{ zIndex: -1, background: 'linear-gradient(135deg, hsl(0 0% 100% / .12), transparent 55%, hsl(0 0% 0% / .12))' }} />
+				<span aria-hidden className="pointer-events-none absolute inset-0 transition-opacity duration-300" style={{ zIndex: -1, opacity: spot ? 1 : 0, background: spot ? `radial-gradient(260px circle at ${spot.x}% ${spot.y}%, hsl(0 0% 100% / .18), transparent 70%)` : undefined }} />
+				<header className="flex items-center justify-between"><h3 className="text-[12.5px] font-bold opacity-80">تحققِ هدفِ سال</h3>
+					<span className="rounded-full bg-primary-foreground/15 px-2 py-0.5 text-[11px] font-bold">تا {MONTHS[p.month]}</span></header>
+				{pct == null ? <Empty className="text-primary-foreground/70">فروشِ هدف وارد نشده</Empty> : <>
+					<p className="mt-4 text-[48px] font-extrabold leading-none tabular-nums">{faN(pct, pct < 10 ? 1 : 0)}<span className="text-[20px]">٪</span></p>
+					<p className="mt-1 text-[12px] opacity-80">{mt(act)} از {mt(p.target)} تومان</p>
+					<div className="mt-4 h-2 overflow-hidden rounded-full bg-primary-foreground/20" role="progressbar" aria-valuenow={Math.round(Math.min(100, pct))} aria-valuemin={0} aria-valuemax={100} aria-label="تحققِ هدف">
+						<div className="h-full rounded-full bg-primary-foreground" style={{ width: `${Math.min(100, pct)}%` }} />
+					</div>
+				</>}
+				<dl className="mt-5 space-y-2 text-[12.5px]">
+					<div className="flex justify-between gap-2"><dt className="opacity-75">هدفِ محافظه‌کارانه</dt><dd className="font-bold tabular-nums">{p.safeTarget > 0 ? mt(p.safeTarget) : '—'}</dd></div>
+					<div className="flex justify-between gap-2"><dt className="opacity-75">پیش‌بینیِ {MONTHS[(p.month + 1) % 12]}</dt><dd className="font-bold tabular-nums">{next ? mt(next) : '—'}</dd></div>
+					<div className="flex justify-between gap-2"><dt className="opacity-75">آمادگیِ پیش‌بینی</dt><dd className="font-bold tabular-nums">{faN(Math.round(p.readiness))}٪</dd></div>
+				</dl>
+				<p className="mt-auto pt-5 text-[11.5px] leading-6 opacity-80">{pct == null ? '' : pct >= ((p.month + 1) / 12) * 100 ? 'طبقِ برنامه یا جلوتر — همین روند را نگه دارید.' : 'از سهمِ هدف تا امروز عقب‌تریم؛ قیف و معاملاتِ بیش از ۴۰ روز را ببینید.'}</p>
+			</section>
+		</div>
 	)
 }
 
 /** خطِ روند: واقعی در برابرِ پیش‌بینی (همتای Portfolio vs ETH) */
-function TrendTile({ p, reduced }: { p: ForecastBentoProps; reduced: boolean }) {
+function TrendTile({ p, reduced, index = 0 }: { p: ForecastBentoProps; reduced: boolean; index?: number }) {
 	const uid = useId().replace(/:/g, '')
 	const mounted = useMounted()
 	const [hover, setHover] = useState<number | null>(null)
@@ -163,9 +194,9 @@ function TrendTile({ p, reduced }: { p: ForecastBentoProps; reduced: boolean }) 
 	const path = (vals: number[], upto = 11) => vals.slice(0, upto + 1).map((v, i) => `${i ? 'L' : 'M'} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ')
 	const lastAct = p.actual.reduce((last, v, i) => (v > 0 ? i : last), -1)
 	const idx = hover ?? Math.max(0, lastAct)
-	if (!p.forecast && !hasAct) return <Tile title="روندِ سال" className="sm:col-span-2 lg:col-span-2"><Empty>هنوز پیش‌بینیِ ماهانه یا فروشِ واقعی ثبت نشده</Empty></Tile>
+	if (!p.forecast && !hasAct) return <Tile title="روندِ سال" className="sm:col-span-2 lg:col-span-2" reduced={reduced} index={index}><Empty>هنوز پیش‌بینیِ ماهانه یا فروشِ واقعی ثبت نشده</Empty></Tile>
 	return (
-		<Tile title="روند: واقعی در برابرِ پیش‌بینی" className="sm:col-span-2 lg:col-span-2" testid="fb-trend"
+		<Tile title="روند: واقعی در برابرِ پیش‌بینی" className="sm:col-span-2 lg:col-span-2" testid="fb-trend" reduced={reduced} index={index}
 			action={<span className="flex items-center gap-3 text-[11px] text-muted-foreground"><span className="flex items-center gap-1.5"><span className="h-[3px] w-4 rounded-full bg-primary" />واقعی</span><span className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-muted-foreground" />پیش‌بینی</span></span>}>
 			<div className="flex flex-wrap items-end gap-x-8 gap-y-1">
 				<div><p className="text-[11.5px] text-muted-foreground">{MONTHS[idx]} · واقعی</p><p className="text-[20px] font-extrabold tabular-nums">{mt(p.actual[idx] || 0)}</p></div>
@@ -192,18 +223,18 @@ function TrendTile({ p, reduced }: { p: ForecastBentoProps; reduced: boolean }) 
 }
 
 /** نوارِ تقسیم‌شده (همتای Allocation) — برای کانال یا وضعیتِ تسویه */
-function SplitTile({ title, parts, testid }: { title: string; parts: { name: string; value: number; color: string }[]; testid: string }) {
+function SplitTile({ title, parts, testid, reduced = false, index = 0 }: { title: string; parts: { name: string; value: number; color: string }[]; testid: string; reduced?: boolean; index?: number }) {
 	const mounted = useMounted()
 	const total = sum(parts.map((x) => x.value))
 	const [hover, setHover] = useState<number | null>(null)
 	return (
-		<Tile title={title} testid={testid}>
+		<Tile title={title} testid={testid} reduced={reduced} index={index}>
 			{total <= 0 ? <Empty>فروشِ بسته‌شده‌ای نیست</Empty> : <>
 				<p className="text-[20px] font-extrabold tabular-nums">{mt(total)} <span className="text-[12px] font-bold text-muted-foreground">تومان</span></p>
 				<div className="mt-3 flex h-8 gap-1" onPointerLeave={() => setHover(null)}>
 					{parts.filter((x) => x.value > 0).map((x, i) => (
 						<span key={x.name} onPointerEnter={() => setHover(i)} aria-hidden className="rounded-[7px]"
-							style={{ flexBasis: mounted ? `${(x.value / total) * 100}%` : `${100 / parts.length}%`, background: x.color, opacity: hover === null || hover === i ? 1 : 0.3, transition: `flex-basis 1000ms ${EASE} ${200 + i * 60}ms, opacity 200ms ease` }} />
+							style={{ flexBasis: mounted ? `${(x.value / total) * 100}%` : `${100 / parts.length}%`, background: x.color, opacity: hover === null || hover === i ? 1 : 0.3, transition: reduced ? 'opacity 200ms ease' : `flex-basis 1000ms ${EASE} ${200 + i * 60}ms, opacity 200ms ease` }} />
 					))}
 				</div>
 				<ul className="mt-3 grid gap-1.5">
@@ -225,11 +256,11 @@ export default function ForecastBento(p: ForecastBentoProps) {
 	const channels = useMemo(() => p.channels.map((c, i) => ({ ...c, color: COLORS[i % COLORS.length] })), [p.channels])   // eslint-disable-line react-hooks/exhaustive-deps
 	return (
 		<div dir="rtl" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="نمای سال در یک نگاه" data-testid="forecast-bento">
-			<HeroTile p={p} reduced={reduced} />
-			<TargetTile p={p} />
-			<SplitTile title="سهمِ کانال‌ها" parts={channels} testid="fb-channels" />
-			<TrendTile p={p} reduced={reduced} />
-			<SplitTile title="وضعیتِ تسویهٔ فروش" testid="fb-settle"
+			<HeroTile p={p} reduced={reduced} index={0} />
+			<TargetTile p={p} reduced={reduced} index={1} />
+			<SplitTile title="سهمِ کانال‌ها" parts={channels} testid="fb-channels" reduced={reduced} index={2} />
+			<TrendTile p={p} reduced={reduced} index={3} />
+			<SplitTile title="وضعیتِ تسویهٔ فروش" testid="fb-settle" reduced={reduced} index={4}
 				parts={[{ name: 'نقد', value: p.settle.cash, color: 'hsl(var(--success))' }, { name: 'چک', value: p.settle.check, color: 'hsl(var(--secondary))' }, { name: 'معلق تا وصول', value: p.settle.hold, color: 'hsl(var(--warning))' }]} />
 		</div>
 	)

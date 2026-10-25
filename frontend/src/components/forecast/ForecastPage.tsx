@@ -13,7 +13,8 @@ import { isAdmin, type Session } from '@/lib/auth'
 import { runPreset, setPageActions, setPageContext } from '@/lib/agent'
 import { fetchFull, saveState } from '@/lib/forecastStore'
 import Sortable from '@/components/ui/sortable'
-import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, FOCUS } from '@/components/ui/tokens'
+import { GaugeTile } from '@/components/dashboard/gauges/GaugeTiles'
+import { BTN, BTN_GHOST, BTN_PRIMARY, FOCUS } from '@/components/ui/tokens'
 import {
 	DEFAULTS, FC_IDS, GRP, FC_INDUSTRY, INDUSTRY_OPTS, M4TYPES, M4TYPE_OPTS, M4REAL_MSG, MARGIN_STD, STRAT_FA, FC_USD_HIST, LEVELW, MN,
 	GUIDE, IND_FA, guideEx, industryDefaults, industryNote, normalize, fillAnnual, suggestBase, compute,
@@ -68,13 +69,17 @@ const TierMark = ({ tier, className = 'h-4 w-5' }: { tier: Tier; className?: str
 const ForecastBento = lazy(() => import('./ForecastBento'))
 
 function Card({ title, sub, children, id, tone }: { title: ReactNode; sub?: ReactNode; children: ReactNode; id?: string; tone?: string }) {
+	const tier = useContext(TierCtx)
 	return (
-		<section id={id} className={`@container ${CARD} ${CARD_PAD} ${tone || ''}`}>
-			<header className="mb-4">
-				<h3 className={CARD_TITLE}>{title}</h3>
-				{sub && <p className={CARD_SUB}>{sub}</p>}
-			</header>
-			{children}
+		<section id={id} className={`@container relative rounded-2xl bg-gradient-to-br from-border/70 via-border/20 to-transparent p-px shadow-card ${tone || ''}`}>
+			<div className="relative overflow-hidden rounded-[15px] bg-card p-5 sm:p-6">
+				<span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[3px]" style={{ background: `linear-gradient(90deg, ${TIER[tier].fill}, ${TIER[tier].fill}00)` }} />
+				<header className="mb-4">
+					<h3 className="text-[15.5px] font-bold leading-7 tracking-tight text-foreground sm:text-[17px]">{title}</h3>
+					{sub && <p className="mt-0.5 line-clamp-1 max-w-[75ch] text-[12.5px] leading-6 text-muted-foreground">{sub}</p>}
+				</header>
+				{children}
+			</div>
 		</section>
 	)
 }
@@ -85,9 +90,10 @@ function Band({ tier, title, desc, children }: { tier: Tier; title: string; desc
 				<header className="flex items-center gap-3 px-1 pt-4">
 					<TierMark tier={tier} className="h-5 w-7" />
 					<div className="min-w-0">
-						<h2 id={'fc-band-h-' + tier} className="text-[18px] font-extrabold leading-7" style={{ color: TIER[tier].ink }}>{title}</h2>
+						<h2 id={'fc-band-h-' + tier} className="text-[18px] font-extrabold leading-7 tracking-tight" style={{ color: TIER[tier].ink }}>{title}</h2>
 						<p className="text-[12.5px] leading-6 text-muted-foreground">{desc}</p>
 					</div>
+					<span aria-hidden className="hidden h-px flex-1 self-center sm:block" style={{ background: `linear-gradient(to left, ${TIER[tier].fill}38, transparent)` }} />
 				</header>
 				<Sortable id={'forecast.' + tier}>{children}</Sortable>
 			</section>
@@ -102,33 +108,46 @@ type FigKind = 'total' | 'gold' | 'warn' | undefined
 function Fig({ k, v, u, kind, small }: { k: ReactNode; v: ReactNode; u?: ReactNode; kind?: FigKind; small?: boolean }) {
 	const t = TIER[useContext(TierCtx)]
 	const total = kind === 'total'
-	const cls = total ? t.on : kind === 'gold' ? 'bg-accent/15 ring-1 ring-accent/45' : kind === 'warn' ? 'bg-error/10 ring-1 ring-error/30' : 'bg-muted/45 ring-1 ring-border/80'
+	const cls = total ? t.on : kind === 'gold' ? 'bg-accent/10 ring-1 ring-accent/30' : kind === 'warn' ? 'bg-error/10 ring-1 ring-error/25' : 'bg-muted/40 ring-1 ring-border/70'
 	const sub = total ? t.onSub : 'text-muted-foreground'
 	return (
-		<div className={`flex min-w-0 flex-col gap-1 rounded-xl px-4 py-3.5 ${cls}`} style={total ? { background: t.fill } : undefined}>
-			<div className={`text-[11.5px] font-bold ${sub}`}>{k}</div>
-			<div className={`${small ? 'text-[14px] @lg:text-[15px]' : 'text-[16px] @lg:text-[21px]'} font-extrabold leading-tight tabular-nums [overflow-wrap:anywhere]`}>{v}</div>
-			{u && <div className={`text-[11px] leading-5 ${sub}`}>{u}</div>}
+		<div
+			className={`relative flex min-w-0 flex-col gap-1 overflow-hidden rounded-2xl px-4 py-3.5 transition-shadow motion-safe:duration-200 ${cls} ${total ? '' : 'hover:shadow-sm'}`}
+			style={total ? { background: `linear-gradient(135deg, ${t.fill}, ${t.fill}e6)` } : undefined}
+		>
+			{total && <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-black/10" />}
+			<div className={`relative text-[11px] font-bold tracking-wide ${sub}`}>{k}</div>
+			<div className={`relative ${small ? 'text-[14px] @lg:text-[15px]' : 'text-[16px] @lg:text-[21px]'} font-extrabold leading-tight tabular-nums [overflow-wrap:anywhere]`}>{v}</div>
+			{u && <div className={`relative text-[11px] leading-5 ${sub}`}>{u}</div>}
 		</div>
 	)
 }
-const Figs = ({ children }: { children: ReactNode }) => <div className="mt-4 grid grid-cols-2 gap-2.5 @2xl:grid-cols-4">{children}</div>
+const Figs = ({ children }: { children: ReactNode }) => <div className="mt-4 grid grid-cols-2 gap-3 @2xl:grid-cols-4">{children}</div>
 function Btn({ children, onClick, kind = 'primary', sm, disabled, title }: { children: ReactNode; onClick?: () => void; kind?: 'primary' | 'ghost' | 'gold'; sm?: boolean; disabled?: boolean; title?: string }) {
 	const k =
-		kind === 'gold' ? `${BTN} bg-accent text-accent-foreground hover:brightness-105` : kind === 'ghost' ? BTN_GHOST : BTN_PRIMARY
+		kind === 'gold'
+			? `${BTN} bg-accent text-accent-foreground shadow-[0_6px_16px_-6px_rgba(252,191,0,.5)] hover:brightness-105 hover:shadow-[0_8px_20px_-6px_rgba(252,191,0,.6)]`
+			: kind === 'ghost'
+				? `${BTN_GHOST} ring-1 ring-inset ring-border/70 hover:ring-border`
+				: `${BTN_PRIMARY} shadow-[0_6px_16px_-6px_hsl(var(--primary)/.45)] hover:shadow-[0_8px_20px_-6px_hsl(var(--primary)/.55)]`
 	return (
-		<button type="button" title={title} disabled={disabled} onClick={onClick} className={`${k} ${sm ? 'min-h-8 px-3 text-[12px]' : 'min-h-10 text-[13px]'} max-w-full text-center leading-5 active:translate-y-px sm:shrink-0 sm:whitespace-nowrap`}>
+		<button type="button" title={title} disabled={disabled} onClick={onClick} className={`${k} ${sm ? 'min-h-8 px-3 text-[12px]' : 'min-h-10 text-[13px]'} max-w-full text-center leading-5 motion-safe:active:translate-y-px sm:shrink-0 sm:whitespace-nowrap`}>
 			{children}
 		</button>
 	)
 }
 const inCls = 'h-10 w-full rounded-xl border border-border bg-card px-3 text-[13px] text-foreground outline-none transition placeholder:text-muted-foreground/80 hover:border-primary/40 focus:border-primary focus:ring-4 focus:ring-primary/12'
 function Label({ children }: { children: ReactNode }) {
-	return <span className="mb-1.5 block text-[11.5px] font-bold text-muted-foreground">{children}</span>
+	return <span className="mb-1.5 block text-[11.5px] font-bold tracking-wide text-muted-foreground">{children}</span>
 }
 const Th = ({ children, className = '' }: { children?: ReactNode; className?: string }) => <th className={`whitespace-nowrap px-3 py-2.5 text-right text-[11.5px] font-bold ${className}`}>{children}</th>
-const Td = ({ children, className = '', style }: { children?: ReactNode; className?: string; style?: CSSProperties }) => <td style={style} className={`whitespace-nowrap border-t border-border/80 px-3 py-2 tabular-nums ${className}`}>{children}</td>
+const Td = ({ children, className = '', style }: { children?: ReactNode; className?: string; style?: CSSProperties }) => <td style={style} className={`whitespace-nowrap border-t border-border/70 px-3 py-2 tabular-nums ${className}`}>{children}</td>
 const Colored = ({ v, children }: { v: number; children: ReactNode }) => <span style={{ color: v >= 0 ? GREEN : ROSE }}>{children}</span>
+/** زبرا + هاوِر برای ردیف‌های <tbody> جدول‌ها (بدون نیاز به کلاسِ تکی روی هر tr) */
+const ROWS = '[&>tr]:transition-colors motion-safe:[&>tr]:duration-150 [&>tr:nth-child(even)]:bg-muted/[0.035] [&>tr:hover]:!bg-primary/[0.06]'
+const ROWS_HOVER = '[&>tr]:transition-colors motion-safe:[&>tr]:duration-150 [&>tr:hover]:!bg-primary/[0.05]'
+/** کانتینرِ اسکرولِ گوشه‌گرد برای جدول‌ها */
+const SCROLL = 'overflow-auto rounded-xl ring-1 ring-inset ring-border/70'
 
 /* ---------------- صفحه ---------------- */
 interface Ctx { people: any[]; churn: any; salesCrisis: boolean; fy: string; industry: string; business: string }
@@ -578,10 +597,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 					</summary>
 					<div className="space-y-4 border-t border-border/70 px-5 pb-6 pt-4 text-[12.5px] leading-7 sm:px-6">
 						<p className="text-muted-foreground">پیش‌بینی فروش = <b>تخمین + انتظار + دورهٔ برنامه</b> با تولرانسِ ۱۰ تا ۲۰٪. لازم نیست همهٔ روش‌ها را پر کنی؛ هرچه روش‌های بیشتری به هم نزدیک باشند، تخمین معتبرتر است. خروجیِ نهایی = <b>میانگینِ روش‌های انتخاب‌شده</b>.</p>
-						<div className="overflow-auto rounded-xl ring-1 ring-border">
+						<div className={SCROLL}>
 							<table className="w-full min-w-[900px] border-collapse text-[12.5px]">
-								<thead><tr className="bg-primary text-primary-foreground"><Th className="text-center">#</Th><Th>روش</Th><Th>چه می‌کند</Th><Th>فرمول</Th><Th>کِی</Th><Th className="bg-[#1E8E3E]">مثال (بر اساس صنعت)</Th></tr></thead>
-								<tbody>
+								<thead className="sticky top-0 z-10"><tr className="bg-primary text-primary-foreground"><Th className="text-center">#</Th><Th>روش</Th><Th>چه می‌کند</Th><Th>فرمول</Th><Th>کِی</Th><Th className="bg-[#1E8E3E]">مثال (بر اساس صنعت)</Th></tr></thead>
+								<tbody className={ROWS_HOVER}>
 									{GUIDE.map((m, i) => (
 										<tr key={m[0]} className={i % 2 ? 'bg-[var(--fc-brass-soft)]' : ''}>
 											<td className="border-t border-border p-2.5 text-center"><span className="inline-grid size-[26px] place-items-center rounded-lg bg-accent font-extrabold text-[#3A2A00]">{m[0]}</span></td>
@@ -616,10 +635,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 							<b className="text-primary-ink">گامِ دومِ روش ۴ — تعدیلِ پتانسیلِ فروش (فصل ۱۸):</b>
 							<div className="mt-1.5 font-mono text-[12px] text-primary-ink">پتانسیلِ فروش = پتانسیلِ بازار × سهم٪ × (۱+برند٪) × (۱+اورنس٪) × (۱+کانال٪) × (۱+رقبا٪)</div>
 							<div className="mt-1.5 text-[12px] text-muted-foreground">مثالِ کافی‌شاپِ جزوه: عمقِ بازار ۵۰ میلیارد × سهمِ ۱۰٪ = ۵ میلیارد → ×۱٫۲ (برند) → ×۰٫۹ (کانالِ ضعیف) → ×۰٫۸۵ (رقبای قوی) = <b className="text-success">۴٫۵۹ میلیارد</b>. ضریبی اعمال می‌شوند، نه جمع‌وتفریقی.</div>
-							<div className="mt-2.5 overflow-auto rounded-lg bg-card ring-1 ring-border">
+							<div className={`mt-2.5 bg-card ${SCROLL}`}>
 								<table className="w-full min-w-[520px] text-[12px]">
-									<thead><tr className="bg-primary text-primary-foreground"><Th>المان</Th><Th>معنی</Th><Th>بازهٔ عادی</Th></tr></thead>
-									<tbody>
+									<thead className="sticky top-0 z-10"><tr className="bg-primary text-primary-foreground"><Th>المان</Th><Th>معنی</Th><Th>بازهٔ عادی</Th></tr></thead>
+									<tbody className={ROWS_HOVER}>
 										{[
 											['سهم بالقوه', 'Share', 'چند درصد از کلِ بازار را هدف گرفته‌ای؟ = فروشِ پارسال ÷ عمقِ بازار.', '۱–۱۰۰٪'],
 											['برند', 'Brand', 'قدرتِ برند روی قیمت و وفاداری. در ایران تا سقفِ ~۲۰٪ منطقی است.', '۰ تا +۲۰٪'],
@@ -673,11 +692,16 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 					</div>
 					<div className="mt-4"><Btn onClick={doAutoSetup}>پیشنهاد خودکار (افق، استراتژی و نرخ دلار)</Btn></div>
 					{msg.setup && <Html className="mt-1.5" h={msg.setup} />}
-					<div className="mt-5 grid items-end gap-4 border-t border-border/70 pt-4 @2xl:grid-cols-3">
-						<label className="block"><Label>نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری</Label>
-							<div className="flex gap-1.5">{txt('fcUsd', { ph: 'مثلاً ۱۸۷٬۵۱۵' })}<Btn kind="ghost" onClick={doUsdFetch} disabled={usdBusy}>دریافت آنلاین</Btn></div>
-						</label>
-						<div className="@2xl:col-span-2"><Html h={msg.usd || 'اولویت با نگاه دلاری است: نرخ دلار را وارد کن (یا آنلاین بگیر) تا همه‌ی اعداد معادل دلاری هم نشان داده شوند و از تورم گول نخوری.'} /></div>
+					<div className="mt-5 grid items-center gap-4 border-t border-border/70 pt-4 @3xl:grid-cols-[minmax(0,300px)_1fr]">
+						<div className="mx-auto h-[360px] w-full max-w-[300px]" data-testid="fc-usd-gauge">
+							<GaugeTile id="speed" hero pinned={{ value: r.usd / 1000, max: 400, spec: { label: 'نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری', unit: 'هزار تومان', faceUnit: 'هزار تومان', code: '0–400', step: 100, minor: 2, decimals: 3, redFrom: undefined, redTo: undefined } }} />
+						</div>
+						<div className="min-w-0">
+							<label className="block"><Label>نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری</Label>
+								<div className="flex gap-1.5">{txt('fcUsd', { ph: 'مثلاً ۱۸۷٬۵۱۵' })}<Btn kind="ghost" onClick={doUsdFetch} disabled={usdBusy}>دریافت آنلاین</Btn></div>
+							</label>
+							<Html className="mt-3" h={msg.usd || 'اولویت با نگاه دلاری است: نرخ دلار را وارد کن (یا آنلاین بگیر) تا همه‌ی اعداد معادل دلاری هم نشان داده شوند و از تورم گول نخوری.'} />
+						</div>
 					</div>
 				</Card>
 
@@ -687,10 +711,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 						<Html h={'از فایل «صورت سود و زیان» (هر ماه یک شیت) خودکار استخراج می‌شود: <b>فروش خالص ماهانه</b> (→ داده‌ی تاریخی)، <b>حاشیه سود ناخالص</b> و <b>هزینهٔ ثابت (اداری/فروش)</b> (→ روش نقطه‌ی سربه‌سر). فایل نباید رمز داشته باشد.'} />
 						{importBtn}
 					</div>
-					<div className="overflow-auto rounded-xl ring-1 ring-border">
+					<div className={SCROLL}>
 						<table className="w-full min-w-[620px] text-[12.5px]">
-							<thead className="bg-muted/60"><tr><Th>سال</Th><Th>فروش ریالی (تومان)</Th><Th>میانگین نرخ دلار (تومان، اختیاری)</Th><Th>فروش دلاری</Th><Th>رشد ریالی</Th></tr></thead>
-							<tbody>
+							<thead className="sticky top-0 z-10 bg-muted"><tr><Th>سال</Th><Th>فروش ریالی (تومان)</Th><Th>میانگین نرخ دلار (تومان، اختیاری)</Th><Th>فروش دلاری</Th><Th>رشد ریالی</Th></tr></thead>
+							<tbody className={ROWS}>
 								{[0, 1, 2].map((i) => {
 									const g = i === 1 ? r.g2 : i === 2 ? r.g3 : null
 									return (
@@ -881,10 +905,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 					{mo && (
 						<>
 							<h4 className="mb-2 mt-5 text-[13.5px] font-extrabold">داده‌ی واردشده <span className="text-[11.5px] font-medium text-muted-foreground">سال‌های کامل + سالِ جاری (واقعی + پیش‌بینی)</span></h4>
-							<div className="overflow-auto rounded-xl ring-1 ring-border">
+							<div className={SCROLL}>
 								<table className="w-full min-w-[900px] text-[11px]">
-									<thead className="bg-muted/60"><tr><Th>سال</Th>{MN.map((m) => <Th key={m}>{m}</Th>)}<Th>کل (تومان)</Th><Th className="bg-secondary/10 text-secondary-ink">فروش دلاری</Th><Th className="bg-secondary/10 text-secondary-ink">میانگین نرخ دلار</Th><Th className="bg-[var(--fc-brass-soft)]">رشد نسبت به سال قبل</Th></tr></thead>
-									<tbody>
+									<thead className="sticky top-0 z-10 bg-muted"><tr><Th>سال</Th>{MN.map((m) => <Th key={m}>{m}</Th>)}<Th>کل (تومان)</Th><Th className="bg-secondary/10 text-secondary-ink">فروش دلاری</Th><Th className="bg-secondary/10 text-secondary-ink">میانگین نرخ دلار</Th><Th className="bg-[var(--fc-brass-soft)]">رشد نسبت به سال قبل</Th></tr></thead>
+									<tbody className={ROWS}>
 										{mo.histRows.map((yr) => (
 											<tr key={yr.year}>
 												<Td><b>{fa(yr.year)}</b></Td>
@@ -929,10 +953,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 
 					{mo ? (
 						<>
-							<div className="mt-3 max-h-[520px] overflow-auto rounded-xl ring-1 ring-border">
+							<div className={`mt-3 max-h-[520px] ${SCROLL}`}>
 								<table className="w-full min-w-[760px] text-[11px]">
-									<thead className="sticky top-0 bg-muted"><tr><Th>ماه</Th>{mo.sel.map((k) => <Th key={k}>{LBL[k]}</Th>)}<Th className="bg-accent/15">{mo.nAct ? 'واقعی/پیش‌بینی' : 'پیش‌بینی'} (تومان)</Th><Th className="bg-[#E0EBF8] text-secondary-ink">$ لازم</Th></tr></thead>
-									<tbody>
+									<thead className="sticky top-0 z-10 bg-muted"><tr><Th>ماه</Th>{mo.sel.map((k) => <Th key={k}>{LBL[k]}</Th>)}<Th className="bg-accent/15">{mo.nAct ? 'واقعی/پیش‌بینی' : 'پیش‌بینی'} (تومان)</Th><Th className="bg-[#E0EBF8] text-secondary-ink">$ لازم</Th></tr></thead>
+									<tbody className={ROWS}>
 										{MN.map((mn, m) => {
 											const isAct = !!(mo.actualM && mo.actualM[m] > 0)
 											return (
@@ -1003,10 +1027,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 									<Fig kind="gold" k="پیش‌بینیِ همان ماه‌ها" v={sep(Math.round(va.sumF))} u="تومان" />
 									<Fig k="عقب/جلو" v={r.monthlyForecast && va.nM ? <span style={{ color: gc }}>{gap >= 0 ? '▲ جلو ' : '▼ عقب '}{pct(Math.abs(gvr))}</span> : '—'} u={r.monthlyForecast && va.nM ? <span style={{ color: gc }}>{(gap >= 0 ? '+' : '−') + sep(Math.abs(Math.round(gap)))} تومان</span> : 'نسبت به پیش‌بینی'} />
 								</div>
-								<div className="mt-3 overflow-auto rounded-xl ring-1 ring-border">
+								<div className={`mt-3 ${SCROLL}`}>
 									<table className="w-full min-w-[620px] text-[12.5px]">
-										<thead className="bg-muted/60"><tr><Th>ماه</Th><Th>پیش‌بینی (ملاک)</Th><Th>واقعی</Th><Th>اختلاف</Th><Th>عقب/جلو</Th></tr></thead>
-										<tbody>
+										<thead className="sticky top-0 z-10 bg-muted"><tr><Th>ماه</Th><Th>پیش‌بینی (ملاک)</Th><Th>واقعی</Th><Th>اختلاف</Th><Th>عقب/جلو</Th></tr></thead>
+										<tbody className={ROWS}>
 											{!r.monthlyForecast ? (
 												<tr><td colSpan={5} className="py-4 text-center text-muted-foreground">اول در همین تب پیش‌بینی را بساز (روش‌ها را انتخاب کن) تا ملاک ساخته شود.</td></tr>
 											) : va.rows.length ? (
@@ -1062,10 +1086,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 				{/* ۷) سناریوهای تورمی */}
 				<Card title="سناریوهای تورمی" sub="تورم ۵۰٪، ۷۰٪ و ۱۲۰٪؛ هر سناریو تصمیم متفاوتی می‌طلبد">
 					<p className="mb-3 text-[12.5px] leading-7 text-muted-foreground">مبنا: همان «فروش ریالی هدف» بالا. جدول نشان می‌دهد برای <b>حفظ ارزش واقعی</b> در هر سناریوی تورم، فروش اسمی باید چقدر شود؛ و اگر فروش اسمی ثابت بماند، ارزش واقعی چقدر آب می‌رود.</p>
-					<div className="overflow-auto rounded-xl ring-1 ring-border">
+					<div className={SCROLL}>
 						<table className="w-full min-w-[520px] text-[12.5px]">
-							<thead className="bg-muted/60"><tr><Th>سناریوی تورم</Th><Th>فروش اسمی لازم برای حفظ ارزش</Th><Th>ارزش واقعی اگر فروش ثابت بماند</Th><Th>افت قدرت خرید</Th></tr></thead>
-							<tbody>
+							<thead className="sticky top-0 z-10 bg-muted"><tr><Th>سناریوی تورم</Th><Th>فروش اسمی لازم برای حفظ ارزش</Th><Th>ارزش واقعی اگر فروش ثابت بماند</Th><Th>افت قدرت خرید</Th></tr></thead>
+							<tbody className={ROWS}>
 								{r.scen.map((s) => (
 									<tr key={s.s}><Td><b>تورم {fa(s.s)}٪</b></Td><Td>{sep(s.need)}</Td><Td>{sep(s.real)}</Td><Td style={{ color: ROSE }}>{pct(s.loss)}</Td></tr>
 								))}
@@ -1080,15 +1104,28 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 }
 
 function Method({ n, t, h, out, children }: { n: string; t: string; h: ReactNode; out: number; children: ReactNode }) {
+	const tier = TIER[useContext(TierCtx)]
+	const filled = out > 0
 	return (
-		<div className="grid gap-3 rounded-xl p-4 ring-1 ring-border/80 transition hover:ring-border @3xl:grid-cols-[200px_1fr_170px]">
+		<div className={`group @container relative grid gap-3 overflow-hidden rounded-2xl bg-card/60 p-4 ring-1 ring-border/70 transition motion-safe:duration-200 hover:bg-card hover:shadow-sm hover:ring-border @3xl:grid-cols-[210px_1fr_170px] @3xl:items-center ${filled ? 'ring-border' : ''}`}>
+			<span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-[3px] opacity-0 transition-opacity motion-safe:duration-200 group-hover:opacity-100" style={{ background: filled ? tier.fill : `${tier.fill}80` }} />
 			<div className="flex items-start gap-2.5">
-				<span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-[13px] font-extrabold text-primary-ink">{n}</span>
+				<span
+					className="grid size-8 shrink-0 place-items-center rounded-full text-[13px] font-extrabold tabular-nums ring-1 ring-inset"
+					style={filled ? { background: `linear-gradient(135deg, ${tier.fill}, ${tier.fill}cc)`, color: 'white', boxShadow: `0 4px 10px -4px ${tier.fill}99` } : { background: `${tier.fill}14`, color: tier.ink, boxShadow: 'none' }}
+				>
+					{n}
+				</span>
 				<div className="min-w-0"><b className="text-[13.5px] leading-7">{t}</b><div className="text-[11.5px] leading-5 text-muted-foreground">{h}</div></div>
 			</div>
 			<div className="min-w-0">{children}</div>
 			<div className="flex items-center @3xl:justify-end">
-				<span className={`rounded-xl px-3 py-2 text-[14px] tabular-nums ${out > 0 ? 'bg-primary/[.07] text-primary-ink' : 'bg-muted/60'}`}>{out > 0 ? <b>{sep(out)}</b> : <span className="text-muted-foreground">—</span>}</span>
+				<span
+					className={`rounded-xl px-3 py-2 text-[14px] tabular-nums ring-1 ring-inset transition-colors ${filled ? '' : 'bg-muted/60 ring-border/60'}`}
+					style={filled ? { background: `${tier.fill}14`, color: tier.ink, boxShadow: `inset 0 0 0 1px ${tier.fill}2e` } : undefined}
+				>
+					{filled ? <b>{sep(out)}</b> : <span className="text-muted-foreground">—</span>}
+				</span>
 			</div>
 		</div>
 	)

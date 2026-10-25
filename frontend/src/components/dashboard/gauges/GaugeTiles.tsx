@@ -8,7 +8,7 @@
 
 import { useState, type ReactNode } from 'react'
 import AnalogGauge from './AnalogGauge'
-import { GAUGE_ORDER, GAUGE_SPECS, gaugeStatus, useGaugeReadings, type GaugeId, type GaugeStatus } from './kpi'
+import { GAUGE_ORDER, GAUGE_SPECS, gaugeStatus, useGaugeReadings, type GaugeId, type GaugeSpec, type GaugeStatus } from './kpi'
 
 const fa = (n: number, d = 0) => n.toLocaleString('fa-IR', { maximumFractionDigits: d, minimumFractionDigits: d })
 const DOT: Record<GaugeStatus, string> = { ok: 'bg-success', warn: 'bg-warning', err: 'bg-error', idle: 'bg-muted-foreground/60' }
@@ -42,20 +42,20 @@ function Trend({ v }: { v: number | null }) {
 	return <span className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10.5px] font-bold tabular-nums ring-1 ${up ? 'bg-success/10 text-success ring-success/25' : 'bg-error/10 text-error ring-error/25'}`}><span aria-hidden>{up ? '▲' : '▼'}</span>{fa(Math.abs(v), 1)}٪<span className="sr-only">{up ? 'افزایش' : 'کاهش'}</span></span>
 }
 
-/** یک گیجِ مستقل */
-export function GaugeTile({ id, hero = false }: { id: GaugeId; hero?: boolean }) {
+/** یک گیجِ مستقل. `pinned` فقط مقدار را عوض می‌کند و به منبعِ زندهٔ داشبورد نمی‌نویسد. */
+export function GaugeTile({ id, hero = false, pinned }: { id: GaugeId; hero?: boolean; pinned?: { value: number; max: number; spec?: Partial<GaugeSpec> } }) {
 	const { readings, sweep, mode, specs, empty } = useGaugeReadings()
-	const s = specs?.[id] ?? GAUGE_SPECS[id]
-	const r = readings[id]
-	const none = !!empty?.[id]
+	const s = pinned ? { ...GAUGE_SPECS[id], ...pinned.spec, max: pinned.max } : (specs?.[id] ?? GAUGE_SPECS[id])
+	const r = pinned ? { value: pinned.value, max: pinned.max, trend: null, updatedAt: null } : readings[id]
+	const none = pinned ? false : !!empty?.[id]
 	const [live, setLive] = useState<number | null>(null)
 	const shown = Math.max(0, Math.min(live ?? r.value, r.max ?? s.max))
 	return (
-		<GaugeShell icon={s.icon} title={s.label} code={s.code} status={none ? 'idle' : gaugeStatus(s, r)} mock={mode === 'mock'}>
+		<GaugeShell icon={s.icon} title={s.label} code={s.code} status={pinned ? undefined : none ? 'idle' : gaugeStatus(s, r)} mock={pinned ? false : mode === 'mock'}>
 			{/* گیج = کوچک‌ترِ عرض و ارتفاعِ فضای موجود (container size) — در کاشیِ بلند و کوتاه هر دو جا می‌شود */}
 			<div className="flex min-h-0 flex-1 items-center justify-center [container-type:size]">
 				<div className={`aspect-square w-[min(100cqw,100cqh)] ${hero ? 'max-w-[440px]' : 'max-w-[220px]'}`}>
-					<AnalogGauge spec={s} value={r.value} max={r.max} sweep={sweep} delay={GAUGE_ORDER.indexOf(id) * 0.12} onFrame={setLive} />
+					<AnalogGauge spec={s} value={r.value} max={r.max} sweep={pinned ? 0 : sweep} delay={GAUGE_ORDER.indexOf(id) * 0.12} onFrame={setLive} />
 				</div>
 			</div>
 			<footer className="flex items-baseline justify-center gap-2">
