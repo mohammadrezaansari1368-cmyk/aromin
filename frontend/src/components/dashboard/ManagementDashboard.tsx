@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import DraggableWidgetGrid, { type WidgetItem, type WidgetSize } from '@/components/ui/draggable-widget-grid'
 import { renderWidgetContent, type WidgetKind } from './widgets'
-import { loadLayout, saveLayout } from '@/lib/api/state'
-import type { Role } from '@/lib/auth'
+import { loadLayout, createLayoutSaver } from '@/lib/api/state'
+import type { Role, Session } from '@/lib/auth'
+import { currentTenant } from '@/lib/data'
 
 interface DashWidget extends WidgetItem {
   kind: WidgetKind
@@ -49,17 +50,23 @@ function mergeLayout(saved: { id: string; size: WidgetSize }[] | null, pool: Das
   return [...ordered, ...pool.filter((w) => !seen.has(w.id))]
 }
 
-export function ManagementDashboard({ role }: { role: Role }) {
+export function ManagementDashboard({ role, session }: { role: Role; session: Session | null }) {
   // فیلترِ نقش: قبل از هر چیز، فقط ویجت‌های مجاز واردِ کار می‌شوند (نه display:none).
   const allowed = useMemo(() => WIDGETS.filter((w) => !w.roles || w.roles.includes(role)), [role])
   const [items, setItems] = useState<DashWidget[]>(allowed)
 
-  // بارگذاریِ چیدمان از /api/state (با fallback به localStorage) — محدود به مجموعهٔ مجازِ نقش.
+  const tenant = currentTenant()
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saver, setSaver] = useState<ReturnType<typeof createLayoutSaver> | null>(null)
   useEffect(() => {
     let alive = true
-    loadLayout().then((saved) => { if (alive) setItems(mergeLayout(saved, allowed)) })
-    return () => { alive = false }
-  }, [allowed])
+    const persistence = createLayoutSaver(session, setSaveError)
+    setSaver(persistence)
+    setSaveError(null)
+    setItems(allowed)
+    loadLayout(session, WIDGETS.map((w) => w.id)).then((saved) => { if (alive) setItems(mergeLayout(saved, allowed)) })
+    return () => { alive = false; persistence.dispose() }
+  }, [allowed, session, tenant])
 
   const onChange = useCallback((next: WidgetItem[]) => {
     const merged = next.map((n) => {
@@ -67,18 +74,26 @@ export function ManagementDashboard({ role }: { role: Role }) {
       return { ...w, size: n.size }
     })
     setItems(merged)
-    saveLayout(merged.map((w) => ({ id: w.id, size: w.size })))
-  }, [allowed])
+    saver?.save(merged.map((w) => ({ id: w.id, size: w.size })))
+  }, [allowed, saver])
 
   return (
-    <DraggableWidgetGrid
-      items={items}
-      onChange={onChange}
-      maxColumns={4}
-      cellSize={210}
-      gap={12}
-      radius={16}
-      renderItem={(item) => renderWidgetContent((item as DashWidget).kind)}
-    />
+    <div dir="rtl">
+      {saveError && (
+        <div role="status" style={{ color: '#004991', border: '1px solid #FCBF00', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+          {saveError}{' '}
+          <button type="button" onClick={() => { void saver?.retry() }} style={{ color: '#910D6A' }}>تلاش دوباره</button>
+        </div>
+      )}
+      <DraggableWidgetGrid
+        items={items}
+        onChange={onChange}
+        maxColumns={4}
+        cellSize={210}
+        gap={12}
+        radius={16}
+        renderItem={(item) => renderWidgetContent((item as DashWidget).kind)}
+      />
+    </div>
   )
 }
