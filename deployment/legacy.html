@@ -13028,6 +13028,8 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     on: (location.protocol === "http:" || location.protocol === "https:"),
     base: "",
     ready: false,
+    version: null,     // نسخهٔ سندِ tenant_state — برای If-Match (هم‌زمانی، WP-04)
+    conflicted: false,  // true پس از ۴۰۹ (conflict) — تا بارگذاریِ دوباره، ذخیرهٔ خودکار خاموش می‌شود
     async check(){
       if(!this.on) return false;
       try{
@@ -13040,14 +13042,25 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     qs(){ return "?tenant="+encodeURIComponent(TENANT||"team"); },
     async load(){
       var r = await fetch(this.base+"/api/state"+this.qs(), {cache:"no-store"});
-      return await r.json();
+      var d = await r.json();
+      if(d && typeof d.version==="number") this.version=d.version;
+      this.conflicted=false;   // بارگذاریِ تازه از سرور — هر پرچمِ تعارضِ قبلی دیگر معتبر نیست
+      return d;
     },
     async save(state){
+      // تا بارگذاریِ دوباره، بلابِ کهنه را دوباره نمی‌فرستد (even for callers that don't check .conflicted)
+      if(this.conflicted) return {ok:false, conflict:true, error:"این داده هم‌زمان توسط کاربر دیگری تغییر کرده است. برای دیدن آخرین نسخه صفحه را دوباره بارگذاری کنید؛ تغییرات ذخیره‌نشدهٔ شما اعمال نشد."};
+      var h=aiHeaders(); if(this.version!=null) h["If-Match"]=String(this.version);
       var r = await fetch(this.base+"/api/state"+this.qs(), {
-        method:"POST", headers:aiHeaders(),
+        method:"POST", headers:h,
         body: JSON.stringify(state)
       });
       var result=await r.json();
+      if(r.status===409 && result && result.conflict){
+        if(!this.conflicted){ this.conflicted=true; stateConflictNotice(); }
+        return result;   // نسخهٔ سرور را اینجا نمی‌پذیریم — بلابِ کهنهِ همین درخواست با آن نسخهٔ تازه دوباره فرستاده نشود
+      }
+      if(result && typeof result.version==="number") this.version=result.version;
       if(result.ok) Object.keys(USERS).forEach(function(u){ delete USERS[u].pass; delete USERS[u].password; });
       return result;
     },
@@ -13071,6 +13084,24 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
       return await r.json();
     }
   };
+  // هشدارِ تعارضِ هم‌زمانی (۴۰۹) — سراسریِ صفحه، نه مختصِ یک پنل، چون ذخیرهٔ خودکار از هر پنلی اجرا می‌شود.
+  function stateConflictNotice(){
+    if(document.getElementById("stateConflictBar")) return;
+    var bar=document.createElement("div");
+    bar.id="stateConflictBar"; bar.setAttribute("role","alert");
+    bar.style.cssText="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:999999;"+
+      "display:flex;gap:12px;align-items:center;padding:10px 16px;border-radius:10px;max-width:92vw;"+
+      "background:var(--petrol,#004991);color:#fff;font-weight:700;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.25)";
+    var msg=document.createElement("span");
+    msg.textContent="این داده هم‌زمان توسط کاربر دیگری تغییر کرده است. برای دیدن آخرین نسخه صفحه را دوباره بارگذاری کنید؛ تغییرات ذخیره‌نشدهٔ شما اعمال نشد.";
+    var btn=document.createElement("button");
+    btn.type="button"; btn.textContent="بارگذاری دوباره";
+    btn.style.cssText="flex:none;border:none;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer;"+
+      "background:var(--gold,#FCBF00);color:#1a1a1a";
+    btn.onclick=function(){ location.reload(); };
+    bar.appendChild(msg); bar.appendChild(btn);
+    document.body.appendChild(bar);
+  }
   function dbBadge(txt, ok){
     var el0=el("dbStatus"); if(!el0) return;
     el0.textContent=txt;
@@ -13228,7 +13259,18 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     if(location.protocol!=="http:"&&location.protocol!=="https:") return;   // فقط وقتی از سرور باز شده
     if(_mcpT) clearTimeout(_mcpT);
     _mcpT=setTimeout(function(){
-      try{ fetch("/api/state?tenant="+encodeURIComponent(TENANT||"team"),{method:"POST",headers:aiHeaders(),body:snapshot()}).catch(function(){}); }catch(e){}
+      if(API.conflicted) return;   // تا بارگذاریِ دوباره، بلابِ کهنه را دوباره نمی‌فرستد
+      var h=aiHeaders(); if(API.version!=null) h["If-Match"]=String(API.version);
+      try{
+        fetch("/api/state?tenant="+encodeURIComponent(TENANT||"team"),{method:"POST",headers:h,body:snapshot()})
+          .then(function(r){ return r.json().then(function(d){
+            if(r.status===409 && d && d.conflict){
+              if(!API.conflicted){ API.conflicted=true; stateConflictNotice(); }
+              return;   // نسخهٔ سرور را اینجا نمی‌پذیریم — بلابِ کهنهِ همین درخواست با آن نسخهٔ تازه دوباره فرستاده نشود
+            }
+            if(d && typeof d.version==="number") API.version=d.version;
+          }); }).catch(function(){});
+      }catch(e){}
     },1500);
   }
   // جاسازی در نسخهٔ React: تا وقتی تبِ این موتور باز نشده (و دادهٔ تازه بار نشده)، «پارک» است و خودکار ذخیره نمی‌کند
@@ -13240,6 +13282,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     if(window.__arominParked) return;
     try{ if(window.localStorage) localStorage.setItem(CUR_KEY, snapshot()); }catch(e){}
     syncBridgeState();
+    if(API.conflicted) return;   // ۴۰۹ (conflict) خورده — تا بارگذاریِ دوباره، بلابِ کهنه را دوباره نمی‌فرستد
     // ذخیره‌ی هم‌زمان در MariaDB (با تأخیر کوتاه تا هر کلیک یک درخواست نسازد)
     if(API.ready){
       if(_dbT) clearTimeout(_dbT);
@@ -13476,6 +13519,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
           applySnapshot(full); tenantFinish();
           if(keepPid!=null && PEOPLE.some(function(p){return p.id===keepPid;})){ loadPerson(keepPid); refreshPersonSel(); }
           GM=keepGM; refreshGlobalMonth(); render();
+          API.conflicted=false;   // دادهٔ تازه از سرور بارگذاری شد؛ ذخیرهٔ خودکار دوباره مجاز است
           res(true);
         }).catch(function(){ res(false); });
       });

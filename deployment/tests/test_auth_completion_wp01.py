@@ -30,10 +30,11 @@ class Completion(unittest.TestCase):
             'default': {'pass': '123', 'role': 'sales'},
             'unset': {'role': 'sales'},
         }, 'people': [], 'tenantInfo': {'name': 'Synthetic'}}
+        self.version = 0
         self.db = MagicMock()
         self.cur = self.db.cursor.return_value.__enter__.return_value
         self.cur.execute.side_effect = self.execute
-        self.cur.fetchone.side_effect = lambda: {'payload': json.dumps(self.full)}
+        self.cur.fetchone.side_effect = lambda: {'payload': json.dumps(self.full), 'version': self.version}
         patches = [patch.dict(os.environ, {'AROMIN_SESSION_SECRET': 'synthetic-session-secret-at-least-32'}),
                    patch.object(server, 'db_conn', return_value=self.db),
                    patch.object(server, 'ensure_tenant_table'),
@@ -50,12 +51,18 @@ class Completion(unittest.TestCase):
     def execute(self, sql, args=()):
         if sql.startswith('UPDATE tenant_state SET payload='):
             self.full = json.loads(args[0])
+            self.version += 1
         elif sql.startswith('INSERT INTO tenant_state'):
-            self.full = json.loads(args[-1])
+            has_version_param = len(args) == 5   # POST /api/state's INSERT lists (..., payload, version)
+            self.full = json.loads(args[-2] if has_version_param else args[-1])
+            if has_version_param:
+                self.version = args[-1]
+            elif 'version=version+1' in sql:
+                self.version += 1
 
     def query(self, sql, args=()):
-        if 'SELECT payload FROM tenant_state' in sql:
-            return [{'payload': json.dumps(self.full)}] if args[0] == 'team' else []
+        if sql.startswith('SELECT payload') and 'tenant_state' in sql:
+            return [{'payload': json.dumps(self.full), 'version': self.version}] if args[0] == 'team' else []
         if 'SELECT tenant AS id' in sql:
             return [{'id': 'team', 'name': 'Synthetic'}]
         return []
