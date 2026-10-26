@@ -16,7 +16,7 @@
 - `deployment/aromin_stage.py` ↔ `frontend/src/lib/stage-change.ts` — پارسرِ مشترکِ «تغییر مرحله» (بردارها: `deployment/tests/fixtures/stage_change_vectors.json`).
 - `deployment/fix_stage_dates.py` — اصلاحِ تاریخی؛ پیش‌فرض dry-run.
 - `frontend/` — React 19 + Vite + TS.
-- `tools/package_release.py` — بستهٔ نصب در `releases/` (نسخه از `APP_VERSION` در `deployment/legacy.html`).
+- `tools/package_release.py` — بستهٔ نصب محلی در `releases/`؛ آرشیوها هرگز commit نشوند و به‌صورت GitHub Release assets منتشر شوند (نسخه از `APP_VERSION` در `deployment/legacy.html`).
 
 ## تست‌ها
 ```bash

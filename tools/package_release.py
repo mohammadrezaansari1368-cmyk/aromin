@@ -1,4 +1,8 @@
-"""Package the verified build without environment files, data, or credentials."""
+"""Package the verified build without environment files, data, or credentials.
+
+Archives in local releases/ are never committed. Publish them as GitHub Release
+assets; see docs/release-artifacts.md for draft uploads and SHA256 verification.
+"""
 from pathlib import Path
 import hashlib
 import re
