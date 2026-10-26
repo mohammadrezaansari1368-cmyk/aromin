@@ -1,0 +1,3 @@
+-- Manual rollback only. Drops the concurrency version column; POST /api/state then falls back to
+-- unconditional last-write-wins (If-Match is still accepted by clients but never enforced).
+ALTER TABLE tenant_state DROP COLUMN IF EXISTS version;

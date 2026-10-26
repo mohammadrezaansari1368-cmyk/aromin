@@ -160,6 +160,7 @@ def ensure_tenant_table():
            industry VARCHAR(64),
            name     VARCHAR(255),
            payload  LONGTEXT,
+           version  BIGINT UNSIGNED NOT NULL DEFAULT 0,
            updated  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4""")
     _tenant_ready["v"] = True
@@ -363,7 +364,7 @@ def _store_password(tenant, user, password, rec, required=False):
                         updated.pop(key)
                 updated.update(pass_hash=hashed, must_change_password=required)
                 users[user] = updated
-                cur.execute("UPDATE tenant_state SET payload=%s WHERE tenant=%s", (j(full), tenant))
+                cur.execute("UPDATE tenant_state SET payload=%s, version=version+1 WHERE tenant=%s", (j(full), tenant))
             cx.commit()
         except Exception:
             cx.rollback()
@@ -412,6 +413,18 @@ def _bearer(request, tenant):
     if not auth.lower().startswith("bearer "):
         return None
     return sessions.verify(auth[7:].strip(), tenant)
+
+
+def _state_if_match(request):
+    """نگاشتِ هدرِ If-Match (یا X-State-Version) به شمارهٔ نسخه؛ نبود/نامعتبر بودن = None (سازگاری با کلاینت‌های قدیمی)."""
+    raw = request.headers.get("if-match") or request.headers.get("x-state-version")
+    if raw is None:
+        return None
+    raw = raw.strip().strip('"')
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def _db_identity(request):
@@ -523,12 +536,17 @@ def change_password(request: Request, payload: dict = Body(default={})):
 
 # ---------------- خواندنِ کل وضعیت ----------------
 @app.get("/api/state")
-def get_state(tenant: str = Query(default="")):
+def get_state(tenant: str = Query(default=""), response: Response = None):
     tenant = (tenant or "").strip()
+    if response is None:
+        response = Response()
     if tenant:
         ensure_tenant_table()
-        rows = q("SELECT payload FROM tenant_state WHERE tenant=%s", (tenant,))
-        return {"ok": True, "full": _redact_passwords(parse(rows[0]["payload"])) if rows else None}
+        rows = q("SELECT payload, version FROM tenant_state WHERE tenant=%s", (tenant,))
+        version = rows[0].get("version", 0) if rows else 0
+        response.headers["ETag"] = '"%s"' % version
+        return {"ok": True, "full": _redact_passwords(parse(rows[0]["payload"])) if rows else None,
+                "version": version}
 
     people = q("SELECT * FROM people ORDER BY id")
     deals = q("SELECT * FROM deals")
@@ -661,7 +679,7 @@ def import_history_delete(request: Request, payload: dict = Body(default={})):
             deleted.add(key)
             full["_importDeleted"] = sorted(deleted)
             full["importLog"] = [e for e in full.get("importLog", []) if _import_key(e) != key]
-            cur.execute("UPDATE tenant_state SET payload=%s WHERE tenant=%s", (j(full), tenant))
+            cur.execute("UPDATE tenant_state SET payload=%s, version=version+1 WHERE tenant=%s", (j(full), tenant))
         cx.commit()
     finally:
         cx.close()
@@ -723,9 +741,14 @@ def post_state(request: Request, payload: dict = Body(default={}), tenant: str =
         cx.autocommit(False)
         try:
             with cx.cursor() as cur:
-                cur.execute("SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE", (tenant,))
+                cur.execute("SELECT payload, version FROM tenant_state WHERE tenant=%s FOR UPDATE", (tenant,))
                 row = cur.fetchone()
                 old = parse(row["payload"]) if row else None
+                current_version = row["version"] if row else 0
+                want_version = _state_if_match(request)
+                if want_version is not None and want_version != current_version:
+                    return JSONResponse({"ok": False, "error": "این داده هم‌زمان توسط کاربر دیگری تغییر کرده است.",
+                                          "conflict": True, "version": current_version}, status_code=409)
                 denied = _state_credentials(old, st, ident)
                 if denied is not None:
                     return denied
@@ -736,14 +759,16 @@ def post_state(request: Request, payload: dict = Body(default={}), tenant: str =
                 if bad:
                     return JSONResponse({"ok": False, "error": bad, "locked": True}, status_code=409)
                 info = st.get("tenantInfo") or {}
-                cur.execute("""INSERT INTO tenant_state (tenant, industry, name, payload) VALUES (%s,%s,%s,%s)
+                new_version = current_version + 1
+                cur.execute("""INSERT INTO tenant_state (tenant, industry, name, payload, version) VALUES (%s,%s,%s,%s,%s)
                     ON DUPLICATE KEY UPDATE industry=COALESCE(VALUES(industry),industry),
-                    name=COALESCE(VALUES(name),name), payload=VALUES(payload)""",
-                    (tenant, info.get("industry"), info.get("name"), j(st)))
+                    name=COALESCE(VALUES(name),name), payload=VALUES(payload), version=VALUES(version)""",
+                    (tenant, info.get("industry"), info.get("name"), j(st), new_version))
             cx.commit()
         finally:
             cx.close()
-        return {"ok": True, "savedAt": datetime.datetime.utcnow().isoformat() + "Z", "tenant": tenant}
+        return {"ok": True, "savedAt": datetime.datetime.utcnow().isoformat() + "Z", "tenant": tenant,
+                "version": new_version}
 
     snapshots = q("SELECT payload FROM snapshots ORDER BY id DESC LIMIT 1")
     denied = _state_credentials(parse(snapshots[0]["payload"]) if snapshots else {}, st, ident)
@@ -2083,7 +2108,7 @@ def _c1_save(tenant, full):
             _preserve_compensation(previous, full)
             _merge_sale_dates(previous, full)
             cur.execute("""INSERT INTO tenant_state (tenant, industry, name, payload) VALUES (%s,%s,%s,%s)
-                ON DUPLICATE KEY UPDATE payload=VALUES(payload)""",
+                ON DUPLICATE KEY UPDATE payload=VALUES(payload), version=version+1""",
                 (tenant, info.get("industry"), info.get("name"), j(full)))
         cx.commit()
     finally:
@@ -6271,7 +6296,7 @@ def compensation_update(request: Request, payload: dict = Body(default={})):
                 if not existing:
                     approvals.append({'id': bonus['id'], 'amount': _c1_amount(bonus['amount']), 'month': bonus['month'], 'fy': bonus['fy'], 'reason': str(bonus['reason']).strip()[:500], 'by': ident['user'], 'ts': int(time.time() * 1000)})
             full['ts'] = int(time.time() * 1000)
-            cur.execute('UPDATE tenant_state SET payload=%s WHERE tenant=%s', (j(full), tenant))
+            cur.execute('UPDATE tenant_state SET payload=%s, version=version+1 WHERE tenant=%s', (j(full), tenant))
         cx.commit()
         return {'ok': True}
     finally:

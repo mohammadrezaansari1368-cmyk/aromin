@@ -250,7 +250,7 @@ def main(argv=None):
                               after=json.loads(r["after_v"]) if r["after_v"] is not None else None) for r in cur.fetchall()]
                 cur.execute("INSERT INTO tenant_backups (tenant, tag, payload) VALUES (%s,%s,%s)", (a.tenant, "pre-rollback-" + a.rollback[:20], server.j(full)))
                 done, skipped = rollback_changes(full, audit)
-                cur.execute("UPDATE tenant_state SET payload=%s WHERE tenant=%s", (server.j(full), a.tenant))
+                cur.execute("UPDATE tenant_state SET payload=%s, version=version+1 WHERE tenant=%s", (server.j(full), a.tenant))
                 for c in audit:
                     if c not in skipped:
                         cur.execute("UPDATE data_fix_audit SET rolled_back=NOW() WHERE id=%s AND tenant=%s", (c["audit_id"], a.tenant))
@@ -272,7 +272,7 @@ def main(argv=None):
                     print("  … %d/%d" % (min(i + 500, len(changes)), len(changes)), file=sys.stderr)
                 apply_changes(full, changes)
                 full["ts"] = int(time.time() * 1000)
-                cur.execute("UPDATE tenant_state SET payload=%s WHERE tenant=%s", (server.j(full), a.tenant))
+                cur.execute("UPDATE tenant_state SET payload=%s, version=version+1 WHERE tenant=%s", (server.j(full), a.tenant))
                 out["run_id"] = run
             cx.commit()
             if a.report:
