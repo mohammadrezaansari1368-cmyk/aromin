@@ -113,7 +113,7 @@ it.each(['http', 'body', 'network', '401'])('surfaces %s save failure and clears
   expect(onError).toHaveBeenLastCalledWith(null)
 })
 
-it('cancels pending writes on disposal or tenant changes', async () => {
+it('skips disposal flushes when the old tenant can no longer fetch', async () => {
   const first = saver(session())
   first.save(layout)
   first.dispose()
@@ -127,4 +127,54 @@ it('does not migrate after a failed authenticated read', async () => {
   fetcher.mockResolvedValue(reply({ ok: true, order: [] }, 401))
   await loadLayout(session(), ids)
   expect(fetcher.mock.calls.length).toBe(1)
+})
+
+
+it('flushes a pending debounce once on disposal using the captured identity', async () => {
+  const original = session()
+  const onError = vi.fn()
+  const store = saver(original, onError)
+  store.save(layout)
+  original.user = 'bob'
+  original.token = 'replacement-synthetic-session'
+  fetcher.mockResolvedValue(reply({ ok: false }, 500))
+  store.dispose()
+  store.dispose()
+  await store.retry()
+  await vi.advanceTimersByTimeAsync(800)
+  expect(fetcher.mock.calls.length).toBe(1)
+  expect(fetcher.mock.calls[0][1].headers.Authorization === `Bearer ${session().token}`).toBe(true)
+  expect(JSON.parse(fetcher.mock.calls[0][1].body).order).toEqual(['phone:sm'])
+  expect(onError).not.toHaveBeenCalled()
+})
+
+it('serializes a disposal flush after an in-flight save without callbacks after disposal', async () => {
+  let finish!: (response: Response) => void
+  fetcher.mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve }))
+  const onError = vi.fn()
+  const store = saver(session(), onError)
+  store.save(layout)
+  await vi.advanceTimersByTimeAsync(800)
+  store.save([{ id: 'channels', size: 'wide' }])
+  store.dispose()
+  expect(fetcher.mock.calls.length).toBe(1)
+  finish(reply({ ok: false }, 500))
+  await store.retry()
+  expect(fetcher.mock.calls.length).toBe(2)
+  expect(JSON.parse(fetcher.mock.calls[1][1].body).order).toEqual(['channels:wide'])
+  expect(onError).not.toHaveBeenCalled()
+})
+
+it('keeps the pending save when the caller replaces its session with an equal object', async () => {
+  let current = session()
+  const original = current
+  const store = saver(current)
+  store.save(layout)
+  await vi.advanceTimersByTimeAsync(400)
+  current = { ...current }
+  expect(current === original).toBe(false)
+  await vi.advanceTimersByTimeAsync(400)
+  expect(fetcher.mock.calls.length).toBe(1)
+  expect(fetcher.mock.calls[0][1].headers.Authorization === `Bearer ${current.token}`).toBe(true)
+  expect(JSON.parse(fetcher.mock.calls[0][1].body).order).toEqual(['phone:sm'])
 })

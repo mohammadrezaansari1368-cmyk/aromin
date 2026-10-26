@@ -65,10 +65,11 @@ export function createLayoutSaver(session: Session | null, onError: (message: st
   let pending = Promise.resolve()
   const flush = () => {
     if (timer) clearTimeout(timer)
+    timer = undefined
     const version = revision
     const layout = latest
     pending = pending.then(async () => {
-      if (disposed || !layout || !canFetch(identity, tenant)) return
+      if (!layout || !canFetch(identity, tenant)) return
       try {
         const r = await fetch('/api/ui-layout', {
           method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders(identity) },
@@ -93,7 +94,12 @@ export function createLayoutSaver(session: Session | null, onError: (message: st
       if (timer) clearTimeout(timer)
       if (canFetch(identity, tenant)) timer = setTimeout(() => { void flush() }, 800)
     },
-    retry: flush,
-    dispose() { disposed = true; if (timer) clearTimeout(timer) },
+    retry: () => disposed ? pending : flush(),
+    dispose() {
+      if (disposed) return
+      // Queue the old identity before suppressing callbacks; queued writes still run.
+      if (timer) void flush()
+      disposed = true
+    },
   }
 }

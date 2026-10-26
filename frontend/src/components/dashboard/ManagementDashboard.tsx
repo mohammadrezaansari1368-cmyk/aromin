@@ -56,17 +56,18 @@ export function ManagementDashboard({ role, session }: { role: Role; session: Se
   const [items, setItems] = useState<DashWidget[]>(allowed)
 
   const tenant = currentTenant()
+  const identity = useMemo(() => session ? { ...session } : null, [session?.user, session?.token, session?.tenant, tenant])
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saver, setSaver] = useState<ReturnType<typeof createLayoutSaver> | null>(null)
   useEffect(() => {
     let alive = true
-    const persistence = createLayoutSaver(session, setSaveError)
+    const persistence = createLayoutSaver(identity, (message) => { if (alive) setSaveError(message) })
     setSaver(persistence)
     setSaveError(null)
     setItems(allowed)
-    loadLayout(session, WIDGETS.map((w) => w.id)).then((saved) => { if (alive) setItems(mergeLayout(saved, allowed)) })
+    loadLayout(identity, WIDGETS.map((w) => w.id)).then((saved) => { if (alive) setItems(mergeLayout(saved, allowed)) })
     return () => { alive = false; persistence.dispose() }
-  }, [allowed, session, tenant])
+  }, [allowed, identity])
 
   const onChange = useCallback((next: WidgetItem[]) => {
     const merged = next.map((n) => {
