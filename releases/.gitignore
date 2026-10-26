@@ -1,2 +1,6 @@
+# Archives are never committed; publish them as GitHub Release assets.
+*.tgz
 *.zip
 *.sha256
+*.zip.sha256
+*.tgz.sha256

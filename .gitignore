@@ -1,9 +1,11 @@
 # Local server-only assistant credentials.
 deployment/.assistant-secrets/
-# Release archives are added explicitly on delivery branches.
+# Release archives are never committed; publish them as GitHub Release assets.
 releases/*.zip
 releases/*.sha256
 releases/*.tgz
+releases/*.zip.sha256
+releases/*.tgz.sha256
 
 # Graphify: graph is rebuilt locally (code-only, no LLM): graphify update .
 graphify-out/
