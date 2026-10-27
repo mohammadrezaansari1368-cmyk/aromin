@@ -9,6 +9,7 @@ import { currentTenant } from '@/lib/data'
 import { actionsFor, COLLECTION_FA, SKILL_FIELDS, SURFACE_FA, type AgentMeta, type AgentRec, type Skill } from '@/lib/agents'
 import { BTN_DANGER, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
 import SkillInstaller from './SkillInstaller'
+import ZurvanSetup from './ZurvanSetup'
 
 type Agents = Record<string, AgentRec>
 type Site = { siteId: string; name: string; domain: string }
@@ -79,6 +80,7 @@ export default function AgentsCard({ session }: { session: Session }) {
 					)
 				})}
 			</div>
+			<ZurvanSetup session={session} />
 			<p className="text-[11.5px] text-muted-foreground">سایت انتخاب نشود = همهٔ سایت‌ها. «دیجیتال مارکتینگ» فقط پیش‌نویس می‌دهد و هیچ‌چیز را منتشر نمی‌کند.</p>
 			<div className="flex flex-wrap items-center gap-2">
 				<button type="button" className={BTN_PRIMARY} disabled={busy} onClick={save}>ذخیرهٔ ایجنت‌ها</button>
@@ -91,6 +93,7 @@ export default function AgentsCard({ session }: { session: Session }) {
 						<div className="mb-3 flex items-center justify-between"><b className="text-[15px]">{a.name}</b><button type="button" className={BTN_GHOST} onClick={() => setEdit(null)}>بستن</button></div>
 						<label className="grid gap-1 text-[12.5px] font-bold">پرامپتِ سیستم{edit === 'online_expert' && <span className="font-normal text-muted-foreground">خالی = همان پرامپتِ «دستیارِ فروشِ سایت»</span>}
 							<textarea className={`${INPUT} min-h-28 py-2`} maxLength={4000} value={a.prompt} onChange={(e) => patch(edit, { prompt: e.target.value })} /></label>
+						{edit === 'zurvan' && <label className="mt-3 grid gap-1">مدل آروان<select className={INPUT} value={a.model} onChange={(e) => patch(edit, { model: e.target.value })}>{(meta.models || []).map((m) => <option key={m}>{m}</option>)}</select></label>}
 						<fieldset className="mt-3 grid gap-2"><legend className="text-[12.5px] font-bold">مهارت‌ها</legend>
 							{a.skills.map((sk, i) => (
 								<div key={i} className="grid gap-1.5 rounded-md border border-border p-2">

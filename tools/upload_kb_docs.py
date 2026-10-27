@@ -12,6 +12,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--tenant", default="team")
 ap.add_argument("--dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "kb_docs"))
 ap.add_argument("--base", default="https://dashboard.arominco.com")
+ap.add_argument("--collection", default="general")
+ap.add_argument("--internal", action="store_true")
 ap.add_argument("--dry-run", action="store_true")
 a = ap.parse_args()
 files = sorted(glob.glob(os.path.join(a.dir, "*.md")))
@@ -26,7 +28,7 @@ for f in files:
     name = os.path.basename(f)
     raw = open(f, "rb").read()
     oid = str(uuid.uuid5(uuid.NAMESPACE_URL, "aromin-bot-kb:" + a.tenant + ":" + name))
-    body = {"filename": name, "data": base64.b64encode(raw).decode(), "id": oid}
+    body = {"filename": name, "data": base64.b64encode(raw).decode(), "id": oid, "collections": [a.collection], "internal": a.internal}
     if a.dry_run:
         print(f"DRY {name} {len(raw)} bytes id={oid}"); ok += 1; continue
     req = urllib.request.Request(f"{a.base}/api/knowledge?tenant={urllib.parse.quote(a.tenant)}", json.dumps(body).encode(), hdr, method="POST")

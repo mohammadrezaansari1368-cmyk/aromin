@@ -25,7 +25,7 @@ BK="$APP_DIR/backups-install/$TS"; mkdir -p "$BK"
 echo "› بکاپ در: $BK"
 [ -e "$SPA_DIR" ]            && cp -r "$SPA_DIR" "$BK/web"        || true
 [ -f "$SRV_DIR/server.py" ] && cp "$SRV_DIR/server.py" "$BK/"    || true
-for item in aromin_publish.py aromin_performance.py aromin_identity.py aromin_attendance.py aromin_calls.py aromin_tickets.py aromin_stage.py aromin_security.py aromin_sessions.py fix_stage_dates.py validate_ledger.py migrate.py assets migrations/005_publishing.sql migrations/005_publishing.down.sql.txt migrations/006_identity_attendance.sql migrations/006_identity_attendance.down.sql.txt migrations/007_calls.sql migrations/007_calls.down.sql.txt migrations/008_tickets.sql migrations/008_tickets.down.sql.txt migrations/009_batch_rows.sql migrations/009_batch_rows.down.sql.txt migrations/010_harikan_exports.sql migrations/010_harikan_exports.down.sql.txt migrations/011_aromin_agent.sql migrations/011_aromin_agent.down.sql.txt migrations/012_app_secrets.sql migrations/012_app_secrets.down.sql.txt migrations/013_api_keys.sql migrations/013_api_keys.down.sql.txt; do
+for item in zurvan_setup.py aromin_publish.py aromin_performance.py aromin_identity.py aromin_attendance.py aromin_calls.py aromin_tickets.py aromin_stage.py aromin_security.py aromin_sessions.py fix_stage_dates.py validate_ledger.py migrate.py assets migrations/005_publishing.sql migrations/005_publishing.down.sql.txt migrations/006_identity_attendance.sql migrations/006_identity_attendance.down.sql.txt migrations/007_calls.sql migrations/007_calls.down.sql.txt migrations/008_tickets.sql migrations/008_tickets.down.sql.txt migrations/009_batch_rows.sql migrations/009_batch_rows.down.sql.txt migrations/010_harikan_exports.sql migrations/010_harikan_exports.down.sql.txt migrations/011_aromin_agent.sql migrations/011_aromin_agent.down.sql.txt migrations/012_app_secrets.sql migrations/012_app_secrets.down.sql.txt migrations/013_api_keys.sql migrations/013_api_keys.down.sql.txt; do
   mkdir -p "$BK/$(dirname "$item")"
   if [ -e "$SRV_DIR/$item" ]; then cp -r "$SRV_DIR/$item" "$BK/$item"; else touch "$BK/$item.absent"; fi
 done
@@ -38,6 +38,7 @@ cp "$HERE/server.py" "$SRV_DIR/server.py"
 cp "$HERE/aromin_publish.py" "$SRV_DIR/aromin_publish.py"
 cp "$HERE/aromin_performance.py" "$HERE/aromin_stage.py" "$HERE/fix_stage_dates.py" "$HERE/validate_ledger.py" "$SRV_DIR/"
 cp "$HERE/aromin_identity.py" "$HERE/aromin_attendance.py" "$HERE/aromin_calls.py" "$HERE/aromin_tickets.py" "$SRV_DIR/"   # server.py imports these (WP-A/B/C/4)
+cp "$HERE/zurvan_setup.py" "$SRV_DIR/"
 cp "$HERE/aromin_security.py" "$HERE/aromin_sessions.py" "$SRV_DIR/"   # server.py imports these (WP-05/WP-01); missing → ModuleNotFoundError on startup → auto-rollback
 cp "$HERE/migrate.py" "$SRV_DIR/migrate.py"   # server.py: from migrate import run_migrations — missing file exits on startup and the health check rolls back
 # «تغییر مرحله» + اصلاحِ تاریخی (dry-run پیش‌فرض) + گزارشِ اعتبارسنجی (فقط خواندن)

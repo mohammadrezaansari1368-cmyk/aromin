@@ -29,6 +29,8 @@ export default function WidgetInstallCard({ session }: { session: Session }) {
 	const admin = isAdmin(session.role)
 	const [sites, setSites] = useState<Site[] | null>(null)
 	const [sel, setSel] = useState('')
+	const [zurvan, setZurvan] = useState(false)
+	const code = (id: string) => zurvan ? `<script async src="${location.origin}/zurvan-widget.js" data-site-id="${id}"></script>` : installCode(id)
 	const [form, setForm] = useState<Settings | null>(null)
 	const [add, setAdd] = useState({ name: '', domain: '', enabled: true })
 	const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -62,7 +64,7 @@ export default function WidgetInstallCard({ session }: { session: Session }) {
 	})
 	const selftest = () => run(async () => { setChecks((await call('POST', '/selftest?siteId=' + sel)).checks) })
 	const copy = async () => {
-		try { await navigator.clipboard.writeText(installCode(sel)); setMsg({ ok: true, text: 'کدِ نصب کپی شد.' }) } catch { setMsg({ ok: false, text: 'کپی نشد؛ کد را دستی انتخاب کنید.' }) }
+		try { await navigator.clipboard.writeText(code(sel)); setMsg({ ok: true, text: 'کدِ نصب کپی شد.' }) } catch { setMsg({ ok: false, text: 'کپی نشد؛ کد را دستی انتخاب کنید.' }) }
 	}
 	const preview = useMemo(() => form && `<!doctype html><html dir="rtl"><body style="margin:0;min-height:100vh;background:linear-gradient(#fafafa,#eee);font:14px sans-serif;color:#999"><p style="padding:16px">پیش‌نمایشِ صفحهٔ سایت</p><script src="${location.origin}/widget.js" data-open="1" data-preview="${esc(JSON.stringify(form))}"></script></body></html>`, [form])
 	// «تست ابزارک»: همان ابزارکِ واقعی و همان API عمومی؛ از داشبورد فقط با ورودِ معتبر پذیرفته می‌شود
@@ -103,7 +105,8 @@ export default function WidgetInstallCard({ session }: { session: Session }) {
 										<p className="text-[12.5px] font-extrabold">کدِ نصب — <bdi>{site.domain}</bdi></p>
 										<button type="button" onClick={copy} className={`${btn} bg-primary text-primary-foreground hover:bg-hover`}>کپی کد</button>
 									</div>
-									<textarea readOnly dir="ltr" value={installCode(site.siteId)} onFocus={(e) => e.target.select()} aria-label="کدِ نصب" className="h-24 w-full resize-none rounded-lg bg-muted/50 p-2 font-mono text-[11px] text-foreground outline-none ring-1 ring-border" />
+									<label className="flex gap-2"><input type="checkbox" checked={zurvan} onChange={e => setZurvan(e.target.checked)} />کد ویجت زروان (در رجیستری، زروان را برای این سایت فعال کنید)</label>
+									<textarea readOnly dir="ltr" value={code(site.siteId)} onFocus={(e) => e.target.select()} aria-label="کدِ نصب" className="h-24 w-full resize-none rounded-lg bg-muted/50 p-2 font-mono text-[11px] text-foreground outline-none ring-1 ring-border" />
 									<p className="mt-1 text-[11px] text-muted-foreground">قبل از <code dir="ltr">&lt;/head&gt;</code> سایت بگذارید · شناسه: <bdi className="font-mono">{site.siteId}</bdi></p>
 									<label className="mt-2 flex items-center gap-2 text-[12.5px]"><input type="checkbox" checked={site.enabled} disabled={!admin || busy} onChange={(e) => update({ enabled: e.target.checked }, e.target.checked ? 'سایت فعال شد.' : 'سایت غیرفعال شد.')} className="size-4" />سایت فعال است</label>
 								</div>
