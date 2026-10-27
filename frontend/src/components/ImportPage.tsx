@@ -105,9 +105,16 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 	const [busy, setBusy] = useState(false)
 	const [bridge, setBridge] = useState<Bridge>('connecting')
 	const [over, setOver] = useState(false)
+	const sessionRef = useRef(session)
+	sessionRef.current = session
 	const frame = useRef<HTMLIFrameElement>(null)
 	const input = useRef<HTMLInputElement>(null)
 	const pending = useRef<{ id: string; resolve: (v: unknown) => void } | null>(null)
+
+	const sendAuth = useCallback(() => {
+		if (session?.token) frame.current?.contentWindow?.postMessage({ aromin: 'auth', token: session.token }, location.origin)
+	}, [session?.token])
+	useEffect(() => { sendAuth() }, [sendAuth])
 
 	const queueRef = useRef<QItem[]>([])
 	queueRef.current = queue
@@ -116,10 +123,11 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 	// پل با اپِ کامل
 	useEffect(() => {
 		const onMsg = (ev: MessageEvent) => {
-			if (ev.origin !== location.origin) return
-			const d = ev.data || {}
-			if (d.aromin === 'import-ready') setBridge(d.ok ? 'ready' : 'failed')
-			if (d.aromin === 'import-result' && pending.current && d.id === pending.current.id) {
+			if (ev.origin !== location.origin || ev.source !== frame.current?.contentWindow) return
+			const d = ev.data
+			if (!d || typeof d !== 'object' || Array.isArray(d)) return
+			if (d.aromin === 'import-ready' && typeof d.ok === 'boolean') setBridge(d.ok ? 'ready' : 'failed')
+			if (d.aromin === 'import-result' && typeof d.ok === 'boolean' && pending.current && d.id === pending.current.id) {
 				pending.current.resolve(d)
 				pending.current = null
 			}
@@ -235,7 +243,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		const res = (await new Promise<unknown>((resolve) => {
 			pending.current = { id, resolve }
 			frame.current!.contentWindow!.postMessage(
-				{ aromin: 'import', id, files: eng.map((q) => ({ name: q.name, buf: q.buf })) },
+				{ aromin: 'import', id, token: sessionRef.current?.token, files: eng.map((q) => ({ name: q.name, buf: q.buf })) },
 				location.origin,
 			)
 			window.setTimeout(() => {
@@ -285,7 +293,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 
 	return (
 		<div className="space-y-3">
-			<iframe ref={frame} src="/legacy?embed=import" title="import-engine" className="hidden" aria-hidden="true" tabIndex={-1} />
+			<iframe ref={frame} onLoad={sendAuth} src="/legacy?embed=import" title="import-engine" className="hidden" aria-hidden="true" tabIndex={-1} />
 
 			<Sortable id="import.top" className="grid grid-cols-1 gap-3 lg:grid-cols-3" itemClass={spanOf}>
 				{/* ناحیهٔ رها کردن */}

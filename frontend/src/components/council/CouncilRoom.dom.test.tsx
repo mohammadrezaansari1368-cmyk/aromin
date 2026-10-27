@@ -62,6 +62,9 @@ describe('CouncilRoom', () => {
 	})
 	it('seats only ready advisors around the globe, plays the council and shows the verdict sheet', async () => {
 		await act(async () => root.render(<CouncilRoom session={session} />)); await flush()
+		expect(el.querySelector('[data-seat]')).not.toBeNull()
+		expect(el.querySelector('[data-testid=council-globe]')).toBeNull()
+		await act(async () => { await new Promise((r) => setTimeout(r, 150)) })
 		expect(el.querySelector('[data-testid=council-globe]')).not.toBeNull()
 		expect(el.textContent).toContain('برای چه تصمیمی کمک می‌خواهید؟')
 		expect(btn('Raftari').disabled).toBe(true)
