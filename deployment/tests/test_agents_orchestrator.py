@@ -200,7 +200,7 @@ class WebsiteTurn(unittest.TestCase):
         lead.assert_not_called()
         self.assertEqual(out["lead"], {"ok": False, "error": "not-allowed"})
         self.assertIn(("team", SITE, "tool_refused", {"agent": "support", "code": "create_lead"}), ev)
-        self.assertEqual(sysm.call_args.kwargs["kb_scope"], ["general", "support", "dashboard_help"])
+        self.assertEqual(sysm.call_args.kwargs["kb_scope"], ["general", "support", "dashboard_help", "smartx"])
         self.assertIn("پشتیبانی", sysm.call_args.kwargs["persona"])
 
     def test_online_expert_is_the_current_site_assistant(self):

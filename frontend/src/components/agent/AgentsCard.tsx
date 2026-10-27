@@ -10,6 +10,7 @@ import { actionsFor, COLLECTION_FA, SKILL_FIELDS, SURFACE_FA, type AgentMeta, ty
 import { BTN_DANGER, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
 import SkillInstaller from './SkillInstaller'
 import ZurvanSetup from './ZurvanSetup'
+import SupportLinkCard from './SupportLinkCard'
 
 type Agents = Record<string, AgentRec>
 type Site = { siteId: string; name: string; domain: string }
@@ -80,6 +81,7 @@ export default function AgentsCard({ session }: { session: Session }) {
 					)
 				})}
 			</div>
+			<SupportLinkCard session={session} />
 			<ZurvanSetup session={session} />
 			<p className="text-[11.5px] text-muted-foreground">سایت انتخاب نشود = همهٔ سایت‌ها. «دیجیتال مارکتینگ» فقط پیش‌نویس می‌دهد و هیچ‌چیز را منتشر نمی‌کند.</p>
 			<div className="flex flex-wrap items-center gap-2">
