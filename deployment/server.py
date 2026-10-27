@@ -9560,6 +9560,18 @@ def _google_ai_config(tenant):
     except (OSError, ValueError):
         return {}
 
+_GOOGLE_KEY_RE = re.compile(r'[A-Za-z0-9_-]{20,200}')
+_GOOGLE_KEY_DIGITS = {ord(c): str(i) for i, c in enumerate('۰۱۲۳۴۵۶۷۸۹')}
+_GOOGLE_KEY_DIGITS.update({ord(c): str(i) for i, c in enumerate('٠١٢٣٤٥٦٧٨٩')})
+
+def _normalize_google_key(raw):
+    # Pasted keys often carry invisible/bidi marks (ZWSP, ZWNJ, LRM/RLM, BOM), NBSP, line breaks,
+    # wrapping quotes or Persian digits; none of these can be part of a real key.
+    import unicodedata
+    text = unicodedata.normalize('NFKC', str(raw or '')).translate(_GOOGLE_KEY_DIGITS)
+    text = ''.join(ch for ch in text if unicodedata.category(ch)[0] not in 'ZC')
+    return text.strip('"\'`«»“”‘’')
+
 def _google_ai_public(cfg):
     return {'ok': True, 'enabled': bool(cfg.get('enabled')), 'configured': bool(cfg.get('key')), 'model': GOOGLE_MODEL}
 
@@ -9578,8 +9590,8 @@ def google_ai_save(request: Request, payload: dict = Body(default={})):
     if error is not None:
         return error
     cfg = _google_ai_config(tenant)
-    key = str(payload.get('key') or '').strip()
-    if key and not re.fullmatch(r'[A-Za-z0-9_-]{20,200}', key):
+    key = _normalize_google_key(payload.get('key'))
+    if key and not _GOOGLE_KEY_RE.fullmatch(key):
         return _c1_deny('ساختار کلید معتبر نیست.', 422)
     if key:
         cfg['key'] = key
@@ -9621,9 +9633,9 @@ def google_ai_test(request: Request, payload: dict = Body(default={})):
     if error is not None:
         return error
     cfg = _google_ai_config(tenant)
-    key = str(payload.get('key') or '').strip()
+    key = _normalize_google_key(payload.get('key'))
     if key:
-        if not re.fullmatch(r'[A-Za-z0-9_-]{20,200}', key):
+        if not _GOOGLE_KEY_RE.fullmatch(key):
             return _c1_deny('ساختار کلید معتبر نیست.', 422)
         cfg['key'] = key
     if not cfg.get('key'):
