@@ -3,6 +3,8 @@ import { authHeaders, isAdmin, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
 import { BTN_GHOST, BTN_PRIMARY, CARD, INPUT } from '@/components/ui/tokens'
 
+const networkMessage = (e: Error) => e instanceof TypeError || e.name === 'AbortError' ? 'اتصال به سرور برقرار نشد یا زمان‌بر شد؛ دوباره تلاش کنید و دسترسی شبکه را بررسی کنید.' : e.message
+
 export default function GoogleSettings({ session }: { session: Session }) {
  const [key, setKey] = useState(''), [enabled, setEnabled] = useState(false), [configured, setConfigured] = useState(false)
  const [message, setMessage] = useState(''), [busy, setBusy] = useState(false), [loaded, setLoaded] = useState(false)
@@ -12,18 +14,20 @@ export default function GoogleSettings({ session }: { session: Session }) {
   fetch(`/api/ai/google/settings?tenant=${encodeURIComponent(currentTenant())}`, { headers: authHeaders(session) }).then(async r => {
    const d = await r.json(); if (!r.ok || !d.ok) throw new Error(d.error || 'خواندن تنظیمات ناموفق بود')
    if (active) { setEnabled(d.enabled); setConfigured(d.configured); setLoaded(true) }
-  }).catch(e => { if (active) setMessage(e.message) })
+  }).catch(e => { if (active) setMessage(networkMessage(e)) })
   return () => { active = false }
  }, [session])
  if (!isAdmin(session.role)) return null
  const send = async (action: 'settings' | 'test') => {
   setBusy(true); setMessage('')
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 25000)
   try {
-   const r = await fetch(`/api/ai/google/${action}`, { method: 'POST', headers: { ...authHeaders(session), 'Content-Type': 'application/json' }, body: JSON.stringify({ tenant: currentTenant(), key, enabled }) })
+   const r = await fetch(`/api/ai/google/${action}`, { method: 'POST', signal: controller.signal, headers: { ...authHeaders(session), 'Content-Type': 'application/json' }, body: JSON.stringify({ tenant: currentTenant(), key, enabled }) })
    const d = await r.json(); if (!r.ok || !d.ok) throw new Error(d.error || 'درخواست ناموفق بود')
    if (action === 'settings') { setConfigured(d.configured); setKey('') }
    setMessage(action === 'test' ? 'اتصال Google موفق بود.' : 'تنظیمات دستیار ذخیره شد.')
-  } catch (e) { setMessage((e as Error).message) } finally { setBusy(false) }
+  } catch (e) { setMessage(networkMessage(e as Error)) } finally { clearTimeout(timer); setBusy(false) }
  }
  return <section dir="rtl" className={`${CARD} mb-4 space-y-3 p-4`} aria-label="تنظیمات دستیار Google">
   <h3 className="font-bold">دستیار هوشمند — Google API</h3>
