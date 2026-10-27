@@ -1,3 +1,5 @@
+2026-10-27 · codex/google-ig-fixes: Google با timeout محدود، رلهٔ HTTPS و deadline تست؛ Composio با تشخیص Consumer key، فیلتر user و لینک اتصال Instagram همراه reauth؛ UI و تست‌های آفلاین و طرح MCP. بدون تغییر نسخه، schema، dependency یا deploy.
+
 2026-10-27 · codex/dashboard-fixes-3.9.96: نشستِ تازه به iframeهای باز و ایمپورت، احراز پیش از بک‌آپ و retry یک‌بارهٔ 401؛ شورا با KB محدود به collection و Globe جدا؛ ابزارک با پاسخ فارسیِ مهارشده و تماس جایگزین. نسخهٔ runtime/health = 3.9.96؛ vitest 272/1 skipped، backend 363/6 skipped، tsc/build؛ شواهد و تصاویر: docs/plans/2026-10-27-dashboard-fixes-3.9.96.md. بدون commit/push/deploy یا تغییر schema/dependency؛ نصب و تنظیمات تولید با کاربر.
 
 2026-10-27 · codex/zurvan-agent: عامل زروان در رجیستری موجود، ویجت سبک و corpus آفلاینِ پاک‌سازی‌شده؛ پیشنهاد/تأیید/audit با جداسازی tenant و اتصال امنِ مالک زروان. اعمال خودکار فقط اعلان مأموریت به همکاران؛ باقی تنظیمات دستی. گزارش و فرمان‌های KB در docs/plans/2026-10-27-zurvan-agent.md؛ بدون commit/push/deploy/upload.

@@ -9609,22 +9609,36 @@ def google_ai_save(request: Request, payload: dict = Body(default={})):
             os.unlink(path)
     return _google_ai_public(cfg)
 
+GOOGLE_TEST_DEADLINE = 20
+GOOGLE_NETWORK_ERROR = 'از سرور به Google نمی‌رسد؛ احتمالاً دسترسی شبکه مسدود است — از رله/پروکسی GOOGLE_AI_BASE_URL استفاده کنید'
+
 def _google_chat(cfg, system, user, history=None, max_tokens=800, temperature=0.4):
     contents = [{'role': 'model' if m.get('role') == 'assistant' else 'user', 'parts': [{'text': str(m.get('content') or '')}]} for m in (history or []) if m.get('role') in ('user', 'assistant')]
     if user:
         contents.append({'role': 'user', 'parts': [{'text': user}]})
     body = {'systemInstruction': {'parts': [{'text': system}]}, 'contents': contents, 'generationConfig': {'maxOutputTokens': max_tokens, 'temperature': temperature}}
-    url = 'https://generativelanguage.googleapis.com/v1beta/models/' + urllib.parse.quote(GOOGLE_MODEL, safe='') + ':generateContent'
+    base = os.environ.get('GOOGLE_AI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta').rstrip('/')
+    parsed = urllib.parse.urlsplit(base)
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
+        return {'ok': False, 'error': 'GOOGLE_AI_BASE_URL باید نشانی HTTPS معتبر باشد.'}
+    try:
+        timeout = max(3, min(20, float(os.environ.get('GOOGLE_AI_TIMEOUT', '12'))))
+    except ValueError:
+        timeout = 12
+    url = base + '/models/' + urllib.parse.quote(GOOGLE_MODEL, safe='') + ':generateContent'
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={'Content-Type': 'application/json', 'x-goog-api-key': cfg['key']}, method='POST')
     try:
-        with urllib.request.urlopen(req, timeout=30) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             data = json.loads(response.read())
         text = ''.join(part.get('text', '') for c in data.get('candidates', []) for part in c.get('content', {}).get('parts', []) if not part.get('thought'))
         return {'ok': bool(text.strip()), 'text': text.strip(), **({} if text.strip() else {'error': 'Google پاسخی برنگرداند.'})}
     except urllib.error.HTTPError as e:
-        return {'ok': False, 'error': 'اتصال Google ناموفق بود (HTTP %s).' % e.code}
+        message = {400: 'کلید Google نامعتبر است یا منطقه پشتیبانی نمی‌شود.',
+                   401: 'کلید Google نامعتبر است.', 403: 'کلید Google مجاز نیست یا منطقه پشتیبانی نمی‌شود.',
+                   429: 'سهمیه Google تمام شده است؛ کمی بعد دوباره تلاش کنید.'}.get(e.code, 'اتصال Google ناموفق بود (HTTP %s).' % e.code)
+        return {'ok': False, 'error': message}
     except Exception:
-        return {'ok': False, 'error': 'اتصال Google برقرار نشد؛ شبکه و تنظیمات کلید را بررسی کنید.'}
+        return {'ok': False, 'error': GOOGLE_NETWORK_ERROR}
 
 @app.post('/api/ai/google/test')
 def google_ai_test(request: Request, payload: dict = Body(default={})):
@@ -9640,7 +9654,18 @@ def google_ai_test(request: Request, payload: dict = Body(default={})):
         cfg['key'] = key
     if not cfg.get('key'):
         return _c1_deny('کلیدی ذخیره نشده است.', 422)
-    result = _google_chat(cfg, 'Connection test. Respond briefly.', 'Reply OK.', max_tokens=128)
+    result = {'ok': False, 'error': GOOGLE_NETWORK_ERROR}
+    done = _th.Event()
+    def test_connection():
+        try:
+            result.update(_google_chat(cfg, 'Connection test. Respond briefly.', 'Reply OK.', max_tokens=128))
+        except Exception:
+            pass  # Never expose provider bodies or credentials.
+        finally:
+            done.set()
+    _th.Thread(target=test_connection, daemon=True).start()
+    if not done.wait(GOOGLE_TEST_DEADLINE):
+        return {'ok': False, 'error': GOOGLE_NETWORK_ERROR}
     return {'ok': result['ok'], **({} if result['ok'] else {'error': result['error']})}
 
 
@@ -10558,7 +10583,7 @@ def council_job(request: Request, jid: str = PathParam(...), tenant: str = Query
 # کلید فقط در «توکن‌ها» (app_secrets: composio_api)؛ شناسهٔ حسابِ متصل در ig_<tenant>.json (غیرمحرمانه، همراهِ آخرین پنل).
 # پنل: آنالیزِ ریل‌ها (بالاتر از میانگین + دلیل)، الگوهای وایرال، اینباکس (دسته‌بندی + پاسخِ پیشنهادی)، نقشهٔ محتوا. ایجنت‌ها: marketing،
 # sales (مذاکره)، quick_reply (کامنت)، lead_gen (لید با شماره → sa_create_lead = ارجاع به کارشناس). هیچ پاسخی خودکار فرستاده نمی‌شود؛ ارسال = کلیکِ مدیر.
-COMPOSIO_URL = os.environ.get("COMPOSIO_URL", "https://backend.composio.dev/api/v3").rstrip("/")
+COMPOSIO_URL = os.environ.get("COMPOSIO_API_BASE", os.environ.get("COMPOSIO_URL", "https://backend.composio.dev/api/v3")).rstrip("/")
 IG_MEDIA_FIELDS = "id,caption,media_type,media_product_type,permalink,timestamp,like_count,comments_count,view_count,saved_count,shares_count,total_views_count"
 IG_HOUR_TZ = datetime.timedelta(hours=3, minutes=30)
 _ig_live = {}
@@ -10595,6 +10620,10 @@ def _composio_req(method, path, body=None, key=None, timeout=40):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8", "ignore") or "{}")
     except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            if key.startswith("ck_"):
+                raise RuntimeError("این کلید Consumer برای Claude/Codex MCP است؛ داشبورد به Project API key (ak_…) از Composio Platform → Settings نیاز دارد.") from None
+            raise RuntimeError("کلید Composio نامعتبر است؛ Project API key را بررسی کنید." if e.code == 401 else "دسترسی Composio مجاز نیست؛ مجوزهای پروژه را بررسی کنید.") from None
         raise RuntimeError("Composio %d" % e.code) from None
 
 
@@ -10613,7 +10642,11 @@ def _ig_items(d):
 
 def ig_discover(key=None):
     """حسابِ فعالِ اینستاگرام روی همان کلید (اولین ACTIVE)."""
-    j = _composio_req("GET", "/connected_accounts?toolkit_slugs=instagram&statuses=ACTIVE", key=key)
+    path = "/connected_accounts?toolkit_slugs=instagram&statuses=ACTIVE"
+    user_id = os.environ.get("COMPOSIO_IG_USER_ID") or os.environ.get("COMPOSIO_USER_ID")
+    if user_id:
+        path += "&" + urllib.parse.urlencode({"user_ids": user_id})
+    j = _composio_req("GET", path, key=key)
     items = [x for x in (j.get("items") or j.get("data") or []) if str(x.get("status") or "").upper() == "ACTIVE"]
     return items[0]["id"] if items else ""
 
@@ -10847,6 +10880,29 @@ def ig_status(request: Request, tenant: str = Query(default="")):
             "enabled": bool(cfg.get("enabled")), "lastRun": cfg.get("lastRun"), "running": (_ig_live.get(tenant) or {}).get("running", False)}
 
 
+@app.post("/api/instagram/link")
+def ig_link(request: Request, payload: dict = Body(default={}), tenant: str = Query(default="")):
+    ident, err = _kb_guard(request, tenant)
+    if err is not None:
+        return err
+    if not _reauth_ok(ident, tenant, payload.get("password")):
+        return JSONResponse({"ok": False, "error": "رمزِ فعلیِ حساب نادرست است."}, status_code=403)
+    auth_config = os.environ.get("COMPOSIO_IG_AUTH_CONFIG")
+    if not auth_config:
+        return JSONResponse({"ok": False, "error": "COMPOSIO_IG_AUTH_CONFIG برای اتصال Instagram تنظیم نشده است."}, status_code=400)
+    user_id = os.environ.get("COMPOSIO_IG_USER_ID") or os.environ.get("COMPOSIO_USER_ID") or "aromin-" + tenant
+    try:
+        response = _composio_req("POST", "/connected_accounts/link", {"toolkit_slug": "INSTAGRAM", "auth_config_id": auth_config, "user_id": user_id})
+        url = response.get("redirect_url")
+        parsed = urllib.parse.urlsplit(url) if isinstance(url, str) else None
+        if not parsed or parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+            raise RuntimeError("لینک HTTPS معتبر از Composio دریافت نشد.")
+    except (RuntimeError, ValueError, urllib.error.URLError, TimeoutError) as e:
+        message = str(e) if isinstance(e, RuntimeError) else "ارتباط با Composio برقرار نشد."
+        return JSONResponse({"ok": False, "error": message}, status_code=502)
+    return {"ok": True, "url": url}
+
+
 @app.post("/api/instagram/connect")
 def ig_connect(request: Request, payload: dict = Body(default={}), tenant: str = Query(default="")):
     ident, err = _kb_guard(request, tenant)
@@ -10857,7 +10913,7 @@ def ig_connect(request: Request, payload: dict = Body(default={}), tenant: str =
     try:
         acc = ig_discover()
         if not acc:
-            return JSONResponse({"ok": False, "error": "در Composio حسابِ فعالِ اینستاگرامی پیدا نشد."}, status_code=400)
+            return JSONResponse({"ok": False, "error": "حساب ACTIVE پیدا نشد؛ Instagram را در همان پروژهٔ Composio مربوط به کلید وصل کنید؛ اتصال‌های پروژهٔ Consumer در اینجا دیده نمی‌شوند. حساب Business/Creator متصل به Facebook Page لازم است. از دکمهٔ «ساخت لینکِ اتصال» استفاده کنید."}, status_code=400)
         ig_save(tenant, dict(ig_cfg(tenant), account=acc))
         prof = ig_call(tenant, "INSTAGRAM_GET_USER_INFO", {"ig_user_id": "me", "fields": "id,username,followers_count"})
     except RuntimeError as e:
