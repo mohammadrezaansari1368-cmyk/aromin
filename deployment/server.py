@@ -997,10 +997,10 @@ AI_PERSONA = AROMIN_IDENTITY + ASSISTANT_CHANNELS["dashboard"]     # سازگا�
 ASSISTANT_INTERNAL_SCOPES = {"dashboard", "harikan"}   # channels of the owner's own systems: internal knowledge allowed
 
 
-def assistant_system(tenant, scope="dashboard", persona=None, query="", kb_scope=None, kb_ids=None):
+def assistant_system(tenant, scope="dashboard", persona=None, query="", kb_scope=None, kb_ids=None, timeout=None):
     """هستهٔ مشترکِ دستیار (داشبورد + ابزارکِ سایت + تلگرام): هویت و قواعدِ ثابت + زمینهٔ کانال + دانشِ همان کسب‌وکار.
     فقط scope="dashboard" دانشِ «فقط داخلی» را می‌بیند. persona (پرامپتِ دستیارِ فروش در تنظیمات) افزوده می‌شود و جای هویت را نمی‌گیرد."""
-    kb = kb_context(tenant, public=(scope not in ASSISTANT_INTERNAL_SCOPES), query=query, scope=kb_scope, ids=kb_ids)
+    kb = kb_context(tenant, public=(scope not in ASSISTANT_INTERNAL_SCOPES), query=query, scope=kb_scope, ids=kb_ids, **({"timeout": timeout} if timeout is not None else {}))
     system = AROMIN_IDENTITY + ASSISTANT_CHANNELS.get(scope, "")
     if persona:
         system += "\n\n### دستورالعملِ نقشِ فروش (از تنظیماتِ مدیر؛ قواعدِ هویت و صحتِ بالا بر آن مقدم است):\n" + persona
@@ -1009,7 +1009,7 @@ def assistant_system(tenant, scope="dashboard", persona=None, query="", kb_scope
     return system
 
 
-def ai_chat(system, user, max_tokens=800, temperature=0.4, history=None, tenant=None, model=None, arvan_only=False):
+def ai_chat(system, user, max_tokens=800, temperature=0.4, history=None, tenant=None, model=None, arvan_only=False, timeout=60):
     google = _google_ai_config(tenant) if tenant else {}
     if not arvan_only and google.get('enabled') and google.get('key'):
         return _google_chat(google, system, user, history, max_tokens, temperature)
@@ -1031,7 +1031,7 @@ def ai_chat(system, user, max_tokens=800, temperature=0.4, history=None, tenant=
         "Authorization": "Bearer " + AI_KEY,
     })
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.loads(r.read().decode("utf-8", "ignore"))
         text = ""
         try:
@@ -1455,8 +1455,8 @@ def _kb_put(tenant, item):
         raise S3Error(502, "ذخیره در فضای ابری انجام نشد" + _s3_why(st, rb) + ".")
 
 
-def _kb_head(tenant, oid):
-    st, h, _ = _s3("HEAD", _kb_prefix(tenant) + oid + ".json")
+def _kb_head(tenant, oid, timeout=None):
+    st, h, _ = _s3("HEAD", _kb_prefix(tenant) + oid + ".json", **({"timeout": timeout} if timeout is not None else {}))
     if st == 404:
         return None
     if st != 200:
@@ -1468,13 +1468,13 @@ def _kb_head(tenant, oid):
             "internal": g.get("x-amz-meta-internal") == "1", "collections": kb_cols(g.get("x-amz-meta-collections"))}
 
 
-def _kb_keys(tenant):
+def _kb_keys(tenant, timeout=None):
     keys, token = [], None
     while True:
         qy = {"list-type": "2", "prefix": _kb_prefix(tenant)}
         if token:
             qy["continuation-token"] = token
-        st, _, body = _s3("GET", "", query=qy)
+        st, _, body = _s3("GET", "", query=qy, **({"timeout": timeout} if timeout is not None else {}))
         if st != 200:
             raise S3Error(502, "فهرستِ دانش خوانده نشد" + _s3_why(st, body) + ".")
         root = _ET.fromstring(body)
@@ -1530,10 +1530,11 @@ def kb_migrate(tenant):
     return moved
 
 
-def kb_list(tenant):
-    ids = _kb_keys(tenant)
+def kb_list(tenant, timeout=None):
+    opts = {"timeout": timeout} if timeout is not None else {}
+    ids = _kb_keys(tenant, **opts)
     with _Pool(max_workers=8) as ex:
-        items = [x for x in ex.map(lambda i: _kb_head(tenant, i), ids) if x]
+        items = [x for x in ex.map(lambda i: _kb_head(tenant, i, **opts), ids) if x]
     return sorted(items, key=lambda x: x.get("createdAt") or "", reverse=True)
 
 
@@ -1543,10 +1544,10 @@ KB_CHUNK = 900                                                      # انداز
 _kb_docs_cache = {}
 
 
-def _kb_docs(tenant, public=False, scope=None):
+def _kb_docs(tenant, public=False, scope=None, timeout=None):
     """[(filename, text, id, collections)] همهٔ فایل‌های آمادهٔ همان کسب‌وکار (کش ۶۰ ثانیه)؛ public: «فقط داخلی» حذف.
     scope (3.9.64، فهرستِ مجموعه‌های مجازِ یک ایجنت): فقط فایل‌های همان مجموعه‌ها (+ راهنمای داخلیِ داشبورد اگر در scope باشد)."""
-    docs = _kb_read_docs(tenant, public, scope)
+    docs = _kb_read_docs(tenant, public, scope, **({"timeout": timeout} if timeout is not None else {}))
     if scope is not None and "dashboard_help" in scope and not public:
         help_text = _kb_help_text()
         if help_text:
@@ -1554,7 +1555,7 @@ def _kb_docs(tenant, public=False, scope=None):
     return docs
 
 
-def _kb_read_docs(tenant, public=False, scope=None):
+def _kb_read_docs(tenant, public=False, scope=None, timeout=None):
     if not _TENANT_RE.match(tenant or "") or not _s3_ready():
         return []
     ck = tenant + "|public" if public else tenant
@@ -1570,13 +1571,15 @@ def _kb_read_docs(tenant, public=False, scope=None):
             return hit[1]
     docs = []
     try:
-        kb_migrate(tenant)
-        for it in sorted(kb_list(tenant), key=lambda x: x.get("createdAt") or ""):
+        opts = {"timeout": timeout} if timeout is not None else {}
+        if timeout is None:
+            kb_migrate(tenant)
+        for it in sorted(kb_list(tenant, **opts), key=lambda x: x.get("createdAt") or ""):
             if scope is not None and not set(scope).intersection(kb_cols(it.get("collections"))):
                 continue
             if it.get("status") != "ready" or it.get("source") == "store-sync":
                 continue
-            st, _, body = _s3("GET", _kb_prefix(tenant) + it["id"] + ".json")
+            st, _, body = _s3("GET", _kb_prefix(tenant) + it["id"] + ".json", **opts)
             if st != 200:
                 continue
             obj = json.loads(body.decode("utf-8"))
@@ -1674,11 +1677,13 @@ def kb_retrieve(chunks, query, k=None, budget=None, ids=None):
     return out
 
 
-def kb_context(tenant, public=False, query="", scope=None, ids=None):
+def kb_context(tenant, public=False, query="", scope=None, ids=None, timeout=None):
     """دانشِ مرتبط با پرسش (top-k تکه) به‌جای ۶۰۰۰ نویسهٔ اولِ همهٔ فایل‌ها؛ بدونِ پرسش/بدونِ تطبیق → رفتارِ قبلی.
     scope: فقط مجموعه‌های مجازِ ایجنت (هرگز بیرون از آن)؛ ids: شناسهٔ منابعِ استفاده‌شده."""
+    if timeout is not None and scope is None:
+        scope = KB_COLLECTIONS
     if scope is not None:
-        docs = _kb_docs(tenant, public, scope)
+        docs = _kb_docs(tenant, public, scope, **({"timeout": timeout} if timeout is not None else {}))
         hits = kb_retrieve(kb_chunks(docs), query, ids=ids) if query else []
         if hits:
             return "\n\n".join(hits)
@@ -6482,14 +6487,14 @@ def sa_sync_products(tenant):
     return len(lines)
 
 
-def _sa_catalog(tenant):
+def _sa_catalog(tenant, timeout=None):
     hit = _sa_cache.get(("catalog", tenant))
-    if hit:
+    if hit and (hit[1] or time.time() - hit[0] < 60):
         return hit[1]
     lines = []
     try:
         if _s3_ready():
-            st, _, body = _s3("GET", _kb_prefix(tenant) + _SA_CATALOG_ID(tenant) + ".json")
+            st, _, body = _s3("GET", _kb_prefix(tenant) + _SA_CATALOG_ID(tenant) + ".json", **({"timeout": timeout} if timeout is not None else {}))
             if st == 200:
                 obj = json.loads(body.decode("utf-8"))
                 if obj.get("businessId") == tenant and not obj.get("internal"):
@@ -6500,8 +6505,8 @@ def _sa_catalog(tenant):
     return lines
 
 
-def sa_products_ctx(tenant, texts, page_url=""):
-    lines = _sa_catalog(tenant)
+def sa_products_ctx(tenant, texts, page_url="", timeout=None):
+    lines = _sa_catalog(tenant, **({"timeout": timeout} if timeout is not None else {}))
     if not lines:
         return "", ""
     toks = _sa_tokens(" ".join(texts))
@@ -6551,13 +6556,49 @@ _SA_POOL = _cf.ThreadPoolExecutor(max_workers=SA_TURN_WORKERS, thread_name_prefi
 _SA_SLOTS = _th.BoundedSemaphore(SA_TURN_WORKERS)
 
 
+SA_STAGES = ("catalog", "knowledge", "grounding", "model", "search")
+_SA_READ_POOL = _cf.ThreadPoolExecutor(max_workers=8, thread_name_prefix="sa-read")
+_SA_READ_SLOTS = _th.BoundedSemaphore(8)
+_SA_READ_FAILURES = {}
+_SA_READ_LOCK = _th.Lock()
+
+
+def _sa_read(key, call, fallback, turn):
+    """Bound the entire read stage, including serial S3 calls; cache failures for 60s."""
+    with _SA_READ_LOCK:
+        now = time.monotonic()
+        for expired in [k for k, until in _SA_READ_FAILURES.items() if until <= now]:
+            _SA_READ_FAILURES.pop(expired, None)
+        if key in _SA_READ_FAILURES:
+            return fallback
+        # Also suppress concurrent retries while the first read is in flight.
+        _SA_READ_FAILURES[key] = now + 60
+    if not _SA_READ_SLOTS.acquire(blocking=False):
+        return fallback
+    try:
+        future = _SA_READ_POOL.submit(call)
+    except Exception:
+        _SA_READ_SLOTS.release()
+        return fallback
+    future.add_done_callback(lambda f: _SA_READ_SLOTS.release())
+    try:
+        result = future.result(timeout=max(.001, min(8, (turn["deadline"] - time.monotonic()) / 4)))
+    except Exception:
+        return fallback
+    with _SA_READ_LOCK:
+        _SA_READ_FAILURES.pop(key, None)
+    return result
+
+
 def sa_reply(site, history, page=None, conv="", visitor="", dry_run=False, spec=None):
     """One visitor turn under a single deadline. On expiry (or when all slots are busy) the visitor gets the Persian fallback at
     once; a lead the model already proposed in an earlier turn is in the DB and stays; a turn finishing late is not shown."""
     if not _SA_SLOTS.acquire(blocking=False):
         return sa_unavailable("busy")
+    turn = {"stage": "catalog", "deadline": time.monotonic() + SA_TURN_BUDGET,
+            "timing": {"llm": [], "search": []}, "start": time.perf_counter()}
     try:
-        fut = _SA_POOL.submit(_sa_reply_turn, site, history, page, conv, visitor, dry_run, spec)
+        fut = _SA_POOL.submit(_sa_reply_turn, site, history, page, conv, visitor, dry_run, spec, turn)
     except Exception:
         _SA_SLOTS.release()
         return sa_unavailable("worker")
@@ -6565,8 +6606,9 @@ def sa_reply(site, history, page=None, conv="", visitor="", dry_run=False, spec=
     try:
         return fut.result(timeout=SA_TURN_BUDGET)
     except _cf.TimeoutError:
-        print("[SA] turn budget exceeded (%ss)" % SA_TURN_BUDGET)
-        return sa_unavailable("timeout")
+        stage = turn["stage"] if turn["stage"] in SA_STAGES else "catalog"
+        _sa_timing_log(turn["timing"], turn["start"], "timeout stage=" + stage)
+        return dict(sa_unavailable("timeout"), stage=stage)
     except Exception:
         return sa_unavailable("worker")
 
@@ -6599,24 +6641,35 @@ _BUY_RE = re.compile(r"(نرم ?‌?افزار|سپیدز|برنامه(ی)? (ر�
 WIDGET_MODELS = ("GPT-5.6-Luna", "DeepSeek-V4-Flash", "Claude-Haiku-4.5", "Gemini-2.5-Flash")
 
 
-def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False, spec=None):
+def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False, spec=None, turn=None):
     """حالتِ دستیارِ فروش: پرامپتِ تنظیمات + دانشِ عمومی + کاتالوگِ مرتبط + جستجوی امن (سقفِ ۳) + ثبتِ لید.
     spec (3.9.64): پرامپت، مجموعه‌های دانش و actionهای ایجنتِ انتخاب‌شده توسطِ ارکستراتور."""
     tenant = site["tenant"]
     page = page or {}
     texts = [m["content"] for m in history if m["role"] == "user"]
-    tm, t0 = {"llm": [], "search": []}, time.perf_counter()          # per-stage seconds, logged without any message text
+    turn = turn if turn is not None else {"deadline": time.monotonic() + SA_TURN_BUDGET, "timing": {"llm": [], "search": []}, "start": time.perf_counter()}
+    tm, t0 = turn["timing"], turn["start"]          # per-stage seconds, logged without any message text
     lap = lambda k, st: tm.__setitem__(k, round(time.perf_counter() - st, 2))
     st = time.perf_counter()
     zurvan = bool(spec and spec["agent"] == "zurvan")
-    catalog, page_product = ("", "") if zurvan else sa_products_ctx(tenant, texts[-3:], page.get("url") or "")
+    turn["stage"] = "catalog"
+    catalog, page_product = ("", "") if zurvan else _sa_read(("catalog", tenant),
+        lambda: sa_products_ctx(tenant, texts[-3:], page.get("url") or "", timeout=8), ("", ""), turn)
     lap("catalog", st)
     if not page_product and "/product/" in urllib.parse.urlsplit(page.get("url") or "").path and page.get("title"):
         page_product = _sa_clean(re.split(r"\s[|–-]\s", page["title"])[0], 200)     # صفحهٔ محصول بیرون از کاتالوگ → نام از عنوانِ صفحه
     st = time.perf_counter()
     kb_ids = []
-    system = (assistant_system(tenant, scope="public", persona=(spec or {}).get("persona") or sa_prompt(tenant), query=" ".join(texts[-2:]),
-                               kb_scope=(spec or {}).get("scope"), kb_ids=kb_ids) + WIDGET_CONTEXT.format(name=site.get("name") or "") + SA_PROTOCOL)
+    turn["stage"] = "knowledge"
+    persona = (spec or {}).get("persona") or sa_prompt(tenant)
+    identity = AROMIN_IDENTITY + ASSISTANT_CHANNELS.get("public", "") + "\n\n" + persona
+    def knowledge():
+        ids = []
+        prompt = assistant_system(tenant, scope="public", persona=persona, query=" ".join(texts[-2:]),
+                                  kb_scope=(spec or {}).get("scope"), kb_ids=ids, timeout=8)
+        return prompt, ids
+    system, kb_ids = _sa_read(("knowledge", tenant, tuple((spec or {}).get("scope") or ())), knowledge, (identity, []), turn)
+    system += WIDGET_CONTEXT.format(name=site.get("name") or "") + SA_PROTOCOL
     lap("knowledge", st)
     if zurvan and not kb_ids:
         return sa_unavailable("knowledge")
@@ -6628,6 +6681,7 @@ def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False,
         system += ("\n\n[داده] محصولاتِ مرتبطِ فروشگاه از فهرستِ روزانه (نام | قیمت | موجودی | نشانی؛ برای قیمت و موجودیِ دقیق فقط "
                    "«اطلاعاتِ تأییدشدهٔ محصول» معتبر است):\n" + catalog)
     st = time.perf_counter()
+    turn["stage"] = "grounding"
     if not zurvan:
         system += assistant_grounding(texts[-2:], page.get("url") or "")
     lap("grounding", st)
@@ -6638,7 +6692,8 @@ def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False,
     out = {"ok": False}
     for _ in range(3):
         st = time.perf_counter()
-        out = ai_chat(system, None, max_tokens=600, temperature=0.4, history=msgs, model=(spec["model"] if zurvan else site.get("_model") or agent_model(tenant)), **({"arvan_only": True} if zurvan else {}))
+        turn["stage"] = "model"
+        out = ai_chat(system, None, timeout=max(3, min(60, turn["deadline"] - time.monotonic() - 2)), max_tokens=600, temperature=0.4, history=msgs, model=(spec["model"] if zurvan else site.get("_model") or agent_model(tenant)), **({"arvan_only": True} if zurvan else {}))
         tm["llm"].append(round(time.perf_counter() - st, 2))
         if not out.get("ok"):
             _sa_timing_log(tm, t0, "error")
@@ -6657,6 +6712,7 @@ def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False,
             searches += 1
             st = time.perf_counter()
             try:
+                turn["stage"] = "search"
                 res = sa_search(qtext)
             except Exception:
                 res = []
