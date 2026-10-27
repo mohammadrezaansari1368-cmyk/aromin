@@ -33,6 +33,20 @@ class SiteLatency(unittest.TestCase):
             self.reply(history=[{'role': 'user', 'content': 'prompt'}, {'role': 'user', 'content': text}])
             self.assertNotIn(server.SA_PROMPT_MASTER, self.ai_chat.call_args.args[0])
 
+    def test_slow_grounding_degrades_to_unverified_notice_not_silence(self):
+        def slow(*a, **k):
+            time.sleep(1.5)
+            return 'VERIFIED'
+        with patch.object(server, 'assistant_grounding', side_effect=slow), patch.object(server, 'SA_TURN_BUDGET', 4):
+            self.reply('قیمت صندوق چقدره؟')
+        prompt = self.ai_chat.call_args.args[0]
+        self.assertNotIn('VERIFIED', prompt)
+        self.assertIn(server._grounding_unverified().strip(), prompt)
+        server._SA_READ_FAILURES.clear()
+        self.reply('سلام')
+        self.assertNotIn(server._grounding_unverified().strip(), self.ai_chat.call_args.args[0])
+
+
     def test_widget_cap_leaves_dashboard_and_telegram_unchanged(self):
         with patch.object(server, 'SA_KB_MAX', 1234):
             self.reply()

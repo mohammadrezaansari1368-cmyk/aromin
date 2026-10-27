@@ -6682,8 +6682,11 @@ def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False,
             return assistant_grounding(texts[-2:], page.get("url") or "")
         finally:
             lap("grounding", grounding_start)
+    g_last = texts[-1] if texts else ""
+    g_needed = bool(_product_url(page.get("url") or "")) or bool(_PRODUCT_INTENT.search(g_last))
     grounding_result = (lambda: "") if zurvan else _sa_read(
-        ("grounding", tenant), grounding, "", turn, defer=True)
+        ("grounding", tenant, (page.get("url") or "")[:200], g_last[:200]), grounding,
+        _grounding_unverified() if g_needed else "", turn, defer=True)   # slow/failed/in-flight → "can't verify", never a silent guess
     def knowledge():
         ids = []
         prompt = assistant_system(tenant, scope="public", persona=persona, query=" ".join(texts[-2:]),
@@ -8786,6 +8789,12 @@ def _product_line(d):
     return "- " + " | ".join(parts)
 
 
+def _grounding_unverified():
+    return ("\n\n[داده] جست‌وجوی محصول در سایتِ رسمیِ آرومین برای این پرسش نتیجهٔ تأییدشده‌ای نداد (یا سایت در دسترس نبود). "
+            "اگر پرسش دربارهٔ قیمت، موجودی، مشخصات، گارانتی، سازگاری یا زمانِ ارسالِ یک محصول است، حدس نزن و از دانشِ قبلیِ خودت نگو؛ "
+            "کوتاه بگو اطلاعاتِ به‌روز را نتوانستی تأیید کنی و تماس با " + AROMIN_PHONE_FA + " یا مراجعه به arominco.com را پیشنهاد کن.")
+
+
 def assistant_grounding(texts, page_url=""):
     """بلاکِ دادهٔ تأییدشدهٔ محصول برای پرسشِ فعلی (یا صفحهٔ محصولی که کاربر در آن است). پرسشِ غیرمحصولی → ""."""
     texts = [str(t or "") for t in (texts or []) if str(t or "").strip()]
@@ -8803,9 +8812,7 @@ def assistant_grounding(texts, page_url=""):
         found += [d for d in res if d["url"] not in {f["url"] for f in found}]
     found = found[:3]
     if not found:
-        return ("\n\n[داده] جست‌وجوی محصول در سایتِ رسمیِ آرومین برای این پرسش نتیجهٔ تأییدشده‌ای نداد (یا سایت در دسترس نبود). "
-                "اگر پرسش دربارهٔ قیمت، موجودی، مشخصات، گارانتی، سازگاری یا زمانِ ارسالِ یک محصول است، حدس نزن و از دانشِ قبلیِ خودت نگو؛ "
-                "کوتاه بگو اطلاعاتِ به‌روز را نتوانستی تأیید کنی و تماس با " + AROMIN_PHONE_FA + " یا مراجعه به arominco.com را پیشنهاد کن.")
+        return _grounding_unverified()
     return ("\n\n[داده] اطلاعاتِ تأییدشدهٔ محصول — همین الان از سایتِ رسمیِ آرومین خوانده شد (" + fa_digits(found[0]["fetchedAt"]) + " به وقتِ تهران). "
             "فقط همین موارد معتبرند؛ جزئیاتی که اینجا نیست (مثلاً گارانتی یا سازگاری) را «تأییدنشده» بدان و برایش تماس با " + AROMIN_PHONE_FA +
             " را پیشنهاد کن. در پاسخ نشانیِ محصول را بیاور:\n" + "\n".join(_product_line(d) for d in found))
