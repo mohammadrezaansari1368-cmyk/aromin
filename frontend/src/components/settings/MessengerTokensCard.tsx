@@ -65,6 +65,10 @@ export default function MessengerTokensCard({ session }: { session: Session }) {
 				))}
 				{note.chats && <span className="text-[12px] text-success">{note.chats}</span>}
 			</div>
+			{info.secrets.zurvan_bridge && <div className="grid gap-1">
+				<SecretField session={session} name="zurvan_bridge" meta={info.secrets.zurvan_bridge} keyConfigured={info.keyConfigured} onChange={load} />
+				<p className="text-[12px] text-muted-foreground">همان کلیدی که در زروان (سربرگ/تأیید عامل) ساخته شده؛ اتصال دستیار زروان به این داشبورد.</p>
+			</div>}
 			<div className="grid gap-1">
 				<SecretField session={session} name="telegram_leads" meta={info.secrets.telegram_leads} keyConfigured={info.keyConfigured} onChange={load} />
 				<p className="text-[12px] text-warning">سرور در ایران به api.telegram.org دسترسی ندارد؛ بدون relay، ارسال تلگرام انجام نمی‌شود.</p>

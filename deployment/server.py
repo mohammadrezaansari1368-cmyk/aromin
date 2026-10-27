@@ -5725,6 +5725,7 @@ SECRET_NAMES = {
     "telegram_leads": {"label": "ربات تلگرام (لیدها)", "env": lambda: LEADS_TG_TOKEN, "kind": "bot"},
     "update_token": {"label": "توکنِ به‌روزرسانی (UPDATE_TOKEN)", "env": lambda: UPDATE_TOKEN, "kind": "token"},
     "composio_api": {"label": "کلیدِ Composio (اینستاگرام)", "env": lambda: os.environ.get("COMPOSIO_API_KEY", ""), "kind": "apikey"},
+    "zurvan_bridge": {"label": "کلیدِ اتصالِ زروان", "env": lambda: "", "kind": "token"},
 }
 SECRET_DDL = (
     """CREATE TABLE IF NOT EXISTS app_secrets (
@@ -7726,13 +7727,34 @@ except (TypeError, ValueError):
 if not isinstance(_zurvan_connections, dict):
     _zurvan_connections = {}
 _zurvan_connections = {t:c for t,c in _zurvan_connections.items() if isinstance(c,dict) and isinstance(c.get("token"),str) and re.fullmatch(r"[\w-]{43}",c["token"]) and isinstance(c.get("businessId"),str)}
-ZURVAN_ADAPTER = RemoteAdapter(_zurvan_connections) if _zurvan_connections else UnavailableAdapter()
+ZURVAN_TENANT = os.environ.get("ZURVAN_TENANT", "team").strip() or "team"
+ZURVAN_BRIDGE_URL = os.environ.get("ZURVAN_BRIDGE_URL", "https://zurvan.aromin.ir/api/zurvan-agent").strip()
+ZURVAN_BUSINESS_ID = os.environ.get("ZURVAN_BUSINESS_ID", "5ee44374-a2a9-45d1-b864-047fb07ff8cd").strip()
+
+
+def zurvan_connections():
+    """Env ZURVAN_CONNECTIONS wins; otherwise the token stored (encrypted) in Settings maps the primary tenant. Read per request."""
+    if _zurvan_connections:
+        return _zurvan_connections
+    token = ""
+    try:
+        token = secret_get("zurvan_bridge") or ""
+    except Exception:
+        token = ""
+    if re.fullmatch(r"[\w-]{43}", token) and ZURVAN_BUSINESS_ID:
+        return {ZURVAN_TENANT: {"url": ZURVAN_BRIDGE_URL, "businessId": ZURVAN_BUSINESS_ID, "token": token}}
+    return {}
+
+
+def zurvan_adapter():
+    conns = zurvan_connections()
+    return RemoteAdapter(conns) if conns else UnavailableAdapter()
 
 @app.post("/api/agent/zurvan/bridge")
 async def zurvan_app_chat(request: Request, payload: dict = Body(default={})):
     # Server-to-server, one independent token/business mapping. Public embed IDs cannot authenticate here.
     tenant = str(payload.get("tenant") or "")
-    connection = _zurvan_connections.get(tenant) or {}
+    connection = zurvan_connections().get(tenant) or {}
     supplied = request.headers.get("authorization", "")
     expected = "Bearer " + str(connection.get("token") or "")
     if not connection.get("token") or not _hmac.compare_digest(supplied.encode(), expected.encode()) or payload.get("businessId") != connection.get("businessId"):
@@ -7757,7 +7779,7 @@ def zurvan_setup_get(request: Request, tenant: str = Query(default="")):
         return JSONResponse({"ok": False, "error": "دیتابیس در دسترس نیست."}, status_code=503)
     rows = q("SELECT data FROM zurvan_setup_state WHERE tenant=%s", (tenant,))
     state = json.loads(rows[0]["data"]) if rows else {"proposals": {}, "audit": []}
-    return {"ok": True, "interview": INTERVIEW, "state": state, "adapterReady": tenant in _zurvan_connections}
+    return {"ok": True, "interview": INTERVIEW, "state": state, "adapterReady": tenant in zurvan_connections()}
 
 @app.post("/api/agent/zurvan/setup/{action}")
 def zurvan_setup_action(request: Request, action: str, payload: dict = Body(default={}), tenant: str = Query(default="")):
@@ -7774,7 +7796,7 @@ def zurvan_setup_action(request: Request, action: str, payload: dict = Body(defa
                  (tenant, json.dumps({"proposals": {}, "audit": []})))
             row = tx.one("SELECT data FROM zurvan_setup_state WHERE tenant=%s FOR UPDATE", (tenant,))
             state = json.loads(row["data"])
-            service = SetupService(state, ZURVAN_ADAPTER)
+            service = SetupService(state, zurvan_adapter())
             pid, who = str(payload.get("id") or ""), ident["user"]
             if action == "propose":
                 service.propose(tenant, who, payload.get("changes"))

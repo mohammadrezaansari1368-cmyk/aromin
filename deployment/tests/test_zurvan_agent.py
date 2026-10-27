@@ -103,3 +103,21 @@ class PersistentSetup(unittest.TestCase):
                 self.assertEqual(client.post('/api/agent/zurvan/setup/apply?tenant=a',json={'id':pid}).status_code,200)
                 state=client.get('/api/agent/zurvan/setup?tenant=a').json()['state']
                 self.assertEqual([x['event'] for x in state['audit']],['proposal','confirm','apply'])
+
+
+class BridgeSecret(unittest.TestCase):
+    def test_stored_token_maps_primary_tenant_and_env_wins(self):
+        tok = 'A' * 43
+        with patch.object(server, '_zurvan_connections', {}), patch.object(server, 'secret_get', return_value=tok):
+            c = server.zurvan_connections()
+            self.assertEqual(list(c), [server.ZURVAN_TENANT])
+            self.assertEqual(c[server.ZURVAN_TENANT]['url'], 'https://zurvan.aromin.ir/api/zurvan-agent')
+            self.assertEqual(c[server.ZURVAN_TENANT]['token'], tok)
+            self.assertIsInstance(server.zurvan_adapter(), server.RemoteAdapter)
+        with patch.object(server, '_zurvan_connections', {}), patch.object(server, 'secret_get', return_value='short'):
+            self.assertEqual(server.zurvan_connections(), {})
+            self.assertIsInstance(server.zurvan_adapter(), server.UnavailableAdapter)
+        env = {'x': {'url': 'u', 'businessId': 'b', 'token': 'B' * 43}}
+        with patch.object(server, '_zurvan_connections', env), patch.object(server, 'secret_get', return_value=tok):
+            self.assertIs(server.zurvan_connections(), env)
+        self.assertEqual(server.SECRET_NAMES['zurvan_bridge']['kind'], 'token')
