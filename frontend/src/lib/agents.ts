@@ -1,6 +1,7 @@
 // 3.9.64: shared labels/types for the specialist agents and the knowledge collections they may read (server: AGENT_META, KB_COLLECTIONS).
 export const COLLECTION_FA: Record<string, string> = {
 	general: 'عمومی',
+	smartx: 'اسمارت‌ایکس — SmartX',
 	zurvan_public: 'زروان — فروش عمومی',
 	zurvan_setup: 'زروان — راه‌اندازی داخلی',
 	products: 'محصولات',
