@@ -997,7 +997,7 @@ AI_PERSONA = AROMIN_IDENTITY + ASSISTANT_CHANNELS["dashboard"]     # سازگا�
 ASSISTANT_INTERNAL_SCOPES = {"dashboard", "harikan"}   # channels of the owner's own systems: internal knowledge allowed
 
 
-def assistant_system(tenant, scope="dashboard", persona=None, query="", kb_scope=None, kb_ids=None, timeout=None):
+def assistant_system(tenant, scope="dashboard", persona=None, query="", kb_scope=None, kb_ids=None, timeout=None, kb_max=None):
     """هستهٔ مشترکِ دستیار (داشبورد + ابزارکِ سایت + تلگرام): هویت و قواعدِ ثابت + زمینهٔ کانال + دانشِ همان کسب‌وکار.
     فقط scope="dashboard" دانشِ «فقط داخلی» را می‌بیند. persona (پرامپتِ دستیارِ فروش در تنظیمات) افزوده می‌شود و جای هویت را نمی‌گیرد."""
     kb = kb_context(tenant, public=(scope not in ASSISTANT_INTERNAL_SCOPES), query=query, scope=kb_scope, ids=kb_ids, **({"timeout": timeout} if timeout is not None else {}))
@@ -1005,7 +1005,7 @@ def assistant_system(tenant, scope="dashboard", persona=None, query="", kb_scope
     if persona:
         system += "\n\n### دستورالعملِ نقشِ فروش (از تنظیماتِ مدیر؛ قواعدِ هویت و صحتِ بالا بر آن مقدم است):\n" + persona
     if kb:
-        system += "\n\n### دانشِ اختصاصیِ این کسب‌وکار (به آن وفادار باش):\n" + kb[:max(KB_PROMPT_MAX, KB_RETRIEVE_MAX)]
+        system += "\n\n### دانشِ اختصاصیِ این کسب‌وکار (به آن وفادار باش):\n" + kb[:(max(KB_PROMPT_MAX, KB_RETRIEVE_MAX) if kb_max is None else kb_max)]
     return system
 
 
@@ -4983,7 +4983,10 @@ def _w_site_for(request, site_id):
 
 
 def _w_json(data, origin, status=200):
-    r = JSONResponse(data, status_code=status)
+    timing = data.get("_sa_timing")
+    r = JSONResponse({k: v for k, v in data.items() if k != "_sa_timing"}, status_code=status)
+    if timing is not None:
+        r.headers["x-sa-timing"] = timing
     r.headers["Cache-Control"] = "no-store"
     r.headers["Vary"] = "Origin"
     if origin:
@@ -6542,6 +6545,7 @@ def _sa_blocks(text):
     return found, re.sub(r"```[a-z]*\s*\{.*?\}\s*```", "", clean, flags=re.S).strip()
 
 
+SA_KB_MAX = max(0, int(os.environ.get("SA_KB_MAX", "6000")))
 SA_TURN_BUDGET = float(os.environ.get("AGENT_TURN_BUDGET_SEC", "25"))   # whole turn; per-call HTTP timeouts are not the budget
 SA_FALLBACK = "دستیار موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید یا برای پیگیری با " + AROMIN_PHONE_FA + " تماس بگیرید."
 
@@ -6563,54 +6567,63 @@ _SA_READ_FAILURES = {}
 _SA_READ_LOCK = _th.Lock()
 
 
-def _sa_read(key, call, fallback, turn):
+def _sa_read(key, call, fallback, turn, defer=False):
     """Bound the entire read stage, including serial S3 calls; cache failures for 60s."""
     with _SA_READ_LOCK:
         now = time.monotonic()
         for expired in [k for k, until in _SA_READ_FAILURES.items() if until <= now]:
             _SA_READ_FAILURES.pop(expired, None)
         if key in _SA_READ_FAILURES:
-            return fallback
+            return (lambda: fallback) if defer else fallback
         # Also suppress concurrent retries while the first read is in flight.
         _SA_READ_FAILURES[key] = now + 60
     if not _SA_READ_SLOTS.acquire(blocking=False):
-        return fallback
+        return (lambda: fallback) if defer else fallback
     try:
         future = _SA_READ_POOL.submit(call)
     except Exception:
         _SA_READ_SLOTS.release()
-        return fallback
+        return (lambda: fallback) if defer else fallback
     future.add_done_callback(lambda f: _SA_READ_SLOTS.release())
-    try:
-        result = future.result(timeout=max(.001, min(8, (turn["deadline"] - time.monotonic()) / 4)))
-    except Exception:
-        return fallback
-    with _SA_READ_LOCK:
-        _SA_READ_FAILURES.pop(key, None)
-    return result
+    expires = time.monotonic() + max(.001, min(8, (turn["deadline"] - time.monotonic()) / 4))
+    def resolve():
+        try:
+            result = future.result(timeout=max(0, expires - time.monotonic()))
+        except Exception:
+            return fallback
+        with _SA_READ_LOCK:
+            _SA_READ_FAILURES.pop(key, None)
+        return result
+    return resolve if defer else resolve()
 
 
 def sa_reply(site, history, page=None, conv="", visitor="", dry_run=False, spec=None):
     """One visitor turn under a single deadline. On expiry (or when all slots are busy) the visitor gets the Persian fallback at
     once; a lead the model already proposed in an earlier turn is in the DB and stays; a turn finishing late is not shown."""
-    if not _SA_SLOTS.acquire(blocking=False):
-        return sa_unavailable("busy")
     turn = {"stage": "catalog", "deadline": time.monotonic() + SA_TURN_BUDGET,
             "timing": {"llm": [], "search": []}, "start": time.perf_counter()}
+    def finish(out):
+        tm = turn["timing"]
+        values = {k: sum(tm.get(k, [])) if k in ("llm", "search") else tm.get(k, 0)
+                  for k in ("catalog", "knowledge", "grounding", "llm", "search")}
+        values["total"] = time.perf_counter() - turn["start"]
+        return dict(out, _sa_timing=";".join("%s=%.2f" % (k, v) for k, v in values.items()))
+    if not _SA_SLOTS.acquire(blocking=False):
+        return finish(sa_unavailable("busy"))
     try:
         fut = _SA_POOL.submit(_sa_reply_turn, site, history, page, conv, visitor, dry_run, spec, turn)
     except Exception:
         _SA_SLOTS.release()
-        return sa_unavailable("worker")
+        return finish(sa_unavailable("worker"))
     fut.add_done_callback(lambda f: _SA_SLOTS.release())
     try:
-        return fut.result(timeout=SA_TURN_BUDGET)
+        return finish(fut.result(timeout=SA_TURN_BUDGET))
     except _cf.TimeoutError:
         stage = turn["stage"] if turn["stage"] in SA_STAGES else "catalog"
         _sa_timing_log(turn["timing"], turn["start"], "timeout stage=" + stage)
-        return dict(sa_unavailable("timeout"), stage=stage)
+        return finish(dict(sa_unavailable("timeout"), stage=stage))
     except Exception:
-        return sa_unavailable("worker")
+        return finish(sa_unavailable("worker"))
 
 
 SA_TIMING_LAST = {}
@@ -6663,10 +6676,18 @@ def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False,
     turn["stage"] = "knowledge"
     persona = (spec or {}).get("persona") or sa_prompt(tenant)
     identity = AROMIN_IDENTITY + ASSISTANT_CHANNELS.get("public", "") + "\n\n" + persona
+    grounding_start = time.perf_counter()
+    def grounding():
+        try:
+            return assistant_grounding(texts[-2:], page.get("url") or "")
+        finally:
+            lap("grounding", grounding_start)
+    grounding_result = (lambda: "") if zurvan else _sa_read(
+        ("grounding", tenant), grounding, "", turn, defer=True)
     def knowledge():
         ids = []
         prompt = assistant_system(tenant, scope="public", persona=persona, query=" ".join(texts[-2:]),
-                                  kb_scope=(spec or {}).get("scope"), kb_ids=ids, timeout=8)
+                                  kb_scope=(spec or {}).get("scope"), kb_ids=ids, timeout=8, kb_max=SA_KB_MAX)
         return prompt, ids
     system, kb_ids = _sa_read(("knowledge", tenant, tuple((spec or {}).get("scope") or ())), knowledge, (identity, []), turn)
     system += WIDGET_CONTEXT.format(name=site.get("name") or "") + SA_PROTOCOL
@@ -6680,14 +6701,13 @@ def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False,
     if catalog:
         system += ("\n\n[داده] محصولاتِ مرتبطِ فروشگاه از فهرستِ روزانه (نام | قیمت | موجودی | نشانی؛ برای قیمت و موجودیِ دقیق فقط "
                    "«اطلاعاتِ تأییدشدهٔ محصول» معتبر است):\n" + catalog)
-    st = time.perf_counter()
     turn["stage"] = "grounding"
-    if not zurvan:
-        system += assistant_grounding(texts[-2:], page.get("url") or "")
-    lap("grounding", st)
+    system += grounding_result()
+    tm.setdefault("grounding", round(time.perf_counter() - grounding_start, 2))
     if page.get("title"):
         system += "\n\n[داده] صفحه‌ای که مشتری الان در آن است: " + _sa_clean(page.get("title"), 200)
-    system += SA_PROMPT_MASTER
+    if texts and re.search(r"پرامپت|\b(?:prompt|ChatGPT|Claude|Gemini|Midjourney)\b|چت ?جی ?پی ?تی", texts[-1], re.I):
+        system += SA_PROMPT_MASTER
     msgs, searches, log = list(history), 0, []
     out = {"ok": False}
     for _ in range(3):
