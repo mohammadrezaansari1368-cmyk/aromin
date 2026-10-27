@@ -4,6 +4,7 @@
  const script = document.currentScript;
  if (!script || document.getElementById('zurvan-agent-widget')) return;
  const site = script.dataset.siteId || '';
+ const unavailable = 'دستیار موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید یا از راه تماسِ سایت پیگیری کنید.';
  const base = new URL(script.src).origin;
  const mount = () => {
   const host = document.createElement('div'); host.id = 'zurvan-agent-widget';
@@ -57,17 +58,17 @@
     e.preventDefault(); if(pending || !input.value.trim() || !config?.enabled)return;
     const text=input.value.trim();input.value='';message(text,'user');history.push({role:'user',content:text}); pending=true; send.disabled=true;mood('thinking');
     try { const j=app ? await app.chat(history.slice(-12)) : await api('chat',{conversationId:conv,visitorId:visitor,messages:history.slice(-12),agent:'zurvan',page:{url:location.href,title:document.title}});if(!j.ok)throw new Error('دستیار پاسخ نداد.');const answer=j.text || 'اطلاعات ندارم';message(answer,'assistant');history.push({role:'assistant',content:answer});mood(j.mood || 'speaking'); }
-    catch(err){message(err.message,'error');mood('error');}finally{pending=false;send.disabled=false;input.focus();}
+    catch(err){message(unavailable,'assistant');mood('concerned');}finally{pending=false;send.disabled=false;input.focus();}
    };
    if(app){panel.querySelector('strong').textContent='زروان · دستیار راه‌اندازی';panel.querySelector('.lead').textContent='بازبینی و تأیید پیشنهادها توسط مالک';}
    panel.querySelector('.lead').onclick=()=>{
     if(app){app.review();return;}
     if(panel.querySelector('[data-lead]'))return;
     const form=document.createElement('form');form.dataset.lead='1';form.innerHTML='<input name="business" aria-label="نام مجموعه" placeholder="نام مجموعه" maxlength="120" required><input name="phone" aria-label="موبایل" placeholder="موبایل" inputmode="tel" required><button>رضایت و ثبت</button>';
-    form.onsubmit=async e=>{e.preventDefault();const button=form.querySelector('button');button.disabled=true;try{await api('lead',{business:form.elements.business.value,phone:form.elements.phone.value,conversationId:conv,consent:true});form.remove();message('درخواست تماس ثبت شد.','assistant');mood('success');}catch(err){message(err.message,'error');button.disabled=false;}};panel.insertBefore(form,panel.querySelector('.notice'));
+    form.onsubmit=async e=>{e.preventDefault();const button=form.querySelector('button');button.disabled=true;try{await api('lead',{business:form.elements.business.value,phone:form.elements.phone.value,conversationId:conv,consent:true});form.remove();message('درخواست تماس ثبت شد.','assistant');mood('success');}catch(err){message(unavailable,'assistant');button.disabled=false;}};panel.insertBefore(form,panel.querySelector('.notice'));
    };
    try {config=app ? {enabled:true} : await api('config');if(!config.enabled)throw new Error('دستیار غیرفعال است.');message(app ? 'سلام، من زروان هستم. چه محصول یا خدمتی می‌فروشید و چند نفر در مجموعه کار می‌کنند؟' : 'سلام، من زروان هستم. دربارهٔ حضور و غیاب چه سؤالی دارید؟','assistant');}
-   catch(err){message(err.message,'error');send.disabled=true;mood('error');}
+   catch(err){message(unavailable,'assistant');send.disabled=true;mood('concerned');}
   };
   launch.onclick=async()=>{if(!panel){await create();}else panel.hidden=!panel.hidden;launch.setAttribute('aria-expanded',String(!panel.hidden));if(!panel.hidden){mood('happy');input.focus();}else mood('neutral');};
   // Local visual QA only; this does not change server routing or authorization.

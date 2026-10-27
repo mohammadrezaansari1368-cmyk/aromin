@@ -41,6 +41,7 @@ const LegacyHost = forwardRef<LegacyHostHandle, { session: Session; panel: strin
 		[send],
 	)
 	const sendAuth = useCallback(() => send({ aromin: 'auth', user: session.user, token: session.token }), [send, session])
+	useEffect(() => { sendAuth() }, [sendAuth])
 	// تمِ رابط کاربری → پوستهٔ اپِ کامل (فقط ظاهر)
 	const theme = useTheme()
 	const sendTheme = useCallback(() => send({ aromin: 'theme', mode: theme.mode, vars: legacyVars() }), [send, theme])
@@ -54,7 +55,8 @@ const LegacyHost = forwardRef<LegacyHostHandle, { session: Session; panel: strin
 	useEffect(() => {
 		const onMsg = (ev: MessageEvent) => {
 			if (ev.origin !== location.origin || ev.source !== frame.current?.contentWindow) return
-			const d = ev.data || {}
+			const d = ev.data
+			if (!d || typeof d !== 'object' || Array.isArray(d)) return
 			if (d.aromin !== 'embed') return
 			if (d.id && waits.current.has(d.id)) { waits.current.get(d.id)!(d); waits.current.delete(d.id) }
 			if (d.type === 'ready') { sendTheme(); sendAuth() }

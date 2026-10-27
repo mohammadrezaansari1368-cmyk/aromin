@@ -378,9 +378,10 @@ class CriticalPath(unittest.TestCase):
         with patch.object(server, "ai_chat", return_value={"ok": False, "error": "timeout"}):
             r2 = self.chat(client, "قیمت؟", history=[{"role": "user", "content": "مریم هستم، کافه دارم در رشت، 09121112233"},
                                                      {"role": "assistant", "content": "ممنون."}])
-        self.assertEqual(r2.status_code, 502)
+        self.assertEqual(r2.status_code, 200)
         body = r2.json()
-        self.assertFalse(body["ok"])
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["unavailable"])
         self.assertRegex(body.get("error") or body.get("text") or "", "[؀-ۿ]")   # Persian fallback, no stack trace
         self.assertNotIn("timeout", json.dumps(body))
         lead = self.rows("SELECT name, city, business_type, phone FROM sa_leads")
@@ -406,8 +407,9 @@ class CriticalPath(unittest.TestCase):
             t0 = _t.monotonic()
             r = self.chat(client, "قیمت؟", history=[{"role": "user", "content": "مریم هستم 09121112233"}, {"role": "assistant", "content": "ممنون."}])
             took = _t.monotonic() - t0
-        self.assertEqual(r.status_code, 502)
-        self.assertEqual(r.json()["error"], server.SA_FALLBACK)   # Persian fallback; the widget maps this error to the concerned face
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["text"], server.SA_FALLBACK)
+        self.assertTrue(r.json()["unavailable"])
         self.assertLess(took, 1.5)                                 # returns at the deadline, not after all rounds
         self.assertEqual([x["name"] for x in self.rows("SELECT name FROM sa_leads")], ["مریم"])
         _t.sleep(1.2)                                              # let the abandoned worker finish before teardown

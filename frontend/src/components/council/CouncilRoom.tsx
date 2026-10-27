@@ -4,10 +4,10 @@
  * playback speed / skip, the «Key points» feed and the verdict sheet. The table is a turning Earth (Globe.tsx).
  * Seats speak from their brain or the «Library» (KB collection council); the coach agent chairs and writes the verdict. Managers only.
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { authHeaders, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
-import Globe from './Globe'
+const Globe = lazy(() => import('./Globe'))
 import './council.css'
 
 type Seat = { key: string; name: string; short: string; initials: string; pillar: string; question: string; color: string; brain: boolean; ready: boolean; portrait: boolean; entries: { id: string; filename: string; chars: number }[] }
@@ -88,6 +88,12 @@ const STEPS = [['setup', 'Brief'], ['round1', 'Openings'], ['verdict', 'Verdict'
 
 export default function CouncilRoom({ session }: { session: Session }) {
 	const [seats, setSeats] = useState<Seat[]>([])
+	const [showGlobe, setShowGlobe] = useState(false)
+	useEffect(() => {
+		if (!seats.length) return
+		const t = window.setTimeout(() => setShowGlobe(true), 100)
+		return () => window.clearTimeout(t)
+	}, [seats.length])
 	const [chair, setChair] = useState('')
 	const [pick, setPick] = useState<string[]>([])
 	const [mode, setMode] = useState<'full' | 'quick'>('full')
@@ -364,7 +370,7 @@ export default function CouncilRoom({ session }: { session: Session }) {
 								</button>
 							)
 						})}
-						<Globe className="globe" style={{ left: box.gx - box.gr, top: box.gy - box.gr, width: box.gr * 2, height: box.gr * 2 }} />
+						<Suspense fallback={null}>{showGlobe && <Globe className="globe" style={{ left: box.gx - box.gr, top: box.gy - box.gr, width: box.gr * 2, height: box.gr * 2 }} />}</Suspense>
 						{drag?.moved && !drag.out && (() => {
 							const n = drag.from === 'chip' && !pick.includes(drag.key) ? pick.length + 1 : pick.length
 							const x = box.W * (n === 1 ? 0.5 : 0.1 + (0.8 * drag.slot) / Math.max(1, n - 1))

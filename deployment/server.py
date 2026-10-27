@@ -1501,8 +1501,9 @@ def _kb_invalidate(tenant):
     with _kb_lock:
         _kb_cache.pop(tenant, None)
         _kb_cache.pop(tenant + "|public", None)
-        _kb_docs_cache.pop(tenant, None)
-        _kb_docs_cache.pop(tenant + "|public", None)
+        for key in list(_kb_docs_cache):
+            if key == tenant or key.startswith(tenant + "|"):
+                _kb_docs_cache.pop(key, None)
 
 
 def kb_migrate(tenant):
@@ -1545,17 +1546,24 @@ _kb_docs_cache = {}
 def _kb_docs(tenant, public=False, scope=None):
     """[(filename, text, id, collections)] همهٔ فایل‌های آمادهٔ همان کسب‌وکار (کش ۶۰ ثانیه)؛ public: «فقط داخلی» حذف.
     scope (3.9.64، فهرستِ مجموعه‌های مجازِ یک ایجنت): فقط فایل‌های همان مجموعه‌ها (+ راهنمای داخلیِ داشبورد اگر در scope باشد)."""
-    if scope is not None:
-        allow = set(scope)
-        docs = [d for d in _kb_docs(tenant, public) if allow & set(d[3] if len(d) > 3 else ("general",))]
-        if "dashboard_help" in allow and not public:
-            help_text = _kb_help_text()
-            if help_text:
-                docs.append(("راهنمای داشبورد (پیش‌نویس)", help_text, "builtin:dashboard_help", ("dashboard_help",)))
-        return docs
+    docs = _kb_read_docs(tenant, public, scope)
+    if scope is not None and "dashboard_help" in scope and not public:
+        help_text = _kb_help_text()
+        if help_text:
+            docs = docs + [("راهنمای داشبورد (پیش‌نویس)", help_text, "builtin:dashboard_help", ("dashboard_help",))]
+    return docs
+
+
+def _kb_read_docs(tenant, public=False, scope=None):
     if not _TENANT_RE.match(tenant or "") or not _s3_ready():
         return []
     ck = tenant + "|public" if public else tenant
+    if scope is not None:
+        with _kb_lock:
+            full = _kb_docs_cache.get(ck)
+            if full and time.time() - full[0] < 60:
+                return [d for d in full[1] if set(scope).intersection(d[3] if len(d) > 3 else ("general",))]
+        ck += "|scope:" + ",".join(sorted(set(scope)))
     with _kb_lock:
         hit = _kb_docs_cache.get(ck)
         if hit and time.time() - hit[0] < 60:
@@ -1564,6 +1572,8 @@ def _kb_docs(tenant, public=False, scope=None):
     try:
         kb_migrate(tenant)
         for it in sorted(kb_list(tenant), key=lambda x: x.get("createdAt") or ""):
+            if scope is not None and not set(scope).intersection(kb_cols(it.get("collections"))):
+                continue
             if it.get("status") != "ready" or it.get("source") == "store-sync":
                 continue
             st, _, body = _s3("GET", _kb_prefix(tenant) + it["id"] + ".json")
@@ -1571,6 +1581,8 @@ def _kb_docs(tenant, public=False, scope=None):
                 continue
             obj = json.loads(body.decode("utf-8"))
             if obj.get("businessId") != tenant:      # دفاعِ دوم در برابرِ نشتِ بینِ کسب‌وکارها
+                continue
+            if scope is not None and not set(scope).intersection(kb_cols(obj.get("collections"))):
                 continue
             if public and (obj.get("internal") or it.get("internal")):
                 continue
@@ -5005,18 +5017,22 @@ def _w_reply(site, history, page=None):
     out = assistant_turn(site["tenant"], "public", history, WIDGET_CONTEXT.format(name=site.get("name") or ""), (page or {}).get("url") or "")
     if out.get("ok"):
         return {"ok": True, "text": _w_plain(assistant_guard(out.get("text")))}
-    print("widget AI error:", str(out.get("error"))[:200])
+    print("[SA] unavailable code=model")
     return {"ok": False, "error": "پاسخ‌گویی موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید یا با " + AROMIN_PHONE_FA + " تماس بگیرید."}
 
 
 @app.get("/api/widget/public/{site_id}/config")
 def widget_public_config(request: Request, site_id: str = PathParam(...)):
-    site, origin, err = _w_site_for(request, site_id)
-    if err:
-        return err
-    if not _w_allow(("cfg", _w_ip(request)), 120, 600):
-        return _w_json({"ok": False, "error": "درخواست‌ها زیاد است."}, origin, 429)
-    return _w_json(_w_public_cfg(site), origin)
+    origin = ""
+    try:
+        site, origin, err = _w_site_for(request, site_id)
+        if err:
+            return _w_json(dict(sa_unavailable("unknown_site"), enabled=False), "") if err.status_code == 404 else err
+        if not _w_allow(("cfg", _w_ip(request)), 120, 600):
+            return _w_json({"ok": False, "error": "درخواست‌ها زیاد است."}, origin, 429)
+        return _w_json(_w_public_cfg(site), origin)
+    except Exception:
+        return _w_json(dict(sa_unavailable("configuration"), enabled=False), origin)
 
 
 async def _w_body(request, limit):
@@ -5036,11 +5052,19 @@ async def _w_body(request, limit):
 
 @app.post("/api/widget/public/{site_id}/chat")
 async def widget_public_chat(request: Request, site_id: str = PathParam(...)):
-    site, origin, err = _w_site_for(request, site_id)
-    if err:
-        return err
+    origin = ""
+    try:
+        site, origin, err = _w_site_for(request, site_id)
+        if err:
+            return _w_json(sa_unavailable("unknown_site"), "") if err.status_code == 404 else err
+        return await _widget_public_chat_ready(request, site, origin)
+    except Exception:
+        return _w_json(sa_unavailable("service"), origin)
+
+
+async def _widget_public_chat_ready(request, site, origin):
     if not _w_public_cfg(site)["enabled"]:
-        return _w_json({"ok": False, "error": "ابزارک غیرفعال است."}, origin, 403)
+        return _w_json(sa_unavailable("disabled"), origin)
     raw = await _w_body(request, 40000)
     if raw is None:
         return _w_json({"ok": False, "error": "درخواست بیش از حدِ مجاز بزرگ است."}, origin, 413)
@@ -5071,7 +5095,7 @@ async def widget_public_chat(request: Request, site_id: str = PathParam(...)):
     route = agent_route(site["tenant"], "website", history[-1]["content"], site_id=sid, current=str(p.get("agent") or "")) if agent_on else None
     if p.get("agent") == "zurvan":
         if "zurvan" not in agent_candidates(agent_cfg(site["tenant"]), "website", sid):
-            return _w_json({"ok": False, "error": "عامل زروان برای این سایت فعال نیست."}, origin, 403)
+            return _w_json(sa_unavailable("disabled_agent"), origin)
         route = {"agent": "zurvan", "reason": "embed", "handoff": False}
     spec = agent_spec(site["tenant"], route, history, sid, not preview) if route else None
     if spec and spec["handoff"]:
@@ -5082,14 +5106,16 @@ async def widget_public_chat(request: Request, site_id: str = PathParam(...)):
         out = await _in_pool(sa_reply, site, history, page, conv, vis, preview, spec)
     else:
         out = await _in_pool(_w_reply, site, history, page)
+    if not out.get("ok"):
+        out = sa_unavailable("model")
     if spec:
         out["agent"] = {"key": spec["agent"], "name": spec["name"]}
-    if out.get("ok") and not (spec and spec["agent"] == "zurvan") and WIDGET_CART_BUNDLE and _BUY_RE.search(history[-1]["content"]):
+    if out.get("ok") and not out.get("unavailable") and not (spec and spec["agent"] == "zurvan") and WIDGET_CART_BUNDLE and _BUY_RE.search(history[-1]["content"]):
         out["action"] = {"cart": WIDGET_CART_BUNDLE, "checkout": "https://arominco.com/cart"}
     if agent_on and not preview:
-        if not out.get("ok"):
+        if not out.get("ok") or out.get("unavailable"):
             agent_event(site["tenant"], sid, "error", {"code": "reply"})
-        elif p.get("consent") is True:                 # فقط با رضایتِ صریحِ بازدیدکننده، بدونِ اطلاعاتِ شخصی (برای fine-tune)
+        elif not out.get("unavailable") and p.get("consent") is True:                 # فقط با رضایتِ صریحِ بازدیدکننده، بدونِ اطلاعاتِ شخصی (برای fine-tune)
             agent_training_save(site["tenant"], conv, history + [{"role": "assistant", "content": out.get("text") or ""}], agent_conv_names(site["tenant"], conv),
                                 agent_key=spec["agent"] if spec else "online_expert")
     return _w_json(out, origin, 200 if out.get("ok") else 502)
@@ -6512,7 +6538,14 @@ def _sa_blocks(text):
 
 
 SA_TURN_BUDGET = float(os.environ.get("AGENT_TURN_BUDGET_SEC", "25"))   # whole turn; per-call HTTP timeouts are not the budget
-SA_FALLBACK = "پاسخ‌گویی موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید."
+SA_FALLBACK = "دستیار موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید یا برای پیگیری با " + AROMIN_PHONE_FA + " تماس بگیرید."
+
+
+def sa_unavailable(code):
+    # Fixed diagnostic codes only: never log provider errors, visitor text or credentials.
+    print("[SA] unavailable code=" + code)
+    return {"ok": True, "text": SA_FALLBACK, "unavailable": True, "code": code, "mood": "concerned"}
+
 SA_TURN_WORKERS = 8
 _SA_POOL = _cf.ThreadPoolExecutor(max_workers=SA_TURN_WORKERS, thread_name_prefix="sa-turn")
 _SA_SLOTS = _th.BoundedSemaphore(SA_TURN_WORKERS)
@@ -6522,18 +6555,20 @@ def sa_reply(site, history, page=None, conv="", visitor="", dry_run=False, spec=
     """One visitor turn under a single deadline. On expiry (or when all slots are busy) the visitor gets the Persian fallback at
     once; a lead the model already proposed in an earlier turn is in the DB and stays; a turn finishing late is not shown."""
     if not _SA_SLOTS.acquire(blocking=False):
-        return {"ok": False, "error": SA_FALLBACK, "code": "busy"}
+        return sa_unavailable("busy")
     try:
         fut = _SA_POOL.submit(_sa_reply_turn, site, history, page, conv, visitor, dry_run, spec)
     except Exception:
         _SA_SLOTS.release()
-        raise
+        return sa_unavailable("worker")
     fut.add_done_callback(lambda f: _SA_SLOTS.release())
     try:
         return fut.result(timeout=SA_TURN_BUDGET)
     except _cf.TimeoutError:
         print("[SA] turn budget exceeded (%ss)" % SA_TURN_BUDGET)
-        return {"ok": False, "error": SA_FALLBACK, "code": "timeout"}
+        return sa_unavailable("timeout")
+    except Exception:
+        return sa_unavailable("worker")
 
 
 SA_TIMING_LAST = {}
@@ -6584,7 +6619,7 @@ def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False,
                                kb_scope=(spec or {}).get("scope"), kb_ids=kb_ids) + WIDGET_CONTEXT.format(name=site.get("name") or "") + SA_PROTOCOL)
     lap("knowledge", st)
     if zurvan and not kb_ids:
-        return {"ok": True, "text": "اطلاعات ندارم", "mood": "concerned"}
+        return sa_unavailable("knowledge")
     if spec and kb_ids and not dry_run:
         agent_event(tenant, site["siteId"], "sources", {"agent": spec["agent"], "ids": kb_ids})
     if agent_enabled(tenant):
@@ -6607,7 +6642,7 @@ def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False,
         tm["llm"].append(round(time.perf_counter() - st, 2))
         if not out.get("ok"):
             _sa_timing_log(tm, t0, "error")
-            return {"ok": False, "error": SA_FALLBACK}
+            return sa_unavailable("model")
         blocks, visible = _sa_blocks(out.get("text"))
         sq = next((b for k, b in blocks if k == "search"), None)
         if not sq:
