@@ -1503,8 +1503,10 @@ def _kb_invalidate(tenant):
     with _kb_lock:
         _kb_cache.pop(tenant, None)
         _kb_cache.pop(tenant + "|public", None)
-        _kb_docs_cache.pop(tenant, None)
-        _kb_docs_cache.pop(tenant + "|public", None)
+        # 3.9.96: mark stale instead of dropping — the next reader gets the old list at once and a background refresh
+        for k in (tenant, tenant + "|public"):
+            if k in _kb_docs_cache:
+                _kb_docs_cache[k] = (0, _kb_docs_cache[k][1])
 
 
 def kb_migrate(tenant):
@@ -1542,9 +1544,11 @@ KB_RETRIEVE_MAX = int(os.environ.get("KB_RETRIEVE_MAX", "9000"))   # سقفِ م
 KB_TOP_K = int(os.environ.get("KB_TOP_K", "8"))
 KB_CHUNK = 900                                                      # اندازهٔ تقریبیِ هر تکه (نویسه)
 _kb_docs_cache = {}
+_kb_refreshing = set()
+KB_DOCS_TTL = int(os.environ.get("KB_DOCS_TTL", "600"))
 
 
-def _kb_docs(tenant, public=False, scope=None):
+def _kb_docs(tenant, public=False, scope=None, _bg=False):
     """[(filename, text, id, collections)] همهٔ فایل‌های آمادهٔ همان کسب‌وکار (کش ۶۰ ثانیه)؛ public: «فقط داخلی» حذف.
     scope (3.9.64، فهرستِ مجموعه‌های مجازِ یک ایجنت): فقط فایل‌های همان مجموعه‌ها (+ راهنمای داخلیِ داشبورد اگر در scope باشد)."""
     if scope is not None:
@@ -1560,8 +1564,23 @@ def _kb_docs(tenant, public=False, scope=None):
     ck = tenant + "|public" if public else tenant
     with _kb_lock:
         hit = _kb_docs_cache.get(ck)
-        if hit and time.time() - hit[0] < 60:
-            return hit[1]
+    # 3.9.96: listing the library costs ~25 s (one metadata read per item) — never make a visitor wait for it.
+    # Fresh for 10 min (every write calls _kb_invalidate anyway); stale → serve the old copy now and refresh in the background.
+    if hit and time.time() - hit[0] < KB_DOCS_TTL:
+        return hit[1]
+    if hit and not _bg:
+        with _kb_lock:
+            start = ck not in _kb_refreshing
+            _kb_refreshing.add(ck)
+        if start:
+            def _refresh():
+                try:
+                    _kb_docs(tenant, public, _bg=True)
+                finally:
+                    with _kb_lock:
+                        _kb_refreshing.discard(ck)
+            _th.Thread(target=_refresh, daemon=True).start()
+        return hit[1]
     docs = []
     try:
         kb_migrate(tenant)
@@ -10729,6 +10748,14 @@ elif os.path.isdir(_public):
 # ---------------- راه‌اندازی ----------------
 @app.on_event("startup")
 def _startup():
+    # 3.9.96: warm the knowledge cache so the first site-agent turn after a restart does not spend its 25 s budget listing the library
+    def _warm():
+        for pub in (True, False):
+            try:
+                _kb_docs("team", pub)
+            except Exception:
+                pass
+    _th.Thread(target=_warm, daemon=True).start()
     try:
         print("در حال بررسی و اعمالِ مهاجرت‌های دیتابیس…")
         n = run_migrations(CFG_DB)
