@@ -6,7 +6,7 @@
  * می‌فرستد که پیش از ورود بک‌آپِ سرور می‌گیرد، uniImport را اجرا و فوراً در MariaDB ذخیره می‌کند.
  */
 
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactElement, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactElement, type ReactNode } from 'react'
 import * as XLSX from 'xlsx'
 import { Shell, Big, faNum } from '@/components/ui/kit'
 import { useAromin, dataTag, ensureTenant, currentTenant, type ImportLogItem } from '@/lib/data'
@@ -17,7 +17,6 @@ import { canSeeAll } from '@/lib/performance'
 import Sortable from '@/components/ui/sortable'
 import { CARD } from '@/components/ui/tokens'
 import DealImport, { importSummary } from '@/components/ledger/DealImport'
-const HarikanStatus = lazy(() => import('@/components/performance/HarikanStatus'))
 import CallSummaryOptions from '@/components/import/CallSummaryOptions'
 import { callOptsError, ingestCallFile, resetCallsCache, type CallDetailItem, type CallOpts } from '@/lib/callsApi'
 import { ingestTicketFile } from '@/lib/ticketsApi'
@@ -303,7 +302,6 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 							<span className="text-[12px] text-muted-foreground">چند فایل با هم · نوعِ هر فایل خودکار تشخیص داده و رنگی می‌شود · حضور و غیاب از اپِ هاریکان می‌آید (فایلِ حضور لازم نیست)</span>
 						</button>
 						<input ref={input} type="file" multiple accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
-						{session && canSeeAll(session) && <Suspense fallback={null}><HarikanStatus session={session} /></Suspense>}
 					</Shell>
 				</Card>
 
@@ -319,7 +317,6 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 						</div>
 					</Shell>
 				</Card>
-				{/* نگاشتِ هویت (کارت‌های حضور، کاربرانِ جولیو) — فقط مدیران/مالی */}
 			</Sortable>
 
 			{/* صف */}
@@ -442,14 +439,7 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 				</Card>
 				{/* Dynamic Knowledge Base — فقط مدیر (سرور هم نقش را بررسی می‌کند) */}
 				{session && isAdmin(session.role) && <Card className="lg:col-span-3">
-					{/* 3.9.92: پایگاهِ دانش جمع‌شونده (پیش‌فرض بسته) */}
-					<details className="group">
-						<summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-3 rounded-lg px-1 text-[15px] font-bold [&::-webkit-details-marker]:hidden">
-							<span>پایگاه دانش</span>
-							<svg viewBox="0 0 24 24" className="size-5 text-muted-foreground transition-transform group-open:rotate-180" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
-						</summary>
-						<div className="mt-3"><KnowledgeTile session={session} /></div>
-					</details>
+					<KbToggle session={session} />
 				</Card>}
 			</Sortable>
 
@@ -457,6 +447,23 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 			<p className="px-1 text-[11.5px] leading-6 text-muted-foreground">
 				⚠ اگر اپِ کامل (/legacy) در تبِ دیگری باز است، قبل از ایمپورت آن را ببند؛ وگرنه ذخیرهٔ بعدیِ آن تب ممکن است روی این ایمپورت بنویسد.
 			</p>
+		</div>
+	)
+}
+
+/** 3.9.95: «پایگاه دانشِ پویا» پشتِ یک دکمه (پیش‌فرض بسته، تا باز نشود اصلاً بار نمی‌شود) — صفحهٔ داده کوتاه می‌ماند */
+function KbToggle({ session }: { session: Session }) {
+	const [open, setOpen] = useState(false)
+	return (
+		<div>
+			<button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)}
+				className="flex min-h-[44px] w-full items-center justify-between gap-3 rounded-lg px-1 text-[15px] font-bold transition-colors hover:text-primary-ink">
+				<span>پایگاه دانشِ پویا</span>
+				<span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-[12.5px] font-semibold text-muted-foreground">{open ? 'پنهان کردن' : 'نمایش'}
+					<svg viewBox="0 0 24 24" className={`size-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+				</span>
+			</button>
+			{open && <div className="mt-3"><KnowledgeTile session={session} /></div>}
 		</div>
 	)
 }

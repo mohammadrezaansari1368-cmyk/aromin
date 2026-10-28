@@ -1496,6 +1496,9 @@ _kb_cache = {}          # tenant → (ts, text)
 _kb_lock = _th.Lock()
 
 
+_kb_item_cache = {}   # (tenant, id, updatedAt) → stored item (3.9.95)
+
+
 def _kb_invalidate(tenant):
     with _kb_lock:
         _kb_cache.pop(tenant, None)
@@ -1562,13 +1565,31 @@ def _kb_docs(tenant, public=False, scope=None):
     docs = []
     try:
         kb_migrate(tenant)
-        for it in sorted(kb_list(tenant), key=lambda x: x.get("createdAt") or ""):
-            if it.get("status") != "ready" or it.get("source") == "store-sync":
-                continue
+        # 3.9.95: the site agent waited 90–170 s here (25 s budget → «پاسخ‌گویی موقتاً در دسترس نیست»): every item was downloaded one by one
+        # from object storage, internal ones too (council library) and dropped afterwards. Now: skip internal items from the index for
+        # public use, reuse each item's body while its updatedAt is unchanged, and fetch the rest in parallel.
+        items = [it for it in sorted(kb_list(tenant), key=lambda x: x.get("createdAt") or "")
+                 if it.get("status") == "ready" and it.get("source") != "store-sync" and not (public and it.get("internal"))]
+
+        def fetch(it):
+            ck2 = (tenant, it["id"], it.get("updatedAt") or it.get("createdAt") or "")
+            with _kb_lock:
+                hit2 = _kb_item_cache.get(ck2)
+            if hit2 is not None:
+                return hit2
             st, _, body = _s3("GET", _kb_prefix(tenant) + it["id"] + ".json")
-            if st != 200:
+            obj = json.loads(body.decode("utf-8")) if st == 200 else None
+            if obj is not None:
+                with _kb_lock:
+                    if len(_kb_item_cache) > 2000:
+                        _kb_item_cache.clear()
+                    _kb_item_cache[ck2] = obj
+            return obj
+        with _Pool(max_workers=8) as ex:
+            objs = list(ex.map(fetch, items))
+        for it, obj in zip(items, objs):
+            if obj is None:
                 continue
-            obj = json.loads(body.decode("utf-8"))
             if obj.get("businessId") != tenant:      # دفاعِ دوم در برابرِ نشتِ بینِ کسب‌وکارها
                 continue
             if public and (obj.get("internal") or it.get("internal")):
