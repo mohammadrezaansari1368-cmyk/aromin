@@ -6546,7 +6546,7 @@ def _sa_blocks(text):
     return found, re.sub(r"```[a-z]*\s*\{.*?\}\s*```", "", clean, flags=re.S).strip()
 
 
-SA_TURN_BUDGET = float(os.environ.get("AGENT_TURN_BUDGET_SEC", "25"))   # whole turn; per-call HTTP timeouts are not the budget
+SA_TURN_BUDGET = float(os.environ.get("AGENT_TURN_BUDGET_SEC", "35"))   # whole turn; per-call HTTP timeouts are not the budget
 SA_FALLBACK = "پاسخ‌گویی موقتاً در دسترس نیست؛ کمی بعد دوباره امتحان کنید."
 SA_TURN_WORKERS = 8
 _SA_POOL = _cf.ThreadPoolExecutor(max_workers=SA_TURN_WORKERS, thread_name_prefix="sa-turn")
@@ -6596,7 +6596,9 @@ SA_PROMPT_MASTER = (
 # 3.9.83: «I want the software» → the site widget puts the starter bundle in the shop cart (Shopfa, same origin) and sends the visitor to pay
 WIDGET_CART_BUNDLE = [x.strip() for x in os.environ.get("WIDGET_CART_BUNDLE", "sepidz-web-light,printer-oscar-pos-58ub").split(",") if x.strip()]
 _BUY_RE = re.compile(r"(نرم ?‌?افزار|سپیدز|برنامه(ی)? (رستوران|کافه|فروشگاه)).{0,25}(می ?‌?خوا|لازم|بخر|خرید|سفارش)|(می ?‌?خوا|بخر|خرید|سفارش).{0,25}(نرم ?‌?افزار|سپیدز)")
-WIDGET_MODELS = ("GPT-5.6-Luna", "DeepSeek-V4-Flash", "Claude-Haiku-4.5", "Gemini-2.5-Flash")
+# 3.9.96: measured on the gateway with the real ~32k-char prompt: GPT-4.1-Mini ~5 s steady; GPT-5.6-Luna 8–54 s (blew the turn budget)
+WIDGET_MODELS = ("GPT-4.1-Mini", "DeepSeek-V4-Flash", "Claude-Haiku-4.5", "Gemini-2.5-Flash")
+WIDGET_DEFAULT_MODEL = os.environ.get("WIDGET_MODEL", "GPT-4.1-Mini")
 
 
 def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False, spec=None):
@@ -6634,7 +6636,7 @@ def _sa_reply_turn(site, history, page=None, conv="", visitor="", dry_run=False,
     out = {"ok": False}
     for _ in range(3):
         st = time.perf_counter()
-        out = ai_chat(system, None, max_tokens=600, temperature=0.4, history=msgs, model=site.get("_model") or agent_model(tenant))
+        out = ai_chat(system, None, max_tokens=600, temperature=0.4, history=msgs, model=site.get("_model") or agent_model(tenant) or WIDGET_DEFAULT_MODEL)
         tm["llm"].append(round(time.perf_counter() - st, 2))
         if not out.get("ok"):
             _sa_timing_log(tm, t0, "error")

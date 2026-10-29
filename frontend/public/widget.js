@@ -103,7 +103,7 @@
 	// 3.9.81: the assistant's 3D reactions (rendered from the dashboard's 3D model) — no emoji anywhere
 	function FACE(k) { return BASE + '/agent/' + k + '.webp' }
 	// 3.9.83: the visitor can pick one of four low-cost models (server allow-list WIDGET_MODELS)
-	var MODELS = [['GPT-5.6-Luna', 'GPT Luna'], ['DeepSeek-V4-Flash', 'DeepSeek Flash'], ['Claude-Haiku-4.5', 'Claude Haiku'], ['Gemini-2.5-Flash', 'Gemini Flash']]
+	var MODELS = [['GPT-4.1-Mini', 'GPT Mini'], ['DeepSeek-V4-Flash', 'DeepSeek Flash'], ['Claude-Haiku-4.5', 'Claude Haiku'], ['Gemini-2.5-Flash', 'Gemini Flash']]
 	var CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
 
 	function mount(c) {
