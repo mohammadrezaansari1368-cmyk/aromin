@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
 
-type Status = { enabled: boolean; watcher: boolean; current: string | null; pending: string[]; last: { state?: string; file?: string; at?: string; msg?: string } }
+type Status = { mode?: 'docker'; enabled: boolean; watcher: boolean; current: string | null; pending: string[]; last: { state?: string; file?: string; at?: string; msg?: string } }
 const CHUNK = 512 * 1024
 const STATE_FA: Record<string, string> = { installing: 'در حال نصب…', ok: 'نصب شد و سالم است ✓', rolledback: 'نسخهٔ جدید سالم نبود؛ خودکار برگشت', failed: 'نصب نشد؛ نسخهٔ فعلی دست‌نخورده ماند' }
 
@@ -75,6 +75,7 @@ export default function ReleaseCard({ pollMs = 3000 }: { pollMs?: number }) {
 		}
 	}
 
+	if (st?.mode === 'docker') return <section dir="rtl" className={`mb-4 ${CARD} ${CARD_PAD}`}><h3 className={CARD_TITLE}>به‌روزرسانی داشبورد</h3><p className={CARD_SUB}>این نصب از Docker مدیریت می‌شود؛ به‌روزرسانی با تصویر نسخهٔ جدید و نگهداری داده‌ها انجام می‌شود.</p><p className="text-sm">نسخهٔ فعلی: <b dir="ltr">{st.current || '—'}</b></p></section>
 	return (
 		<section dir="rtl" aria-labelledby="rel-title" className={`mb-4 flex flex-col gap-3 ${CARD} ${CARD_PAD}`}>
 			<header>
