@@ -4043,18 +4043,22 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
         all_rows+=call_rows or []
         ticket_rows=_perf_ticket_records(tenant,start,end,{str(p['id']) for p in selected})
         all_rows+=ticket_rows or []
+        for p in selected:
+            if perf.UNITS.get(p.get('role'))=='support':
+                if call_rows is None: issues.append({'personId':str(p['id']),'metric':'support_activity','reason':'منبع تماس در دسترس نیست؛ فعالیت پشتیبانی ناقص است.'})
+                if ticket_rows is None: issues.append({'personId':str(p['id']),'metric':['support_activity','tickets'],'reason':'منبع تیکت در دسترس نیست؛ شاخص‌های پشتیبانی کامل نیستند.'})
         rows=perf.in_period(all_rows,start,end)
         if view == 'details':
-            selected_rows=[r for r in rows if r['metric']==metric]
+            selected_rows=perf.metric_rows(rows,metric)
             selected_rows.sort(key=lambda r:(r['date'],r['id']))
             return {'ok':True,'rows':selected_rows[offset:offset+limit],'total':len(selected_rows),'offset':offset,'limit':limit}
         if view == 'daily':
             if not person: raise PublicValidationError('برای نمای سالانه یک شخص را انتخاب کنید.')
-            if metric not in ('tasks','contracts','finance_documents','tickets')+perf.CALL_METRICS: raise PublicValidationError('شاخص نامعتبر')
+            if metric not in ('tasks','contracts','finance_documents','tickets','support_activity')+perf.CALL_METRICS: raise PublicValidationError('شاخص نامعتبر')
             days={}
-            for r in rows:
-                if r['metric']==metric: days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
-            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else 'تیکت' if metric=='tickets' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
+            for r in perf.metric_rows(rows,metric):
+                days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
+            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else 'تیکت' if metric=='tickets' else 'فعالیت' if metric=='support_activity' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
         entries=[]
         for p in selected:
             pid=str(p['id']); own=[r for r in rows if r['personId']==pid]; warnings=[i for i in issues if i['personId']==pid]

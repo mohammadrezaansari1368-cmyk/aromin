@@ -62,7 +62,7 @@
 .pv-tft-name { font-size: 18px; font-weight: 900; letter-spacing: -.01em; } .pv-tft-period { color: var(--pv-dim); font-size: 12px; }
 .pv-tft-figs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0 0; width: 100%; }
 .pv-tft-figs div { text-align: center; } .pv-tft-figs dt { font-size: 10.5px; color: var(--pv-dim); } .pv-tft-figs dd { margin: 2px 0 0; font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--pv-ink); }
-.pv-minis { display: flex; justify-content: center; gap: 18px; margin-top: 10px; }
+.pv-minis { display: flex; flex-wrap: wrap; justify-content: center; gap: 18px; margin-top: 10px; }
 
 /* gauges */
 .pv-gauge { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; }
@@ -174,7 +174,7 @@
 	.pv-cmd-body { display: none; } .pv-cmd[data-open=true] .pv-cmd-body { display: flex; padding-top: 8px; }
 	.pv-cabin { padding: 12px; } .pv-cabin-row { grid-template-columns: 1fr; } .pv-g-chrono .pv-gauge-face { width: min(260px, 78vw); }
 	.pv-tft { padding: 12px 10%; min-height: 0; }
-	.pv-minis { justify-content: flex-start; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; } .pv-minis > * { scroll-snap-align: start; flex: none; }
+	.pv-minis { flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 4px; } .pv-minis > * { scroll-snap-align: start; flex: none; }
 	.pv-modes { position: fixed; bottom: 12px; inset-inline: 12px; z-index: 50; justify-content: space-around; background: hsl(var(--surface)); border: 1px solid hsl(var(--border)); border-radius: 999px; padding: 6px; box-shadow: 0 10px 30px hsl(var(--text) / .35); }
 	.pv-modes .pv-key { flex-direction: column; gap: 0; padding: 6px 10px; font-size: 10.5px; background: none; border: 0; box-shadow: none; color: hsl(var(--muted-foreground)); }
 	.pv-modes .pv-key.is-on { color: var(--pv-acc); transform: none; box-shadow: none; } .pv-mode-ic { font-size: 16px; }

@@ -53,15 +53,15 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const calls = current ? callMetrics(current.calls) : group ? callMetrics(toCalls(group.calls)) : []
 	const metrics: Metric[] = current ? [...current.metrics, tasksMetric(current.tasks), ...calls] : group ? [...group.metrics.map(toMetric), ...calls] : []
 
-	// local attendance (this browser only) → presence rate and workdays for one person
-	const { ds } = usePerformance(session)
+	// Confirmed server attendance → average recorded workday duration; not absence coverage.
+	const { ds, err: attendanceError, loading: attendanceLoading, reload: reloadAttendance } = usePerformance(session)
 	const chosen = people.find((p) => p.id === person)
 	const rows = useMemo(() => (ds?.people || []).filter((p) => chosen && p.person === chosen.name && ['manual', 'strong'].includes(p.personHow)).flatMap((p) => p.rows), [ds, chosen])
 	const inSpan = rows.filter((r) => r.date >= start && r.date <= end && (r.presentMin || 0) > 0)
 	const presenceMap = useMemo(() => new Map(rows.filter((r) => r.presentMin !== null).map((r) => [r.date, r.presentMin as number])), [rows])
 	const presence: Metric = inSpan.length
-		? toMetric({ id: 'presence', label: 'حضور', unit: '٪', definition: 'میانگین دقیقهٔ حضورِ روزهای کارکرد ÷ ' + WORKDAY_MIN + ' (حضورِ ثبت‌شده روی سرور)', status: 'valid', value: Math.round((inSpan.reduce((n, r) => n + (r.presentMin || 0), 0) / (inSpan.length * WORKDAY_MIN)) * 1000) / 10, numerator: inSpan.reduce((n, r) => n + (r.presentMin || 0), 0), denominator: inSpan.length * WORKDAY_MIN, coverage: { records: inSpan.length, issues: 0 } })
-		: off('presence', 'حضور', '٪', 'حضور برای این شخص و دوره روی سرور نیست یا کارت تأیید نشده.')
+		? toMetric({ id: 'presence', label: 'مدت حضور روزانه', unit: '٪', definition: 'میانگین دقیقهٔ حضور فقط در روزهای دارای کارکرد ÷ ' + WORKDAY_MIN + '؛ درصد روزهای حاضر از روزهای موظف نیست (حضورِ ثبت‌شده روی سرور).', status: 'valid', value: Math.round((inSpan.reduce((n, r) => n + (r.presentMin || 0), 0) / (inSpan.length * WORKDAY_MIN)) * 1000) / 10, numerator: inSpan.reduce((n, r) => n + (r.presentMin || 0), 0), denominator: inSpan.length * WORKDAY_MIN, coverage: { records: inSpan.length, issues: 0 } })
+		: off('presence', 'مدت حضور روزانه', '٪', attendanceError || 'حضور برای این شخص و دوره روی سرور نیست یا کارت تأیید نشده.')
 	// effort inputs = the engine's own perf fields (scoped /source projection); targets: person override → team setting → engine defaults
 	type Src = { full?: { people?: { id: string | number; perf?: PerfFields; perfSet?: { taskTarget?: number; callTarget?: number } }[]; perfCfg?: { taskCapMin?: number; taskTarget?: number; callTarget?: number }; callHours?: Record<string, number> } }
 	const source = usePerf<Src>(session, 'source', {}, !!directory.data)
@@ -86,13 +86,13 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const missing = new Set([main, ...minis].filter((g) => g && g.metric.status === 'not_computable').map((g) => g!.metric.id)).size + (person && effort.zone === 'none' ? 1 : 0)
 	const title = current?.name || chosen?.name || (unit ? 'واحد ' + UNIT_LABEL[unit] : 'همهٔ واحدها')
 	const units = [...new Set(people.map((p) => p.unit))]
-	const scopeNote = `دامنه: ${directory.data?.scope === 'organization' ? 'کل سازمان' : directory.data?.scope === 'unit' ? 'واحد شما' : 'فقط خودتان'} · سال مالیِ اسناد مستقل است · Asia/Tehran`
+	const scopeNote = `نقش‌ها بر پایهٔ وضعیت فعلی‌اند؛ تاریخچهٔ انتقال واحد ثبت نشده است. دامنه: ${directory.data?.scope === 'organization' ? 'کل سازمان' : directory.data?.scope === 'unit' ? 'واحد شما' : 'فقط خودتان'} · سال مالیِ اسناد مستقل است · Asia/Tehran`
 
 	const cabin = directory.error ? <p role="alert" className="pv-alert">{directory.error}</p>
 		: summary.error ? <p role="alert" className="pv-alert">{summary.error}</p>
 			: directory.loading || summary.loading ? <div className="pv-cabin pv-cabin-load"><AromLoader /></div>
 				: <InstrumentCluster main={main} side={person ? <EffortPanel effort={effort} callTarget={callTarget} taskTarget={taskTarget} sales={avg?.denominator ?? null} salesTarget={null} callHours={source.data?.full?.callHours || {}} onImport={connect} /> : <p className="pv-cabin-hint">ساعت تلاش: یک شخص انتخاب کنید</p>} minis={minis} title={title} period={periodLabel(period)}
-					contracts={avg?.denominator ?? null} avgContract={avg?.value ?? null} workdays={inSpan.length || null}
+					contracts={avg?.denominator ?? null} avgContract={avg?.value ?? null} workdays={attendanceError || attendanceLoading ? null : inSpan.length || null}
 					activeId={activeMetric.id} onSelect={(m) => { setActive(m.id); if (m.dailyMetric) setHeatMetric(m.dailyMetric) }} onConnect={connect} />
 	const open = (m: Metric, s = start, e = end) => setDrawer({ metric: m, start: s, end: e })
 	const trendDays = activeMetric.id === 'presence' ? [...presenceMap].filter(([d]) => d >= start && d <= end).sort().map(([date, value]) => ({ date, value })) : toDays(trend.data)
@@ -105,6 +105,8 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const tracker = <TaskTracker session={session} person={person} year={heatYear} monthlyTarget={taskTarget} holidays={holidays} onDay={(d) => open(tasksMetric(current?.tasks), d, d)} />
 	return <div dir="rtl" className="pv-root" data-performance-v2>
 		<CommandBar period={period} setPeriod={setPeriod} people={people} stats={team} person={person} setPerson={setPick} unit={unit} setUnit={(u) => { setUnit(u); setPick('') }} units={units} manager={manager} scopeNote={scopeNote} />
+		{person && (mode === 'cabin' || mode === 'person') && attendanceError && <p role="alert" className="pv-alert">دریافت حضور از سرور ناموفق بود: {attendanceError} <button type="button" onClick={reloadAttendance}>تلاش دوباره</button></p>}
+		{manager && (mode === 'cabin' || mode === 'person') && <p className="pv-alert" role="note">مقایسهٔ واحدها بر پایهٔ نقش فعلی است؛ تاریخچهٔ انتقال فروش و پشتیبانی هنوز ثبت نشده و برای ارزیابی دوره‌های پیش از انتقال قابل اتکا نیست. حضور فقط از رکوردهای سروری دستگاه Zurvan خوانده می‌شود.</p>}
 		<DriveModeSelector mode={mode} setMode={setMode} classic={session.role === 'manager'} />
 		{mode === 'cabin' && <>
 			{cabin}

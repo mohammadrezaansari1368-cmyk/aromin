@@ -4,7 +4,7 @@ export type Status = 'valid' | 'partial' | 'not_computable' | 'irrelevant' | 'er
 /** Server call stats (WP-3, aromin_calls.daily_records): confirmed julio/ext mapping only; queue calls never credited to a person. */
 export type CallKey = 'calls_in' | 'calls_out' | 'calls_internal' | 'calls_answered' | 'calls_missed' | 'talk_seconds'
 export type ApiCalls = Record<CallKey, number>
-export type DailyKey = 'tasks' | 'contracts' | 'finance_documents' | 'tickets' | CallKey
+export type DailyKey = 'tasks' | 'contracts' | 'finance_documents' | 'tickets' | 'support_activity' | CallKey
 
 export interface ApiMetric {
 	id: string; label: string; unit: string; definition: string

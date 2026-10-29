@@ -491,7 +491,7 @@ class Endpoints(unittest.TestCase):
         none_answered = {m['id']: m for m in perf.metrics('sales', rows[:2], [], '', '', None)}
         self.assertEqual((none_answered['activity']['value'], none_answered['activity']['status']), (0, 'valid'))
         self.assertEqual((none_answered['efficiency']['value'], none_answered['efficiency']['status']), (0, 'valid'))
-        self.assertEqual(perf.metrics('support', rows, [], '', '', None)[0]['status'], 'no_data')   # decision is sales-only
+        self.assertEqual(perf.metrics('support', rows, [], '', '', None)[0]['value'], 8)   # support counts incoming + outgoing, not answered/internal again
 
     def test_performance_wiring_wp3(self):
         code, out = self.perf('summary')
