@@ -69,6 +69,7 @@ def load_schema(path, database):
     """Load a MariaDB migration into SQLite using the 005 rewrite rules plus secondary-KEY removal."""
     schema = Path(path).read_text(encoding="utf-8")
     schema = schema.replace("BIGINT AUTO_INCREMENT PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT")
+    schema = schema.replace("INSERT IGNORE", "INSERT OR IGNORE")
     schema = re.sub(r"UNIQUE KEY \w+", "UNIQUE", schema)
     schema = re.sub(r",\s*KEY \w+ \([^)]*\)", "", schema)
     schema = schema.replace("ENGINE=InnoDB DEFAULT CHARSET=utf8mb4", "").replace("DATETIME", "TIMESTAMP")

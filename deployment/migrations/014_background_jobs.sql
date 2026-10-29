@@ -1,4 +1,11 @@
 -- Durable, tenant-scoped background jobs. Reports are read-only; no message tasks.
+-- Serialize the tiny claim/recovery transaction only; actual processing stays parallel.
+-- This avoids next-key-lock cycles between lease recovery and status-index updates.
+CREATE TABLE IF NOT EXISTS background_job_locks (
+ id VARCHAR(20) PRIMARY KEY
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+INSERT IGNORE INTO background_job_locks (id) VALUES ('claim');
+
 CREATE TABLE IF NOT EXISTS background_jobs (
  id CHAR(32) PRIMARY KEY,
  tenant VARCHAR(64) NOT NULL,

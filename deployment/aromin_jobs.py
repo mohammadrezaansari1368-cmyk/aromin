@@ -118,6 +118,11 @@ class Store:
             raise ValueError('Invalid lease duration')
         now, token = self.clock(), uuid.uuid4().hex
         with self.transaction() as cur:
+            # A durable one-row mutex keeps recovery/claim index locks in one order.
+            # It is released before executing the job; workers still run in parallel.
+            cur.execute("SELECT id FROM background_job_locks WHERE id='claim' FOR UPDATE")
+            if not cur.fetchone():
+                raise RuntimeError('Queue claim lock is missing; run migrations')
             # A crashed worker cannot permanently strand a job. Old tokens are invalidated.
             cur.execute("UPDATE background_jobs SET status='failed',finished_at=%s,updated_at=%s,lease_token=NULL,lease_until=NULL,error_code='lease_expired' "
                         "WHERE status='running' AND lease_until<=%s AND attempts>=max_attempts", (now, now, now))

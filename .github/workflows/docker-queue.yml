@@ -2,8 +2,6 @@ name: Docker and durable queue
 on:
   push:
     branches: [feat/docker-durable-jobs]
-  pull_request:
-    paths: ['deployment/**', 'frontend/**', 'ops/docker/**', 'compose.yaml', '.dockerignore', '.github/workflows/docker-queue.yml']
   workflow_dispatch:
 permissions:
   contents: read

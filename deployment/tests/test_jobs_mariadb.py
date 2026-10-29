@@ -38,7 +38,7 @@ class MariaQueue(unittest.TestCase):
                 row = self.store.claim()
                 with lock: found.append(row)
             except Exception as error:
-                with lock: errors.append(type(error).__name__)
+                with lock: errors.append((type(error).__name__, error.args[0] if error.args and isinstance(error.args[0],int) else None))
         workers = [threading.Thread(target=claim) for _ in range(12)]
         for worker in workers: worker.start()
         for worker in workers: worker.join(timeout=30)
