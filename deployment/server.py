@@ -53,6 +53,7 @@ from pathlib import Path as FilePath
 from fastapi.responses import FileResponse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+STATE_DIR = os.environ.get("AROMIN_STATE_DIR") or HERE
 
 # ---------------- پیکربندی ----------------
 CFG_DB = {
@@ -1199,7 +1200,7 @@ import xml.etree.ElementTree as _ET
 
 S3_DEFAULTS = {"endpoint": "https://s3.ir-thr-at1.arvanstorage.ir", "region": "ir-central1", "bucket": "kb-dynamic"}
 # نشانیِ سرور/منطقه/باکت را مدیر از کاشیِ «پایگاه دانش» تعیین می‌کند (فایلِ کنارِ server.py؛ غیرمحرمانه).
-KB_CFG_FILE = os.environ.get("KB_S3_CONFIG") or os.path.join(HERE, "kb_s3_config.json")
+KB_CFG_FILE = os.environ.get("KB_S3_CONFIG") or os.path.join(STATE_DIR, "kb_s3_config.json")
 _KB_ENDPOINT_RE = re.compile(r"^https?://[A-Za-z0-9.-]{3,253}(:\d{1,5})?$")
 _KB_REGION_RE = re.compile(r"^[A-Za-z0-9-]{1,40}$")
 _KB_BUCKET_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
@@ -1231,7 +1232,7 @@ def s3cfg():
 _ENV_ACCESS = os.environ.get("ARVAN_S3_ACCESS_KEY") or _AF.get("ARVAN_S3_ACCESS_KEY") or ""
 _ENV_SECRET = os.environ.get("ARVAN_S3_SECRET_KEY") or _AF.get("ARVAN_S3_SECRET_KEY") or ""
 # کلیدهایی که مدیر در «تنظیمات ← اتصالِ فضای ابری» وارد می‌کند: فایلِ خصوصی (0600) کنارِ server.py؛ بر env مقدم است.
-KB_SECRET_FILE = os.environ.get("KB_S3_SECRET_FILE") or os.path.join(HERE, "kb_s3_secret.json")
+KB_SECRET_FILE = os.environ.get("KB_S3_SECRET_FILE") or os.path.join(STATE_DIR, "kb_s3_secret.json")
 _KB_KEY_RE = re.compile(r"^[A-Za-z0-9/+=._-]{8,256}$")
 
 
@@ -2234,7 +2235,7 @@ C1_SERVER_FIELDS = ("finState", "finApproval", "finAudit", "finClosed", "finReop
 C1_FIN_PERSON_ROLES = ("finance", "accmgr")   # اشخاصِ مجاز برای «تأیید مالی و صحتِ داده» (همان finNamesِ دفتر)
 C1_LOCK_STATES = ("submitted", "approved")
 _c1_codes = {}   # tenant:user -> {hash, exp, tries, last, deal}; mirrored to C1_CODES_FILE so a restart does not lose a sent code
-C1_CODES_FILE = os.environ.get("C1_CODES_FILE") or os.path.join(HERE, ".reopen_codes.json")
+C1_CODES_FILE = os.environ.get("C1_CODES_FILE") or os.path.join(STATE_DIR, ".reopen_codes.json")
 _c1_codes_lock = _th.Lock()
 
 
@@ -2727,7 +2728,7 @@ def _att_ingest(tenant, uploader, parsed, people):
                          "sheetCards": sheet_cards}, status_code=201)
 
 
-ATT_ARCHIVE_MARK = os.environ.get("ATT_ARCHIVE_MARK") or os.path.join(HERE, ".attendance_archive_v1")
+ATT_ARCHIVE_MARK = os.environ.get("ATT_ARCHIVE_MARK") or os.path.join(STATE_DIR, ".attendance_archive_v1")
 
 
 def attendance_archive_files():
@@ -4043,18 +4044,22 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
         all_rows+=call_rows or []
         ticket_rows=_perf_ticket_records(tenant,start,end,{str(p['id']) for p in selected})
         all_rows+=ticket_rows or []
+        for p in selected:
+            if perf.UNITS.get(p.get('role'))=='support':
+                if call_rows is None: issues.append({'personId':str(p['id']),'metric':'support_activity','reason':'منبع تماس در دسترس نیست؛ فعالیت پشتیبانی ناقص است.'})
+                if ticket_rows is None: issues.append({'personId':str(p['id']),'metric':['support_activity','tickets'],'reason':'منبع تیکت در دسترس نیست؛ شاخص‌های پشتیبانی کامل نیستند.'})
         rows=perf.in_period(all_rows,start,end)
         if view == 'details':
-            selected_rows=[r for r in rows if r['metric']==metric]
+            selected_rows=perf.metric_rows(rows,metric)
             selected_rows.sort(key=lambda r:(r['date'],r['id']))
             return {'ok':True,'rows':selected_rows[offset:offset+limit],'total':len(selected_rows),'offset':offset,'limit':limit}
         if view == 'daily':
             if not person: raise PublicValidationError('برای نمای سالانه یک شخص را انتخاب کنید.')
-            if metric not in ('tasks','contracts','finance_documents','tickets')+perf.CALL_METRICS: raise PublicValidationError('شاخص نامعتبر')
+            if metric not in ('tasks','contracts','finance_documents','tickets','support_activity')+perf.CALL_METRICS: raise PublicValidationError('شاخص نامعتبر')
             days={}
-            for r in rows:
-                if r['metric']==metric: days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
-            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else 'تیکت' if metric=='tickets' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
+            for r in perf.metric_rows(rows,metric):
+                days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
+            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else 'تیکت' if metric=='tickets' else 'فعالیت' if metric=='support_activity' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
         entries=[]
         for p in selected:
             pid=str(p['id']); own=[r for r in rows if r['personId']==pid]; warnings=[i for i in issues if i['personId']==pid]
@@ -4068,6 +4073,65 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
         return JSONResponse({'ok':False,'error':public_error(e)},status_code=403)
     except ValueError as e:
         return JSONResponse({'ok':False,'error':public_error(e)},status_code=400)
+
+# Durable jobs are opt-in; existing non-container installations stay synchronous.
+def _jobs_context(request, tenant):
+    if os.environ.get('AROMIN_JOBS_ENABLED', '0') != '1':
+        return None, JSONResponse({'ok':False,'error':'صف پردازش هنوز فعال نشده است.'},status_code=503)
+    ident = kb_identity(request, tenant)
+    if not ident:
+        return None, JSONResponse({'ok':False,'error':'ورود معتبر نیست.'},status_code=401)
+    if ident['role'] != 'manager':
+        return None, JSONResponse({'ok':False,'error':'صف گزارش‌های سازمان فقط برای مدیر است.'},status_code=403)
+    return ident, None
+
+
+@app.post('/api/jobs')
+def jobs_create(request: Request, payload: dict = Body(default={})):
+    import aromin_jobs as jobs
+    tenant = str(payload.get('tenant') or 'team')
+    ident, denied = _jobs_context(request, tenant)
+    if denied is not None: return denied
+    try:
+        row, created = jobs.Store(db_conn).enqueue(tenant,ident['user'],str(payload.get('kind') or ''),payload.get('payload'),str(payload.get('idempotencyKey') or ''))
+        return JSONResponse({'ok':True,'job':row,'created':created},status_code=201 if created else 200)
+    except jobs.Conflict as error:
+        return JSONResponse({'ok':False,'error':str(error)},status_code=409)
+    except PublicValidationError as error:
+        return JSONResponse({'ok':False,'error':str(error)},status_code=400)
+
+
+@app.get('/api/jobs')
+def jobs_list(request: Request, tenant: str = 'team'):
+    import aromin_jobs as jobs
+    _, denied = _jobs_context(request, tenant)
+    if denied is not None: return denied
+    return {'ok':True,'jobs':jobs.Store(db_conn).list(tenant)}
+
+
+@app.get('/api/jobs/{job_id}')
+def jobs_get(job_id: str, request: Request, tenant: str = 'team'):
+    import aromin_jobs as jobs
+    _, denied = _jobs_context(request, tenant)
+    if denied is not None: return denied
+    row = jobs.Store(db_conn).get(tenant,job_id)
+    if not row: return JSONResponse({'ok':False,'error':'کار پیدا نشد.'},status_code=404)
+    return {'ok':True,'job':row}
+
+
+@app.post('/api/jobs/{job_id}/{action}')
+def jobs_action(job_id: str, action: str, request: Request, payload: dict = Body(default={})):
+    import aromin_jobs as jobs
+    tenant = str(payload.get('tenant') or 'team')
+    _, denied = _jobs_context(request, tenant)
+    if denied is not None: return denied
+    store = jobs.Store(db_conn)
+    if action not in ('cancel','retry'): return JSONResponse({'ok':False,'error':'عملیات نامعتبر'},status_code=400)
+    if not store.get(tenant,job_id): return JSONResponse({'ok':False,'error':'کار پیدا نشد.'},status_code=404)
+    changed = store.cancel(tenant,job_id) if action=='cancel' else store.retry(tenant,job_id)
+    if not changed: return JSONResponse({'ok':False,'error':'وضعیت کار تغییر کرده یا سقف تلاش رسیده است؛ فهرست را تازه کنید.'},status_code=409)
+    return {'ok':True,'job':store.get(tenant,job_id)}
+
 
 def _c1_audit(d, action, ident, full, **extra):
     e = {"action": action, "by": _c1_person_name(full, ident["user"]), "user": ident["user"], "role": ident["role"], "ts": int(time.time() * 1000)}
@@ -4597,6 +4661,8 @@ def ota_ping():
 
 @app.post("/api/app-update")
 def ota_update(payload: dict = Body(default={}), x_update_token: str = Header(default="")):
+    if os.environ.get('AROMIN_CONTAINER') == '1':
+        return JSONResponse({'ok':False,'error':'container_managed','detail':'این نصب با تصویر Docker به‌روزرسانی می‌شود.'},status_code=409)
     if not secret_get("update_token"):
         return JSONResponse({"ok": False, "error": "disabled",
                              "detail": "روی سرور UPDATE_TOKEN تنظیم نشده است."}, status_code=503)
@@ -4645,6 +4711,8 @@ def _zip_find_index(names):
 
 @app.post("/api/spa-deploy")
 def spa_deploy(payload: dict = Body(default={}), x_update_token: str = Header(default="")):
+    if os.environ.get('AROMIN_CONTAINER') == '1':
+        return JSONResponse({'ok':False,'error':'container_managed','detail':'این نصب با تصویر Docker به‌روزرسانی می‌شود.'},status_code=409)
     if not secret_get("update_token"):
         return JSONResponse({"ok": False, "error": "disabled",
                              "detail": "روی سرور UPDATE_TOKEN تنظیم نشده است."}, status_code=503)
@@ -4762,6 +4830,8 @@ def _tgz_ok(path):
 
 @app.post("/api/release/chunk")
 def release_chunk(payload: dict = Body(default={}), x_update_token: str = Header(default="")):
+    if os.environ.get('AROMIN_CONTAINER') == '1':
+        return JSONResponse({'ok':False,'error':'container_managed','detail':'این نصب با تصویر Docker به‌روزرسانی می‌شود.'},status_code=409)
     bad = _release_auth(x_update_token)
     if bad:
         return bad
@@ -4818,6 +4888,8 @@ def release_chunk(payload: dict = Body(default={}), x_update_token: str = Header
 
 @app.get("/api/release/status")
 def release_status():
+    if os.environ.get('AROMIN_CONTAINER') == '1':
+        return {'ok':True,'mode':'docker','enabled':False,'watcher':False,'last':{},'pending':[],'current':app_version_of_target()}
     st = {}
     try:
         with open(os.path.join(RELEASE_DIR, "status.json"), "r", encoding="utf-8") as fh:
@@ -4839,7 +4911,7 @@ def release_status():
 # API عمومی فقط /api/widget/public/* است و به هیچ دادهٔ دیگری (سرنخ، گزارش، تیم، مدیریت) دسترسی ندارد.
 from starlette.concurrency import run_in_threadpool as _in_pool
 
-WIDGET_FILE = os.environ.get("WIDGET_SITES_FILE") or os.path.join(HERE, "widget_sites.json")
+WIDGET_FILE = os.environ.get("WIDGET_SITES_FILE") or os.path.join(STATE_DIR, "widget_sites.json")
 W_RATE_IP = int(os.environ.get("WIDGET_RATE_PER_10MIN", "20"))          # پیام در ۱۰ دقیقه برای هر IP در هر سایت
 W_CONV_MAX = int(os.environ.get("WIDGET_MAX_PER_CONVERSATION", "40"))   # پیام در هر گفت‌وگو
 W_VISITOR_DAY = int(os.environ.get("WIDGET_MAX_PER_VISITOR_DAY", "100"))
@@ -5298,7 +5370,7 @@ import ssl as _ssl
 import ipaddress as _ipa
 import http.client as _hc
 
-SA_FILE = os.environ.get("SALES_AGENT_FILE") or os.path.join(HERE, "sales_agent.json")
+SA_FILE = os.environ.get("SALES_AGENT_FILE") or os.path.join(STATE_DIR, "sales_agent.json")
 SA_STATUSES = ("new", "assigned", "contacted", "qualified", "won", "lost")
 SA_OPEN = ("new", "assigned", "contacted", "qualified")
 SA_DOMAINS = ("arominco.com", "sepidz.com", "smartx.ir")          # فقط همین سه دامنه (+ www)
@@ -6977,6 +7049,8 @@ def sa_tick():
 
 
 def sa_start_worker():
+    if os.environ.get('AROMIN_BACKGROUND_ENABLED', '1') != '1':
+        return
     if _sa_thread["t"] and _sa_thread["t"].is_alive():
         return
 
@@ -9629,7 +9703,7 @@ def compensation_update(request: Request, payload: dict = Body(default={})):
 
 
 # Google credentials are tenant-scoped, server-only, atomically written with mode 0600.
-GOOGLE_SECRET_DIR = os.environ.get('GOOGLE_SECRET_DIR') or os.path.join(HERE, '.assistant-secrets')
+GOOGLE_SECRET_DIR = os.environ.get('GOOGLE_SECRET_DIR') or os.path.join(STATE_DIR, '.assistant-secrets')
 GOOGLE_MODEL = os.environ.get('GOOGLE_AI_MODEL') or 'gemini-2.5-flash'
 
 def _google_ai_path(tenant):
@@ -9718,7 +9792,7 @@ def google_ai_test(request: Request, payload: dict = Body(default={})):
 
 # ---------- فایل‌های ثابتِ public (آخر از همه مونت می‌شود) ----------
 # Scheduled publishing uses UTC naive database datetimes, distinct from legacy tg_* time.
-PUB_MEDIA_DIR = FilePath(os.environ.get("PUB_MEDIA_DIR") or os.path.join(HERE, "media", "pub"))
+PUB_MEDIA_DIR = FilePath(os.environ.get("PUB_MEDIA_DIR") or os.path.join(STATE_DIR, "media", "pub"))
 PUB_BASE = os.environ.get("PUBLIC_BASE_URL", "https://dashboard.arominco.com").rstrip("/")
 
 
@@ -10638,7 +10712,7 @@ _ig_lock = _th.Lock()
 
 
 def _ig_path(tenant):
-    return os.path.join(HERE, "ig_%s.json" % re.sub(r"[^A-Za-z0-9_-]", "", tenant or "team"))
+    return os.path.join(STATE_DIR, "ig_%s.json" % re.sub(r"[^A-Za-z0-9_-]", "", tenant or "team"))
 
 
 def ig_cfg(tenant):
@@ -10888,7 +10962,7 @@ def ig_tick():
     now = datetime.datetime.utcnow() + IG_HOUR_TZ
     if now.hour < 8:
         return
-    for fn in glob.glob(os.path.join(HERE, "ig_*.json")):
+    for fn in glob.glob(os.path.join(STATE_DIR, "ig_*.json")):
         tenant = os.path.basename(fn)[3:-5]
         cfg = ig_cfg(tenant)
         if not cfg.get("enabled") or not cfg.get("account") or cfg.get("autoDay") == now.date().isoformat():
@@ -11028,10 +11102,10 @@ def _startup():
     _th.Thread(target=_warm, daemon=True).start()
     try:
         print("در حال بررسی و اعمالِ مهاجرت‌های دیتابیس…")
-        n = run_migrations(CFG_DB)
+        n = run_migrations(CFG_DB) if os.environ.get("AROMIN_RUN_MIGRATIONS", "1") == "1" else 0
         print(("مهاجرت‌ها اعمال شد (%d فایل)." % n) if n else "دیتابیس از قبل به‌روز بود.")
         attendance_archive_files()      # 3.9.68, once: file-imported attendance → '<tenant>~archive' (Harikan is the only source)
-        if glob.glob(os.path.join(HERE, "ig_*.json")) or tg_configured() or any(c.get("activated") and c.get("enabled") for c in _sa_all().values()) or q("SELECT tenant FROM pub_settings WHERE settings LIKE %s", ('%"enabled":true%',)):
+        if glob.glob(os.path.join(STATE_DIR, "ig_*.json")) or tg_configured() or any(c.get("activated") and c.get("enabled") for c in _sa_all().values()) or q("SELECT tenant FROM pub_settings WHERE settings LIKE %s", ('%"enabled":true%',)):
             sa_start_worker()
     except Exception as e:
         print("اجرای مهاجرت‌ها ناموفق بود:", public_error(e))

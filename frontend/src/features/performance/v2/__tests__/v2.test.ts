@@ -106,3 +106,19 @@ describe('WP-3 call stats', () => {
 		expect(toMetric({ id: 'activity', unit: 'خدمت', detailsMetric: 'activity' }).dailyMetric).toBeNull()
 	})
 })
+
+import { CLUSTER } from '../data/clusterConfig'
+
+describe('four performance axes', () => {
+	it('keeps all four distinct business axes visible for every unit', () => {
+		expect([CLUSTER.sales.main, ...CLUSTER.sales.minis]).toEqual(['activity', 'efficiency', 'conversion', 'contract_average'])
+		expect([CLUSTER.support.main, ...CLUSTER.support.minis]).toEqual(['activity', 'efficiency', 'resolution', 'quality'])
+		expect([CLUSTER.finance.main, ...CLUSTER.finance.minis]).toEqual(['finance_documents', 'efficiency', 'accuracy', 'effectiveness'])
+	})
+})
+
+describe('support activity trend', () => {
+	it('uses the combined activity endpoint instead of ticket-only history', () => {
+		expect(toMetric({ id: 'activity', unit: 'فعالیت', status: 'valid', value: 6, detailsMetric: 'support_activity' }).dailyMetric).toBe('support_activity')
+	})
+})

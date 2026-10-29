@@ -1,0 +1,113 @@
+name: aromin
+
+x-app: &app
+  image: aromin:${AROMIN_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: ops/docker/Dockerfile
+  env_file:
+    - path: ./ops/docker/runtime.env
+      required: false
+  environment: &app-env
+    DB_HOST: db
+    DB_PORT: 3306
+    DB_NAME: aromin_sales
+    DB_USER: aromin
+    DB_PASS_FILE: /run/secrets/db_password
+    AROMIN_SECRETS_KEY_FILE: /run/secrets/app_secrets_key
+    AROMIN_JOBS_ENABLED: "1"
+    AROMIN_RUN_MIGRATIONS: "0"
+    AROMIN_BACKGROUND_ENABLED: "${AROMIN_BACKGROUND_ENABLED:-0}"
+  secrets:
+    - db_password
+    - app_secrets_key
+  volumes:
+    - app_state:/var/lib/aromin
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=128m
+  init: true
+  stop_grace_period: 30s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  db:
+    image: mariadb:11.4
+    environment:
+      MARIADB_DATABASE: aromin_sales
+      MARIADB_USER: aromin
+      MARIADB_PASSWORD_FILE: /run/secrets/db_password
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
+      TZ: Asia/Tehran
+    secrets:
+      - db_password
+      - db_root_password
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  migrate:
+    <<: *app
+    command: ["python", "migrate.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app
+    ports:
+      - "127.0.0.1:${AROMIN_HTTP_PORT:-3100}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; r=json.load(urllib.request.urlopen('http://127.0.0.1:3000/api/health',timeout=4)); assert r['ok'] and r['db']"]
+      interval: 15s
+      timeout: 6s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  worker:
+    <<: *app
+    command: ["python", "aromin_worker.py"]
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  app_state:
+
+secrets:
+  db_password:
+    file: ./ops/docker/secrets/db_password
+  db_root_password:
+    file: ./ops/docker/secrets/db_root_password
+  app_secrets_key:
+    file: ./ops/docker/secrets/app_secrets_key

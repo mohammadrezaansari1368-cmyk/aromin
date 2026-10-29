@@ -16,8 +16,9 @@ const MessengerTokensCard = lazy(() => import('@/components/settings/MessengerTo
 const AgentsCard = lazy(() => import('@/components/agent/AgentsCard'))
 const ReleaseCard = lazy(() => import('@/components/settings/ReleaseCard'))
 const WebServiceCard = lazy(() => import('@/components/settings/WebServiceCard'))
+const JobsCard = lazy(() => import('@/components/settings/JobsCard'))
 
-type Sec = { id: string; label: string; hint: string; admin?: boolean; legacy?: boolean; body: (s: Session) => ReactNode }
+type Sec = { id: string; label: string; hint: string; admin?: boolean; managerOnly?: boolean; legacy?: boolean; body: (s: Session) => ReactNode }
 const Row = ({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) => (
 	<div className="flex items-center justify-between gap-4 border-b border-border/60 py-4">
 		<div className="min-w-0"><div className="text-[14px] font-medium">{title}</div>{hint && <div className="mt-0.5 text-[12.5px] text-muted-foreground">{hint}</div>}</div>
@@ -39,11 +40,12 @@ export const SECTIONS: Sec[] = [
 	</> },
 	{ id: 'widget', label: 'ابزارکِ سایت', hint: 'پاپ‌آپِ گفت‌وگو روی arominco.com', body: (s) => <WidgetInstallCard session={s} /> },
 	{ id: 'developer', label: 'توسعه‌دهنده', hint: 'کلیدِ API و وب‌سرویس', admin: true, body: (s) => <WebServiceCard session={s} /> },
+	{ id: 'jobs', label: 'صف پردازش', hint: 'گزارش‌های پس‌زمینه و وضعیت اجرا', managerOnly: true, body: (s) => <JobsCard session={s} /> },
 ]
 const KEY = 'aromin.settings.section'
 
 export default function SettingsPage({ session, setPanel }: { session: Session; setPanel?: (p: string | null) => void }) {
-	const list = SECTIONS.filter((x) => !x.admin || isAdmin(session.role))
+	const list = SECTIONS.filter((x) => (!x.admin || isAdmin(session.role)) && (!x.managerOnly || session.role === 'manager'))
 	const [id, setId] = useState(() => { try { return localStorage.getItem(KEY) || 'general' } catch { return 'general' } })
 	const sec = list.find((x) => x.id === id) || list[0]
 	useEffect(() => { setPanel?.(sec.legacy ? 'p-set' : null) }, [sec, setPanel])

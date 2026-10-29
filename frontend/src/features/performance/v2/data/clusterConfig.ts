@@ -1,8 +1,8 @@
 /** Unit-driven cluster: which metric drives the big gauge and which go to the minis. «presence» is server attendance (confirmed card mapping only). */
-export const CLUSTER: Record<string, { main: string; minis: [string, string] }> = {
-	sales: { main: 'activity', minis: ['efficiency', 'conversion'] },
-	support: { main: 'activity', minis: ['efficiency', 'resolution'] },
-	finance: { main: 'finance_documents', minis: ['efficiency', 'accuracy'] },
+export const CLUSTER: Record<string, { main: string; minis: [string, string, string] }> = {
+	sales: { main: 'activity', minis: ['efficiency', 'conversion', 'contract_average'] },
+	support: { main: 'activity', minis: ['efficiency', 'resolution', 'quality'] },
+	finance: { main: 'finance_documents', minis: ['efficiency', 'accuracy', 'effectiveness'] },
 }
 /** metric → import file that feeds it (shown in receipts and the data-health bar) */
 export const IMPORT_SOURCE: Record<string, string> = {

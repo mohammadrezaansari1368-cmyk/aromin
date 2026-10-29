@@ -1,0 +1,3 @@
+-- Only after an operator has backed up job history and stopped all workers.
+DROP TABLE IF EXISTS background_jobs;
+DROP TABLE IF EXISTS background_job_locks;

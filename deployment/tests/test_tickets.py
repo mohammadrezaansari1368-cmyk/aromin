@@ -72,7 +72,7 @@ class Pure(unittest.TestCase):
     def test_support_axes_owner_decision(self):
         recs = [dict(personId='1', date='1405/06/19', metric='tickets', value=1, source='ticket_logs', onTime=v) for v in (1, 1, 0, None)]
         ax = {m['id']: m for m in perf.metrics('support', recs, [], '', '', None)}
-        self.assertEqual((ax['activity']['value'], ax['activity']['detailsMetric'], ax['activity']['status']), (4, 'tickets', 'valid'))
+        self.assertEqual((ax['activity']['value'], ax['activity']['detailsMetric'], ax['activity']['status']), (4, 'support_activity', 'valid'))
         self.assertEqual((round(ax['efficiency']['value'], 4), ax['efficiency']['numerator'], ax['efficiency']['denominator'], ax['efficiency']['status']),
                          (66.6667, 2, 3, 'partial'))   # unknown SLA/OLA is excluded and marks the value partial
         none = {m['id']: m for m in perf.metrics('support', recs[3:], [], '', '', None)}

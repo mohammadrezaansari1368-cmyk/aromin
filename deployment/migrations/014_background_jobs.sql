@@ -1,0 +1,33 @@
+-- Durable, tenant-scoped background jobs. Reports are read-only; no message tasks.
+-- Serialize the tiny claim/recovery transaction only; actual processing stays parallel.
+-- This avoids next-key-lock cycles between lease recovery and status-index updates.
+CREATE TABLE IF NOT EXISTS background_job_locks (
+ id VARCHAR(20) PRIMARY KEY
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+INSERT IGNORE INTO background_job_locks (id) VALUES ('claim');
+
+CREATE TABLE IF NOT EXISTS background_jobs (
+ id CHAR(32) PRIMARY KEY,
+ tenant VARCHAR(64) NOT NULL,
+ kind VARCHAR(40) NOT NULL,
+ requested_by VARCHAR(120) NOT NULL,
+ idempotency_key VARCHAR(120) NOT NULL,
+ payload_hash CHAR(64) NOT NULL,
+ payload_json MEDIUMTEXT NOT NULL,
+ status VARCHAR(20) NOT NULL,
+ attempts INT NOT NULL DEFAULT 0,
+ max_attempts INT NOT NULL DEFAULT 3,
+ created_at BIGINT NOT NULL,
+ updated_at BIGINT NOT NULL,
+ available_at BIGINT NOT NULL,
+ started_at BIGINT NULL,
+ finished_at BIGINT NULL,
+ lease_until BIGINT NULL,
+ lease_token CHAR(32) NULL,
+ result_json MEDIUMTEXT NULL,
+ error_code VARCHAR(80) NULL,
+ UNIQUE KEY uq_job_request (tenant, idempotency_key),
+ KEY ix_job_claim (status, available_at, created_at),
+ KEY ix_job_tenant (tenant, created_at),
+ KEY ix_job_lease (status, lease_until)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

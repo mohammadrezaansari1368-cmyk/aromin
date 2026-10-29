@@ -71,3 +71,20 @@ class Performance(unittest.TestCase):
   self.assertNotIn('secret',str(source));self.assertNotIn('invY',str(source))
   with patch.object(server,'kb_identity',return_value=None):
    self.assertEqual(server.performance_read('summary',None,tenant='team').status_code,401)
+
+ def test_support_activity_summary_daily_details_and_failed_source(self):
+  rows=[dict(id='call:'+m,personId='4',date='1405/07/02',metric=m,value=v,unit='تماس',source='call_logs') for m,v in [('calls_in',2),('calls_out',3),('calls_internal',7),('calls_answered',4)]]
+  tickets=[dict(id='ticket:1',personId='4',date='1405/07/02',metric='tickets',value=1,unit='تیکت',source='ticket_logs',onTime=1)]
+  with patch.object(server,'_perf_call_records',return_value=rows),patch.object(server,'_perf_ticket_records',return_value=tickets):
+   data=self.call('summary',role='manager',person='4')
+   ax=data['people'][0]['metrics']
+   self.assertEqual((ax[0]['value'],ax[0]['detailsMetric'],ax[0]['status']),(6,'support_activity','valid'))
+   self.assertEqual(ax[1]['value'],100)
+   daily=self.call('daily',role='manager',person='4',metric='support_activity')
+   self.assertEqual((daily['days'][0]['value'],daily['unit']),(6,'فعالیت'))
+   details=self.call('details',role='manager',person='4',metric='support_activity')
+   self.assertEqual(sum(r['value'] for r in details['rows']),6)
+   self.assertEqual({r['metric'] for r in details['rows']},{'tickets','calls_in','calls_out'})
+  with patch.object(server,'_perf_call_records',return_value=None),patch.object(server,'_perf_ticket_records',return_value=tickets):
+   ax=self.call('summary',role='manager',person='4')['people'][0]['metrics']
+   self.assertEqual((ax[0]['value'],ax[0]['status'],ax[1]['status']),(1,'partial','valid'))
