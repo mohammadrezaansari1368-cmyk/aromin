@@ -5416,6 +5416,13 @@ def sa_cfg(tenant):
     c.setdefault("activated", False)
     c.setdefault("source", "سایت آرومین")
     c.setdefault("reportHour", 21)
+    c.setdefault("followupHour", 10)
+    report = dict(c.get("joolioReport") or {})
+    report.setdefault("enabled", True)
+    report.setdefault("hour", 21)
+    report["channels"] = dict({"bale": True, "telegram": True, "sms": False, "whatsapp": False},
+                              **(report.get("channels") or {}))
+    c["joolioReport"] = report
     c.setdefault("vars", {})
     for k in SA_TEXT_KEYS:
         c.setdefault(k, "")
@@ -6327,6 +6334,166 @@ def _sa_xlsx(title, header, rows):
 SA_STATUS_FA = {"new": "جدید", "assigned": "ارجاع‌شده", "contacted": "تماس گرفته شد", "qualified": "واجد شرایط", "won": "موفق", "lost": "ناموفق"}
 
 
+def joolio_name(name):
+    name = re.sub(r"[\s\u200c]+", "", name).translate(str.maketrans("يك", "یک"))
+    return re.sub(r"^(آقای|خانم)", "", name)
+
+
+def joolio_snapshot(tenant, payload):
+    date = payload.get("date")
+    try:
+        if not isinstance(date, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+            raise ValueError()
+        datetime.date.fromisoformat(date)
+    except (TypeError, ValueError):
+        raise ValueError("تاریخ معتبر لازم است.")
+    sellers = payload.get("sellers")
+    if not isinstance(sellers, list) or len(sellers) > 100:
+        raise ValueError("حداکثر ۱۰۰ فروشنده مجاز است.")
+    if "force" in payload and type(payload["force"]) is not bool:
+        raise ValueError("گزینهٔ ارسال اجباری باید منطقی باشد.")
+    people = {}
+    for person in _sa_people(tenant):
+        people.setdefault(joolio_name(str(person.get("name") or "")), []).append(person)
+    out = []
+    for seller in sellers:
+        if not isinstance(seller, dict) or not isinstance(seller.get("name"), str):
+            raise ValueError("نام فروشنده لازم است.")
+        name = seller["name"].strip()
+        if not name or len(name) > 120 or any(ord(c) < 32 for c in name):
+            raise ValueError("نام فروشنده باید بین ۱ تا ۱۲۰ نویسه باشد.")
+        row = {"name": name}
+        for key in ("calls", "callsOk", "callsNoAnswer", "talkMin", "deals", "won", "wonValue", "workdays"):
+            value = seller.get(key)
+            allowed = (int, float) if key in ("talkMin", "wonValue") else (int,)
+            if type(value) not in allowed or (type(value) is float and not math.isfinite(value)):
+                raise ValueError("مقدار عددی معتبر لازم است: " + key)
+            row[key] = max(0, value)
+        matches = people.get(joolio_name(name), [])
+        row["personId"] = str(matches[0].get("id") or matches[0]["name"]) if len(matches) == 1 else None
+        joolio_metrics(row)
+        out.append(row)
+    return {"date": date, "sellers": out}
+
+
+def joolio_metrics(row):
+    for key, numerator, denominator, factor in (
+        ("avgContract", "wonValue", "won", 1), ("effortHours", "talkMin", "workdays", 1 / 60),
+        ("efficiency", "callsOk", "calls", 100), ("conversion", "won", "deals", 100)):
+        row[key] = round(row[numerator] / row[denominator] * factor, 1) if row[denominator] else None
+
+
+def joolio_summary(snapshot):
+    day = datetime.date.fromisoformat(snapshot["date"])
+    jy, jm, jd = _jalali(day.year, day.month, day.day)
+    lines = ["گزارش روزانهٔ فروش — %04d/%02d/%02d" % (jy, jm, jd)]
+    totals = {k: sum(r[k] for r in snapshot["sellers"]) for k in
+              ("calls", "callsOk", "callsNoAnswer", "talkMin", "deals", "won", "wonValue", "workdays")}
+    joolio_metrics(totals)
+    def fmt(value):
+        return "—" if value is None else format(value, ",.1f").removesuffix(".0")
+    for row in snapshot["sellers"] + [dict(totals, name="جمع تیم")]:
+        lines.append("%s: تماس %s (موفق %s) · ساعتِ تلاش %s · قرارداد %s · میانگین %s تومان · راندمان %s٪ · نرخ تبدیل %s٪" %
+                     tuple([row["name"]] + [fmt(row[k]) for k in
+                           ("calls", "callsOk", "effortHours", "won", "avgContract", "efficiency", "conversion")]))
+    return "\n".join(lines)
+
+
+def _sa_claim_day(tenant, key, day):
+    # Claim before delivery: failed/partial sends are not automatically duplicated.
+    with _SaTx() as tx:
+        tx.x("INSERT IGNORE INTO sa_state (tenant,k,v) VALUES (%s,%s,'')", (tenant, key))
+        row = tx.one("SELECT v FROM sa_state WHERE tenant=%s AND k=%s FOR UPDATE", (tenant, key))
+        if row and row["v"] == day:
+            return False
+        tx.x("UPDATE sa_state SET v=%s WHERE tenant=%s AND k=%s", (day, tenant, key))
+    return True
+
+
+def joolio_send(tenant, snapshot, force=False):
+    cfg = sa_cfg(tenant)["joolioReport"]
+    sent = dict.fromkeys(("bale", "telegram", "sms", "whatsapp"), "skipped")
+    if not cfg["enabled"]:
+        return sent
+    now = _sa_now().replace(tzinfo=datetime.timezone.utc).astimezone(_IR_TZ)
+    text = joolio_summary(snapshot)
+    if not force and not _sa_claim_day(tenant, "joolio_report_day", now.date().isoformat()):
+        return sent
+    manager = sa_manager(tenant)
+    for channel in sent:
+        if not cfg["channels"].get(channel):
+            continue
+        if channel == "whatsapp":
+            print("[SA] whatsapp: no API")
+            continue
+        try:
+            if not manager:
+                raise ValueError("مدیر فروش ثبت نشده است.")
+            if channel == "sms":
+                ok, error = _sa_send_sms(manager.get("phone"), text.splitlines()[0] + "\n" + text.splitlines()[-1])
+                if not ok:
+                    raise ValueError(error)
+            else:
+                chat = lead_chat_id(tenant, manager["id"], "tg" if channel == "telegram" else channel)
+                if not chat:
+                    raise ValueError("گفتگوی مدیر متصل نیست.")
+                lead_send("tg" if channel == "telegram" else channel, chat, text)
+            sent[channel] = "ok"
+        except Exception:
+            sent[channel] = "error"
+            print("[SA] joolio", channel, "ارسال ناموفق")
+    return sent
+
+
+@app.post("/api/joolio/snapshot")
+def joolio_snapshot_post(request: Request, payload: dict = Body(default={}), tenant: str = Query(default="")):
+    ident, err = _sa_guard(request, tenant, True)
+    if err:
+        return err
+    try:
+        snapshot = joolio_snapshot(tenant, payload)
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    matched = sum(r["personId"] is not None for r in snapshot["sellers"])
+    return {"ok": True, "matched": matched, "unmatched": len(snapshot["sellers"]) - matched,
+            "sent": joolio_send(tenant, snapshot, payload.get("force", False))}
+
+
+def sa_followup(tenant):
+    try:
+        now = _sa_now()
+        local = now.replace(tzinfo=datetime.timezone.utc).astimezone(_IR_TZ)
+        if local.hour < sa_cfg(tenant)["followupHour"]:
+            return
+        if not _sa_claim_day(tenant, "followup_day", local.date().isoformat()):
+            return
+        for rep in sa_reps(tenant):
+            try:
+                channel = "bale"
+                chat = lead_chat_id(tenant, rep["id"], channel)
+                if not chat:
+                    channel = "tg"
+                    chat = lead_chat_id(tenant, rep["id"], channel)
+                if not chat:
+                    continue
+                rows = q("SELECT name,phone,updated_at FROM sa_leads WHERE tenant=%s AND assigned_rep=%s "
+                         "AND status='assigned' AND updated_at<%s ORDER BY updated_at,id",
+                         (tenant, rep["id"], now - datetime.timedelta(hours=24)))
+                if not rows:
+                    continue
+                lines = ["یادآوری پیگیری مشتریان بیش از ۲۴ ساعت:"]
+                for row in rows[:15]:
+                    age = (now - row["updated_at"]).days
+                    lines.append("%s · %s · %s روز" % (_sa_clean(row["name"], 120), _mask_phone(row["phone"]), age))
+                if len(rows) > 15:
+                    lines.append("و %s مورد دیگر" % (len(rows) - 15))
+                lead_send(channel, chat, "\n".join(lines))
+            except Exception:
+                print("[SA] followup ارسال ناموفق")
+    except Exception:
+        print("[SA] followup ارسال ناموفق")
+
+
 def sa_daily_report(tenant, force=False):
     now = _sa_now()
     local = now.replace(tzinfo=datetime.timezone.utc).astimezone(_IR_TZ)
@@ -6794,6 +6961,7 @@ def sa_tick():
         if not (c.get("enabled") and c.get("activated")):
             continue
         try:
+            sa_followup(tenant)
             sa_process_notifications()
             sa_daily_report(tenant)
             st = {r["k"]: r["v"] for r in q("SELECT k, v FROM sa_state WHERE tenant=%s AND k='products_at'", (tenant,))}
@@ -8342,7 +8510,7 @@ def sales_agent_get(request: Request, tenant: str = Query(default="")):
     reps = [{"id": str(p.get("id") or p.get("name")), "name": p.get("name"), "active": not p.get("inactive"),
              "hasMobile": bool(sa_norm_phone(p.get("mobile")))} for p in people if p.get("role") == "sales"]
     mgr = sa_manager(tenant)
-    return {"ok": True, "config": {k: c.get(k) for k in ("enabled", "activated", "source", "reportHour", "vars") + SA_TEXT_KEYS},
+    return {"ok": True, "config": {k: c.get(k) for k in ("enabled", "activated", "source", "reportHour", "followupHour", "joolioReport", "vars") + SA_TEXT_KEYS},
             "tables": _sa_tables(), "reps": reps, "manager": {"name": mgr["name"], "hasMobile": bool(mgr["phone"])} if mgr else None,
             "canEdit": ident["role"] in KB_ADMIN_ROLES, "worker": bool(_sa_thread["t"] and _sa_thread["t"].is_alive())}
 
@@ -8389,6 +8557,23 @@ def sales_agent_put(request: Request, payload: dict = Body(default={}), tenant: 
             c["reportHour"] = max(0, min(23, int(payload["reportHour"])))
         except Exception:
             pass
+    if "followupHour" in payload:
+        if type(payload["followupHour"]) is not int or not 0 <= payload["followupHour"] <= 23:
+            return JSONResponse({"ok": False, "error": "ساعت نامعتبر است."}, status_code=400)
+        c["followupHour"] = payload["followupHour"]
+    if "joolioReport" in payload:
+        report = payload["joolioReport"]
+        if not isinstance(report, dict):
+            return JSONResponse({"ok": False, "error": "تنظیمات نامعتبر است."}, status_code=400)
+        for key in ("enabled", "hour"):
+            if key in report:
+                if (key == "enabled" and type(report[key]) is not bool) or (key == "hour" and (type(report[key]) is not int or not 0 <= report[key] <= 23)):
+                    return JSONResponse({"ok": False, "error": "تنظیمات نامعتبر است."}, status_code=400)
+                c["joolioReport"][key] = report[key]
+        if "channels" in report:
+            if not isinstance(report["channels"], dict) or any(type(v) is not bool for k, v in report["channels"].items() if k in c["joolioReport"]["channels"]):
+                return JSONResponse({"ok": False, "error": "کانال نامعتبر است."}, status_code=400)
+            c["joolioReport"]["channels"].update({k: v for k, v in report["channels"].items() if k in c["joolioReport"]["channels"]})
     if "enabled" in payload:
         c["enabled"] = bool(payload.get("enabled")) and bool(c.get("activated"))
     _sa_save(tenant, c)
