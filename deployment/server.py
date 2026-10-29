@@ -6063,10 +6063,14 @@ def lead_bale_call(method, fields):
     return _lead_bot_call(LEADS_BALE_API, secret_get("bale_leads"), method, fields)
 
 
-def lead_send(channel, chat_id, text):
+def lead_send(channel, chat_id, text, reply_markup=None):
+    fields = {"chat_id": chat_id, "text": text}
+    if reply_markup is not None:
+        fields["reply_markup"] = reply_markup
     if channel == "bale":
-        return lead_bale_call("sendMessage", {"chat_id": chat_id, "text": text})
-    return lead_tg_call("sendMessage", {"chat_id": chat_id, "text": text, "disable_web_page_preview": True})
+        return lead_bale_call("sendMessage", fields)
+    fields["disable_web_page_preview"] = True
+    return lead_tg_call("sendMessage", fields)
 
 
 def lead_chat_id(tenant, person_id, channel):
@@ -6151,12 +6155,60 @@ def lead_link_start(channel, chat_id, code):
         print("[SA] link error:", lead_redact(str(e))[:160])
         name = None
     text = ("✅ %s، اعلانِ لیدهای تازه از این پس در همین گفت‌وگو برایتان ارسال می‌شود." % name) if name else \
-        "این لینک معتبر نیست؛ لینکِ اختصاصیِ خود را از داشبورد (تنظیمات ← دستیار فروش) بگیرید."
+        "این لینک معتبر نیست؛ کافی است /start بزنید و شماره‌تان را بفرستید."
     try:
         lead_send(channel, chat_id, text)
     except LeadAlertError as e:
         print("[SA] link reply", channel, "failed:", str(e)[:120])
     return "linked" if name else "link-unknown"
+
+
+def lead_link_contact(channel, msg):
+    """Handle private code-free linking; return None for unrelated messages. A failed reply never breaks the poll loop."""
+    try:
+        return _lead_link_contact(channel, msg)
+    except LeadAlertError as e:
+        print("[SA] contact link reply", channel, "failed:", str(e)[:120])
+        return "link-reply-failed"
+
+
+def _lead_link_contact(channel, msg):
+    chat = msg.get("chat") or {}
+    if chat.get("type") != "private" or not isinstance(chat.get("id"), int):
+        return None
+    chat_id = chat["id"]
+    if re.fullmatch(r"/start(?:@\w+)?", str(msg.get("text") or "").strip()):
+        lead_send(channel, chat_id, "برای اتصال، دکمهٔ «ارسالِ شمارهٔ من» را بزنید تا با شماره‌ای که در تیم ثبت شده وصل شوید.",
+                  {"keyboard": [[{"text": "📱 ارسالِ شمارهٔ من", "request_contact": True}]],
+                   "resize_keyboard": True, "one_time_keyboard": True})
+        return "link-prompt"
+    contact = msg.get("contact")
+    if not isinstance(contact, dict):
+        return None
+    sender = (msg.get("from") or {}).get("id")
+    if sender is None or contact.get("user_id") != sender:
+        lead_send(channel, chat_id, "فقط شمارهٔ خودتان را با همین دکمه بفرستید.")
+        return "link-other-contact"
+    phone = sa_norm_phone(contact.get("phone_number"))
+    matches = []
+    if phone and lead_alert_tables():
+        for row in q("SELECT tenant FROM tenant_state"):
+            tenant = row["tenant"]
+            for person in _sa_people(tenant):
+                if not person.get("inactive") and sa_norm_phone(person.get("mobile")) == phone:
+                    pid = str(person.get("id") or person.get("name"))[:64]
+                    lead_link_code(tenant, pid)
+                    col = LEAD_LINK_COL[channel]
+                    q("UPDATE sa_chat_links SET " + col + "=%s, " + col.replace("_chat_id", "_linked_at") +
+                      "=%s WHERE tenant=%s AND person_id=%s", (int(chat_id), _sa_now(), tenant, pid))
+                    matches.append(person)
+    print("[SA] contact link", channel, _sa_mask(phone), "matches", len(matches))
+    for person in matches:
+        lead_send(channel, chat_id, "✅ %s، به ربات وصل شدید؛ اعلان‌ها از این پس همین‌جا می‌آید." % (person.get("name") or ""),
+                  {"remove_keyboard": True})
+    if not matches:
+        lead_send(channel, chat_id, "شمارهٔ شما در فهرستِ تیم ثبت نشده؛ از مدیر بخواهید موبایلتان را در «تیم» ثبت کند و دوباره /start بزنید.")
+    return "linked" if matches else "link-unknown"
 
 
 def bale_chats_remember(chats):
@@ -6207,6 +6259,8 @@ def bale_lead_poll(limit=50):
         m = _LEAD_START.match(str(msg.get("text") or "").strip())
         if m and chat.get("type") == "private" and isinstance(chat.get("id"), int):
             lead_link_start("bale", chat["id"], m.group(1))
+            n += 1
+        elif lead_link_contact("bale", msg) is not None:
             n += 1
         if chat.get("type") in ("group", "supergroup", "channel") and isinstance(chat.get("id"), int):
             seen[chat["id"]] = {"id": chat["id"], "type": chat["type"], "title": _sa_clean(chat.get("title"), 120), "lastSeen": _att_iso(_sa_now())}
@@ -9230,6 +9284,9 @@ def tg_handle_update(upd):
     m = _LEAD_START.match(str(msg.get("text") or "").strip())
     if m and chat.get("type") == "private" and isinstance(chat.get("id"), int):   # تنها فرمانِ مجاز برای غیرِمدیر: پیوندِ اعلانِ لید
         return lead_link_start("tg", chat["id"], m.group(1))
+    linked = lead_link_contact("tg", msg)
+    if linked is not None and not (linked == "link-prompt" and frm == TG_ADMIN_ID and chat.get("id") == TG_ADMIN_ID):
+        return linked
     if frm != TG_ADMIN_ID or chat.get("type") != "private" or chat.get("id") != TG_ADMIN_ID:
         return "ignored"
     text = str(msg.get("text") or "").strip()
