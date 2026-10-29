@@ -5708,6 +5708,11 @@ def sa_process_notifications(limit=20):
             fail = final or att >= LEAD_ALERT_TRIES
             q("UPDATE sa_notifications SET status=%s, attempts=%s, last_error=%s, next_at=%s WHERE id=%s",
               ("cancelled" if err.startswith("cancelled") else "failed" if fail else "pending", att, lead_redact(err)[:300], _sa_now() + datetime.timedelta(seconds=SA_BACKOFF[min(att, 2) - 1]), n["id"]))
+        if kind in ("rep_bale", "rep_tg"):
+            try:
+                lead_alert_fallback(n.get("tenant"), n.get("lead_id"))
+            except Exception:
+                print("[SA] manager fallback queue error, lead", n.get("lead_id"))
         if kind.startswith("handoff_"):
             agent_event(n.get("tenant"), None, "delivery_success" if ok else "delivery_failed", {"channel": kind[8:], "try": att})
         if lead_alert_channel(kind):
@@ -5983,16 +5988,37 @@ def lead_alert_text(info, lead_id=None):
     return "\n".join(lines)[:3500]
 
 
-def lead_alert_enqueue(tx, tenant, lead_id, role, who, text):
+def lead_alert_enqueue(tx, tenant, lead_id, role, who, text, channels=None):
     """برای هر گیرنده دو ردیفِ جدا (بله، سپس تلگرام) کنارِ پیامک‌ها؛ idem جدا ← هر کانال مستقل تکرار/ثبت می‌شود."""
     if not who or not who.get("id"):
         return 0
-    for ch in LEAD_CHANNELS:
+    channels = LEAD_CHANNELS if channels is None else channels
+    for ch in channels:
         kind = "%s_%s" % (role, ch)
-        tx.x("INSERT INTO sa_notifications (tenant, lead_id, kind, recipient, phone, person_id, body, status, attempts, next_at, created_at, idem) "
+        insert = "INSERT IGNORE" if role == "fallback" else "INSERT"
+        tx.x(insert + " INTO sa_notifications (tenant, lead_id, kind, recipient, phone, person_id, body, status, attempts, next_at, created_at, idem) "
              "VALUES (%s,%s,%s,%s,NULL,%s,%s,'pending',0,%s,%s,%s)",
              (tenant, lead_id, kind, who.get("name"), str(who["id"])[:64], text, _sa_now(), _sa_now(), "lead:%d:%s" % (lead_id, kind)))
-    return len(LEAD_CHANNELS)
+    return len(channels)
+
+
+def lead_alert_fallback(tenant, lead_id):
+    """شکستِ قطعیِ هر دو کانالِ کارشناس → ارجاع به مدیر؛ idem مانعِ صفِ تکراری است."""
+    rows = q("SELECT kind, status, recipient, body FROM sa_notifications WHERE tenant=%s AND lead_id=%s "
+             "AND kind IN ('rep_bale','rep_tg')", (tenant, lead_id))
+    reps = {r["kind"]: r for r in rows}
+    if set(reps) != {"rep_bale", "rep_tg"} or any(r["status"] != "failed" for r in reps.values()):
+        return
+    mgr = sa_manager(tenant)
+    if not mgr or not mgr.get("id"):
+        return
+    rep = reps["rep_bale"]
+    text = (rep.get("body") or "") + "\n\nکارشناسِ %s هنوز به ربات وصل نیست — لطفاً خودتان پیگیری کنید یا لینکِ اتصال را برایش بفرستید" % _lead_v(rep.get("recipient"))
+    channels = ["bale"]
+    if lead_chat_id(tenant, mgr["id"], "tg"):
+        channels.append("tg")
+    with _SaTx() as tx:
+        lead_alert_enqueue(tx, tenant, lead_id, "fallback", mgr, text, channels)
 
 
 def _lead_bot_call(base, token, method, fields, timeout=LEAD_BOT_TIMEOUT):
