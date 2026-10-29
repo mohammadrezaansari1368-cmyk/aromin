@@ -16,11 +16,16 @@ def create(directory, name, value):
     except FileExistsError:
         if path.is_symlink() or not path.is_file() or not path.stat().st_size:
             raise SystemExit('Unsafe existing secret file: ' + str(path))
+        # Compose mounts file secrets with host ownership/mode. The enclosing
+        # 0700 directory protects host access; 0444 lets UID 10001 read the
+        # individually mounted, read-only file inside its container.
+        path.chmod(0o444)
         return
     with os.fdopen(fd, 'w', encoding='utf-8') as stream:
         stream.write(value + '\n')
         stream.flush()
         os.fsync(stream.fileno())
+    path.chmod(0o444)
 
 
 def main(argv=None):
@@ -33,6 +38,7 @@ def main(argv=None):
     if directory.is_symlink():
         raise SystemExit('Secret directory must not be a symlink')
     directory.mkdir(mode=0o700, exist_ok=True)
+    directory.chmod(0o700)
     key = args.app_key_file.read_text(encoding='utf-8').rstrip('\r\n') if args.app_key_file else secrets.token_hex(32)
     if len(key.encode()) < 32 or '\n' in key or '\r' in key:
         raise SystemExit('Existing application encryption key is invalid')
