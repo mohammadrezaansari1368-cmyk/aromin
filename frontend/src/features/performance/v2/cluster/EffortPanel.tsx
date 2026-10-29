@@ -27,6 +27,8 @@ export default function EffortPanel({ effort, callTarget, taskTarget, sales, sal
 	const c = 100, rad = 78, has = effort.perDay !== null
 	const maxHour = Math.max(1, ...Object.values(callHours))
 	return <div className="pv-effort" data-zone={effort.zone} aria-label="ساعت تلاش مؤثر">
+        {effort.reason && <p>{effort.reason}</p>}
+        <small>وظایف: دقیقهٔ تاریخ‌دار سروری در منبع موجود نیست.</small>
 		<div className="pv-effort-dial" role="meter" aria-valuemin={0} aria-valuemax={MAX_H} aria-valuenow={effort.perDay ?? undefined}
 			aria-valuetext={has ? `ساعت تلاش مؤثر: ${fa(effort.perDay, 1)} ساعت در روز · ${ZONE_LABEL[effort.zone]}` : 'ساعت تلاش مؤثر: بدون داده'}>
 			<svg viewBox="0 0 200 170" aria-hidden>

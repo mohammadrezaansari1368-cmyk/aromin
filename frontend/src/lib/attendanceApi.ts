@@ -1,3 +1,4 @@
+import { clearPerfCache } from '@/features/performance/v2/data/perfCache'
 /**
  * حضورِ سروری (WP-B) و نگاشتِ هویت (WP-A) — فقط لایهٔ API و کشِ حافظه.
  *
@@ -16,7 +17,7 @@ export const canSeeAll = (s: Session) => isAdmin(s.role) || s.role === 'finance'
 
 /* ---------------- قراردادِ سرور ---------------- */
 export type Mapping = 'confirmed' | 'suggested' | 'review' | 'none'
-export interface ServerCard { cardNo: string; sheetName: string; rawName: string | null; personId: string | null; personName: string | null; mapping: Mapping; rows: Row[]; overrides: Record<string, Record<string, unknown>> }
+export interface ServerCard { cardNo: string; sheetName: string; rawName: string | null; personId: string | null; personName: string | null; mapping: Mapping; days?: { date: string; presentMin: number | null }[]; rows: Row[]; overrides: Record<string, Record<string, unknown>> }
 export interface AttendanceBatch {
 	id: number; fileName: string; sha256: string; source: 'import-center' | 'card' | 'migration'; uploadedBy: string; createdAt: string
 	periodFrom: string | null; periodTo: string | null; sheets: number; days: number; inserted: number; updated: number; unchanged: number; skipped: { sheet: string; reason: string }[]
@@ -46,6 +47,7 @@ export async function call<T>(session: Session, method: string, path: string, bo
 	let d: Record<string, unknown> = {}
 	try { d = await r.json() } catch { /* پاسخِ غیر JSON */ }
 	if (!r.ok || !d.ok) throw new ApiError(r.status, d)
+	if (method === 'POST' && /^\/api\/performance\/(attendance|calls\/(log|summary)|tickets)$/.test(path)) clearPerfCache()
 	return d as T
 }
 export const qs = (o: Record<string, string | undefined>) => Object.entries({ tenant: currentTenant(), ...o }).filter(([, v]) => v).map(([k, v]) => k + '=' + encodeURIComponent(v!)).join('&')

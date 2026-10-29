@@ -15,7 +15,7 @@ export function CalcReceipt({ metric, who, from, to, onConnect }: { metric: Metr
 		<header><b>{metric.label} · {who}</b><span>{persian(from)} — {persian(to)}</span></header><hr />
 		{off ? <>{line('دلیل', metric.status === 'error' ? 'خطا در محاسبه' : 'قابل محاسبه نیست')}{line('منبع لازم', IMPORT_SOURCE[metric.id] || '—')}<p className="pv-rc-def">{metric.definition}</p>
 			<TactileButton onClick={onConnect}>اتصال منبع ←</TactileButton></> : <>
-			{line('صورت', fa(metric.numerator))}{line('مخرج', metric.denominator === null ? '—' : fa(metric.denominator))}<hr />
+			{metric.parts && <>{line('تیکت', fa(metric.parts.tickets))}{line('تماس ورودی پاسخ‌داده', fa(metric.parts.callsIn))}{line('تماس خروجی پاسخ‌داده', fa(metric.parts.callsOut))}</>}{line('صورت', fa(metric.numerator))}{line('مخرج', metric.denominator === null ? '—' : fa(metric.denominator))}<hr />
 			{line('مقدار', fa(metric.value) + ' ' + metric.unit)}{line('پوشش', (metric.status === 'partial' ? 'ناقص' : 'کامل') + ' · ' + fa(metric.records, 0) + ' رکورد')}
 			{line('منبع', src + ' · ' + ago(metric.updatedAt))}{line('هدف', metric.target === null ? 'بدون هدف' : fa(metric.target))}<p className="pv-rc-def">{metric.definition}</p></>}
 		<hr /><div className="pv-rc-bar" aria-hidden>|||||| {metric.id} ||||||</div>

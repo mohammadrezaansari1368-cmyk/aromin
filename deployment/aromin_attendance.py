@@ -14,7 +14,7 @@ EDIT_KEYS = {'code', 'entry', 'exit', 'present', 'overtime', 'excuse', 'note'}
 DEFAULT_SETTINGS = {'workStart': '10:00', 'workEnd': '18:00', 'dailyWork': '07:30', 'restDuration': 30, 'lateThreshold': 15,
                     'lateDeduct': '08:00', 'meetingDefault': 60, 'taskKeywords': 'حضوری', 'overtimeByLateExit': False}
 LIMITS = dict(sheets=200, rows_per_sheet=400, keys_per_row=40, key_len=64, value_len=300)
-SOURCES = ('import-center', 'card', 'migration', 'harikan')
+SOURCES = ('import-center', 'card', 'migration', 'harikan', 'zurvan')
 SHA_RE = re.compile(r'^[0-9a-f]{64}$')
 _DIGITS = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
 _HEADER = str.maketrans({'ي': 'ی', 'ى': 'ی', 'ك': 'ک', 'أ': 'ا', 'آ': 'ا', '‌': ' ', ' ': ' ', '‎': ' ', '‏': ' '})
@@ -232,8 +232,9 @@ def compose(days_rows, override_rows, alias_by_card, people_by_id, admin):
     """GET 'cards' payload: raw rows ordered by date + overrides keyed by date; person only for a confirmed mapping."""
     cards = {}
     for d in sorted(days_rows, key=lambda r: (r['card_no'], r['date_j'])):
-        c = cards.setdefault(d['card_no'], {'cardNo': d['card_no'], 'rows': [], 'overrides': {}, '_last': d})
+        c = cards.setdefault(d['card_no'], {'cardNo': d['card_no'], 'rows': [], 'days': [], 'overrides': {}, '_last': d})
         c['rows'].append(json.loads(d['raw_json']))
+        c['days'].append({'date': d['date_j'], 'presentMin': d['present_min']})
         c['_last'] = d
     for o in override_rows:
         if o['card_no'] in cards: cards[o['card_no']]['overrides'][o['date_j']] = json.loads(o['fields'])
@@ -245,5 +246,5 @@ def compose(days_rows, override_rows, alias_by_card, people_by_id, admin):
         pid = a.get('person_id') if mapping == 'confirmed' or (admin and mapping == 'suggested') else None
         pid = str(pid) if pid is not None else None
         out.append({'cardNo': no, 'sheetName': last['sheet_name'], 'rawName': last.get('person_name'), 'personId': pid,
-                    'personName': (people_by_id.get(pid) or {}).get('name') if pid else None, 'mapping': mapping, 'rows': c['rows'], 'overrides': c['overrides']})
+                    'personName': (people_by_id.get(pid) or {}).get('name') if pid else None, 'mapping': mapping, 'days': c['days'], 'rows': c['rows'], 'overrides': c['overrides']})
     return out

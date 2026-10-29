@@ -21,6 +21,8 @@ CORE_FIELDS = ('date_j', 'time_s', 'direction') + tuple(s + '_' + f for s in 'od
 STAT_KEYS = ('in', 'inAnswered', 'inMissed', 'out', 'outAnswered', 'outUnanswered', 'internal', 'answered', 'missed', 'talkSec', 'totalSec', 'afterHours')
 METRICS = (('calls_in', 'in', 'تماس'), ('calls_out', 'out', 'تماس'), ('calls_internal', 'internal', 'تماس'),
            ('calls_answered', 'answered', 'تماس'), ('calls_missed', 'missed', 'تماس'), ('talk_seconds', 'talkSec', 'ثانیه'))
+PERFORMANCE_METRICS = (('calls_in_answered', 'inAnswered', 'تماس'),
+                       ('calls_out_answered', 'outAnswered', 'تماس'), ('effort_talk_seconds', 'effortTalkSec', 'ثانیه'))
 CHANNEL = {'موفق': 'success', 'بدونپاسخ': 'no_answer', 'مشغول': 'busy', 'عدمموفقیت': 'failed'}
 CALL = {'پاسخدادهشده': 'answered', 'ازدسترفته': 'missed'}
 _DIGITS = str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789')
@@ -318,7 +320,7 @@ def resolve_party(ext, julio, aliases):
 
 
 def _day(date):
-    return dict({k: 0 for k in STAT_KEYS}, date=date)
+    return dict({k: 0 for k in STAT_KEYS}, date=date, effortTalkSec=0)
 
 
 def daily_stats(calls, aliases, start, end, work=(600, 1080)):
@@ -353,7 +355,7 @@ def daily_stats(calls, aliases, start, end, work=(600, 1080)):
 
         def add(pid, **inc):
             st = people.setdefault(pid, {}).setdefault(date, _day(date))
-            for k, v in dict(inc, talkSec=talk, totalSec=total, afterHours=after).items(): st[k] += v
+            for k, v in dict(inc, talkSec=talk, totalSec=total, afterHours=after, effortTalkSec=talk if answered and c['direction'] in ('in','out') else 0).items(): st[k] += v
 
         direction = c['direction']
         if direction == 'in':
@@ -389,18 +391,18 @@ def daily_stats(calls, aliases, start, end, work=(600, 1080)):
         days = [people[pid][d] for d in sorted(people[pid])]
         totals = _day(None)
         for d in days:
-            for k in STAT_KEYS: totals[k] += d[k]
+            for k in STAT_KEYS + ('effortTalkSec',): totals[k] += d[k]
         out.append({'personId': pid, 'days': days, 'totals': totals})
     return {'people': out, 'queues': [queues[k] for k in sorted(queues)], 'unassigned': [unassigned[d] for d in sorted(unassigned)],
             'issues': sorted(issues.values(), key=lambda i: (-i['calls'], i['kind'], i['key'], i['reason']))}
 
 
-def daily_records(stats):
+def daily_records(stats, performance=False):
     """daily_stats → records()-shaped rows (people only; queues/unassigned never become a person's record); zeros skipped."""
     out = []
     for p in stats['people']:
         for d in p['days']:
-            for metric, key, unit in METRICS:
+            for metric, key, unit in METRICS + (PERFORMANCE_METRICS if performance else ()):
                 if d[key]:
                     out.append({'id': 'calls:%s:%s:%s' % (p['personId'], d['date'], metric), 'personId': p['personId'], 'date': d['date'],
                                 'metric': metric, 'value': d[key], 'unit': unit, 'source': 'call_logs',

@@ -1,13 +1,13 @@
 /** Performance tab v2 — instrument-cluster UI over the same read-only /api/performance endpoints. No sample data. */
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Session } from '@/lib/auth'
+import type { ServerAttendance } from '@/lib/attendanceApi'
 import { parseJ, todayJ } from '@/lib/jalali'
-import { EMPTY_FILTER, type Filter } from '@/lib/performance'
+import { DEFAULT_SETTINGS, EMPTY_FILTER, processSheet, rules, type RowEdit, type Filter } from '@/lib/performance'
 import { yearDays } from '@/components/performance/PerformanceWorkspace'
-import { usePerformance } from '@/components/performance/usePerformance'
 import type { ApiDaily, ApiDirectory, ApiSummary, DailyKey, Metric, PersonVM } from './data/types'
 import { callMetrics, gaugeMax, groupIssues, tasksMetric, toCalls, toDays, toMetric, toPeople, UNIT_LABEL } from './data/adapters'
-import { usePerf } from './data/hooks'
+import { clearPerfCache, usePerf } from './data/hooks'
 import { CLUSTER, WORKDAY_MIN } from './data/clusterConfig'
 import InstrumentCluster, { type ClusterGauge } from './cluster/InstrumentCluster'
 import { CommandBar, DriveModeSelector, periodLabel, type Mode, type PeriodState } from './sections/CommandBar'
@@ -18,7 +18,7 @@ import { DataHealthBar } from './sections/DataHealthBar'
 import { MetricDrawer } from './sections/MetricDrawer'
 import { AromLoader } from './ui/primitives'
 import EffortPanel from './cluster/EffortPanel'
-import { effortOf, type PerfFields } from './lib/effort'
+import { serverEffort, serverAttendanceDays } from './lib/effort'
 import { TaskTracker } from './sections/TaskTracker'
 import { CallTiles } from './sections/CallTiles'
 import './perf-v2.css'
@@ -53,25 +53,34 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const calls = current ? callMetrics(current.calls) : group ? callMetrics(toCalls(group.calls)) : []
 	const metrics: Metric[] = current ? [...current.metrics, tasksMetric(current.tasks), ...calls] : group ? [...group.metrics.map(toMetric), ...calls] : []
 
-	// local attendance (this browser only) → presence rate and workdays for one person
-	const { ds } = usePerformance(session)
-	const chosen = people.find((p) => p.id === person)
-	const rows = useMemo(() => (ds?.people || []).filter((p) => chosen && p.person === chosen.name && ['manual', 'strong'].includes(p.personHow)).flatMap((p) => p.rows), [ds, chosen])
+ useEffect(() => { clearPerfCache() }, [pick, unit, start, end])
+ const attendance = usePerf<ServerAttendance>(session, 'attendance', { person, start, end }, !!person && !!start && !!end)
+ const chosen = people.find((p) => p.id === person)
+ const rows = useMemo(() => serverAttendanceDays(attendance.data?.cards || [], person, start, end), [attendance.data, person, start, end])
 	const inSpan = rows.filter((r) => r.date >= start && r.date <= end && (r.presentMin || 0) > 0)
 	const presenceMap = useMemo(() => new Map(rows.filter((r) => r.presentMin !== null).map((r) => [r.date, r.presentMin as number])), [rows])
 	const presence: Metric = inSpan.length
 		? toMetric({ id: 'presence', label: 'حضور', unit: '٪', definition: 'میانگین دقیقهٔ حضورِ روزهای کارکرد ÷ ' + WORKDAY_MIN + ' (حضورِ ثبت‌شده روی سرور)', status: 'valid', value: Math.round((inSpan.reduce((n, r) => n + (r.presentMin || 0), 0) / (inSpan.length * WORKDAY_MIN)) * 1000) / 10, numerator: inSpan.reduce((n, r) => n + (r.presentMin || 0), 0), denominator: inSpan.length * WORKDAY_MIN, coverage: { records: inSpan.length, issues: 0 } })
 		: off('presence', 'حضور', '٪', 'حضور برای این شخص و دوره روی سرور نیست یا کارت تأیید نشده.')
-	// effort inputs = the engine's own perf fields (scoped /source projection); targets: person override → team setting → engine defaults
-	type Src = { full?: { people?: { id: string | number; perf?: PerfFields; perfSet?: { taskTarget?: number; callTarget?: number } }[]; perfCfg?: { taskCapMin?: number; taskTarget?: number; callTarget?: number }; callHours?: Record<string, number> } }
+	// Targets only from /source; effort uses period call_logs and attendance_days.
+	type Src = { full?: { people?: { id: string | number; perfSet?: { taskTarget?: number; callTarget?: number } }[]; perfCfg?: { taskCapMin?: number; taskTarget?: number; callTarget?: number }; callHours?: Record<string, number> } }
 	const source = usePerf<Src>(session, 'source', {}, !!directory.data)
 	const srcPerson = source.data?.full?.people?.find((p) => String(p.id) === person)
 	const cfgP = source.data?.full?.perfCfg || {}
-	const effort = effortOf(srcPerson?.perf, cfgP.taskCapMin ?? 30)
+	const effort = serverEffort(current?.calls, inSpan.length, 0, current?.tasks ?? 0)
 	const taskTarget = srcPerson?.perfSet?.taskTarget ?? cfgP.taskTarget ?? 300, callTarget = srcPerson?.perfSet?.callTarget ?? cfgP.callTarget ?? 400
-	const holidays = useMemo(() => new Set(rows.filter((r) => ['official_holiday', 'friday', 'birthday', 'official_worked', 'friday_worked', 'birthday_worked'].includes(r.code)).map((r) => r.date)), [rows])
+ // Preserve the tracker's holiday classification using only server rows, settings and overrides.
+ const holidays = useMemo(() => {
+  const codes = ['official_holiday', 'friday', 'birthday', 'official_worked', 'friday_worked', 'birthday_worked']
+  const server = attendance.data
+  const parsed = (server?.cards || []).filter((c) => c.mapping === 'confirmed' && String(c.personId) === person).flatMap((c) => {
+   const edits = Object.fromEntries(Object.entries(c.overrides).map(([date, fields]) => [c.sheetName + '|' + date, fields as RowEdit]))
+   return processSheet(c.rows, c.sheetName, rules({ ...DEFAULT_SETTINGS, ...server?.settings }), { person: chosen?.name || null, personHow: 'manual', owner: null, ownerName: '', ownerHow: 'none' }, null, null, edits, '')?.rows || []
+  })
+  return new Set(parsed.filter((r) => codes.includes(r.code)).map((r) => r.date))
+ }, [attendance.data, person, chosen?.name])
 
-	const peers = (id: string) => team.map((p) => (id === 'tasks' ? p.tasks : p.calls && id in p.calls ? p.calls[id as keyof typeof p.calls] : p.metrics.find((m) => m.id === id)?.value ?? null))
+	const peers = (id: string) => team.map((p) => (id === 'tasks' ? p.tasks : p.calls && id in p.calls ? (p.calls[id as keyof typeof p.calls] ?? null) : p.metrics.find((m) => m.id === id)?.value ?? null))
 	const cfg = CLUSTER[effUnit]
 	const asGauge = (m: Metric | undefined): ClusterGauge | null => (m ? { metric: m, max: gaugeMax(m, peers(m.id)) } : null)
 	const byId = (id: string) => metrics.find((m) => m.id === id)

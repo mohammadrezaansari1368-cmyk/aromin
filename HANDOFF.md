@@ -76,6 +76,12 @@
 
 2026-10-08 · Codex: انتخاب وضعیت قیف روی hover/focus خط مراحل با حفظ قفل اضافه شد؛ تصویب گروهی تعداد و جمع رسمی/غیررسمی همان ردیف‌ها را پیش از فرم و در مرور نهایی نشان می‌دهد؛ تغییر محدوده تأیید را باطل می‌کند. بازگشایی UI/API فقط نقش‌های مدیریتی موجود حتی با OTP معتبر؛ قیف تجمعی و شمارش وضعیت فعلی تفکیک شدند. Frontend 135 passed/1 skipped؛ backend 69 passed/6 skipped؛ typecheck/build/lint و مرورگر 320–1440 موفق. بدون deploy یا تغییر دادهٔ اصلی.
 
+## 3.10.2 — عملکرد: فقط منابعِ سروری + سه رفعِ شاخص + جای زروان (Codex ساخت، Claude بازبینی) — WO1/4
+- حضور/روزِ کارکرد از `/api/performance/attendance` (attendance_days)، نه حافظهٔ مرورگر. ساعتِ تلاش = مکالمهٔ پاسخ‌دادهٔ ورودی+خروجی از call_logs (`effort_talk_seconds`) ÷ روزِ کارکردِ سرور.
+- فعالیتِ پشتیبانی = تیکت + تماسِ پاسخ‌دادهٔ ورودی + خروجی (با parts). میانگینِ قرارداد بدونِ ایرادِ مرتبط «معتبر».
+- زروان: secret `zurvan_api` + env `ZURVAN_API_URL` + `zurvan_sync` / `POST /api/performance/attendance/zurvan/sync` (`_zurvan_rows` قالبِ موقت، TODO).
+- `perfCache`: TTL ۶۰ ثانیه + `clearPerfCache()` بعد از ایمپورت.
+
 ## 3.10.1 — وضعیتِ شاخص فقط با ایرادهای مربوط به خودش (Codex ساخت، Claude بازبینی)
 - `aromin_performance.records`: هر issue کلیدِ `metric` دارد (tasks / contracts / finance_documents)؛ `metrics` فقط ایرادهای مرتبط را در status و coverage.issues می‌شمارد. issueِ بی‌برچسب مثلِ قبل روی همه اثر دارد.
 - داده: ریزِ تماسِ جولیو فروردین (۲۵۶۲) و اردیبهشت (۷۹۲۶) با «تجمیع کانال‌های مرتبط» و شناسهٔ کاربرِ جولیو (`مبدا/مقصد تماس-ID` از `/users/show/{id}`) وارد شد؛ خلاصهٔ ماهانهٔ تماس (in/out) فروردین–۷ آبان هم.

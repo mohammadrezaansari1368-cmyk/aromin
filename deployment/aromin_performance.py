@@ -7,13 +7,13 @@ from aromin_stage import parse_stage_change
 UNITS = {'sales':'sales','online':'sales','salesmgr':'sales','finance':'finance','accmgr':'finance','support':'support'}
 AXES = {
  'sales': [('activity','میزان فعالیت','تماس','تماس‌های پاسخ‌دادهٔ ورودی و خروجی از ریز تماسِ سرور (تصمیم مالک)؛ تماس صف، داخلی و بی‌نگاشت شمرده نمی‌شود.'),('efficiency','راندمان','٪','تماس پاسخ‌داده ÷ (ورودی + خروجی) × ۱۰۰ از ریز تماسِ سرور (تصمیم مالک)؛ تماس صف و داخلی شمرده نمی‌شود.'),('conversion','نرخ تبدیل','٪','تاریخچه ورود به گروه واجد شرایط و نتیجه همان گروه لازم است.'),('contract_average','میانگین ارزش قرارداد','تومان','مجموع مبلغ خام قراردادهای بستن ÷ تعداد همان قراردادها؛ خالص از مالیات/تخفیف ادعا نمی‌شود.')],
- 'support':[('activity','میزان فعالیت','تیکت','تیکت یکتا (شمارهٔ تیکت) به تاریخ ثبت و کارشناسِ نگاشت‌شده (تصمیم مالک).'),('efficiency','راندمان','٪','تیکت‌های به‌موقع در SLA و OLA هر دو ÷ تیکت‌های دارای هر دو وضعیت × ۱۰۰ (تصمیم مالک)؛ وضعیت خالی شمرده نمی‌شود.'),('resolution','نرخ حل موفق','٪','FCR به سابقه تماس اول و بازه مشاهده نیاز دارد.'),('quality','کیفیت خدمات','٪','نظرسنجی معتبر و تعداد پاسخ‌ها موجود نیست.')],
+ 'support':[('activity','میزان فعالیت','فعالیت','تیکت یکتا به تاریخ ثبت + تماس پاسخ‌دادهٔ ورودی + تماس پاسخ‌دادهٔ خروجی؛ فقط منابع سروری و نگاشت تأییدشده.'),('efficiency','راندمان','٪','تیکت‌های به‌موقع در SLA و OLA هر دو ÷ تیکت‌های دارای هر دو وضعیت × ۱۰۰ (تصمیم مالک)؛ وضعیت خالی شمرده نمی‌شود.'),('resolution','نرخ حل موفق','٪','FCR به سابقه تماس اول و بازه مشاهده نیاز دارد.'),('quality','کیفیت خدمات','٪','نظرسنجی معتبر و تعداد پاسخ‌ها موجود نیست.')],
  'finance':[('finance_documents','میزان فعالیت','سند','اسناد یکتای دارای رویداد fin_by برای حسابدار منتخب؛ ثبت‌کننده با مسئول مالی متفاوت است.'),('efficiency','راندمان','٪','وظایف دارای سررسید و زمان انجام موجود نیست.'),('accuracy','دقت مالی','٪','نتیجه اولین بررسی و علت اصلاح ساخت‌یافته موجود نیست.'),('effectiveness','اثربخشی مالی','٪','مسئول وصول، گروه سررسید و پرداخت جزئی قابل انتساب موجود نیست.')]
 }
 
 # WP-3: server call stats (aromin_calls.daily_records). Kept beside the axes, not mapped onto activity/efficiency (owner has not defined that mapping).
-CALL_METRICS=('calls_in','calls_out','calls_internal','calls_answered','calls_missed','talk_seconds')
-CALL_UNITS={m:('ثانیه' if m=='talk_seconds' else 'تماس') for m in CALL_METRICS}
+CALL_METRICS=('calls_in','calls_out','calls_internal','calls_answered','calls_missed','talk_seconds','calls_in_answered','calls_out_answered','effort_talk_seconds')
+CALL_UNITS={m:('ثانیه' if m in ('talk_seconds','effort_talk_seconds') else 'تماس') for m in CALL_METRICS}
 
 def call_totals(rows):
     """Per-metric sums of call records; None when there is no call record (no data ≠ zero)."""
@@ -112,7 +112,7 @@ def in_period(rows,start,end): return [r for r in rows if start<=r['date']<=end]
 
 # Owner decision (2026-10-14): sales activity = answered calls; sales efficiency = answered ÷ (in + out) × 100.
 SALES_CALL_AXES={'activity':'calls_answered','efficiency':'calls_answered'}
-# Owner decision (2026-10-14): support activity = unique tickets by registration date; efficiency = on time in SLA and OLA ÷ known × 100.
+# Support activity = unique tickets by registration date + answered inbound/outbound calls; efficiency unchanged.
 SUPPORT_TICKET_AXES={'activity':'tickets','efficiency':'tickets'}
 
 def metrics(unit,rows,issues,start,end,updated):
@@ -122,11 +122,18 @@ def metrics(unit,rows,issues,start,end,updated):
         ticket=SUPPORT_TICKET_AXES.get(key) if unit=='support' else None
         source_metric='contracts' if key=='contract_average' else call or ticket or key
         relevant={key,source_metric}
-        if call: relevant.update(CALL_METRICS)
+        if call or (ticket and key=='activity'): relevant.update(CALL_METRICS)
         metric_issues=[i for i in issues if not i.get('metric') or relevant.intersection([i['metric']] if isinstance(i['metric'],str) else i['metric'])]
         group=[r for r in rows if r['metric']==source_metric]
-        value=None; num=None; den=None; status='no_data'
-        if call and key=='efficiency':
+        value=None; num=None; den=None; status='no_data'; parts=None
+        if ticket and key=='activity':
+            parts={'tickets':len({r['id'] for r in group}),
+                   'callsIn':sum(r['value'] for r in rows if r['metric']=='calls_in_answered'),
+                   'callsOut':sum(r['value'] for r in rows if r['metric']=='calls_out_answered')}
+            group=group+[r for r in rows if r['metric'] in ('calls_in_answered','calls_out_answered')]
+            if group or any(r['metric'] in ('calls_in','calls_out') for r in rows):
+                num=value=sum(parts.values()); status='partial' if metric_issues else 'valid'
+        elif call and key=='efficiency':
             base=[r for r in rows if r['metric'] in ('calls_in','calls_out')]
             if base and sum(r['value'] for r in base):
                 num=sum(r['value'] for r in group); den=sum(r['value'] for r in base)
@@ -144,6 +151,6 @@ def metrics(unit,rows,issues,start,end,updated):
                 num=0; value=0; status='partial' if metric_issues else 'valid'; group=base
         elif group:
             num=sum(r['value'] for r in group); den=len(group) if key=='contract_average' else None
-            value=num/den if den else num; status='partial' if metric_issues or key=='contract_average' else 'valid'
-        result.append({'id':key,'label':label,'unit':measure,'definition':definition,'value':value,'numerator':num,'denominator':den,'status':status,'target':None,'period':{'from':start,'to':end},'updatedAt':updated,'coverage':{'records':len(group),'issues':len(metric_issues)},'source':sorted({r['source'] for r in group}),'detailsMetric':source_metric})
+            value=num/den if den else num; status='partial' if metric_issues else 'valid'
+        result.append({'id':key,'label':label,'unit':measure,'definition':definition,'value':value,'numerator':num,'denominator':den,'status':status,'target':None,'period':{'from':start,'to':end},'updatedAt':updated,'coverage':{'records':len(group),'issues':len(metric_issues)},'source':sorted({r['source'] for r in group}),'detailsMetric':'support_activity' if ticket and key=='activity' else source_metric,**({'parts':parts} if parts is not None else {})})
     return result

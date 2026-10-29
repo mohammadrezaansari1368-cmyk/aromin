@@ -9,7 +9,7 @@ export interface PerfFields {
 	talkIn?: number; talkOut?: number; talkMin?: number; taskMins?: number[]; effortMin?: number; activeDays?: number
 }
 export type EffortZone = 'none' | 'low' | 'normal' | 'good' | 'burnout'
-export interface Effort { talkMin: number; taskMin: number; days: number; perDay: number | null; zone: EffortZone; calls: number; tasks: number }
+export interface Effort { talkMin: number; taskMin: number; days: number; perDay: number | null; zone: EffortZone; calls: number; tasks: number; reason?: string }
 
 const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0)
 export function effortOf(pf: PerfFields | null | undefined, capMin = 30): Effort {
@@ -32,3 +32,26 @@ export function workingDays(dates: { date: string; weekday: number }[], holidays
 }
 /** Daily task target = monthly task target ÷ working days of that month (same monthly target as the bonus engine). */
 export const dailyTarget = (monthlyTarget: number | null | undefined, workdays: number) => (!monthlyTarget || monthlyTarget <= 0 || workdays <= 0 ? null : monthlyTarget / workdays)
+
+/** Server period totals only. Task minutes must be dated to be included. */
+export function serverEffort(calls: { effort_talk_seconds?: number; calls_in?: number; calls_out?: number } | null | undefined, workdays: number, taskMinutes = 0, tasks = 0): Effort {
+ const effort = effortOf({ talkMin: n(calls?.effort_talk_seconds) / 60, effortMin: n(taskMinutes), activeDays: workdays, callsIn: calls?.calls_in, callsOut: calls?.calls_out, tasks })
+ if (!workdays) return { ...effort, reason: 'روزِ کارکرد از دستگاه حضور هنوز نیامده' }
+ if (!calls) return { ...effort, perDay: null, zone: 'none', reason: 'دادهٔ سروری تماس در این دوره موجود نیست' }
+ return effort
+}
+export interface AttendanceCard { personId: string | null; mapping: string; days?: { date: string; presentMin: number | null }[] }
+export function serverAttendanceDays(cards: AttendanceCard[], person: string, start: string, end: string) {
+ const days = new Map<string, { date: string; presentMin: number | null }>()
+ const conflicts = new Set<string>()
+ for (const card of cards) {
+  if (!person || card.mapping !== 'confirmed' || String(card.personId) !== person) continue
+  for (const row of card.days || []) {
+   if (row.date < start || row.date > end) continue
+   if (days.has(row.date) && days.get(row.date)!.presentMin !== row.presentMin) conflicts.add(row.date)
+   days.set(row.date, { ...row })
+  }
+ }
+ for (const date of conflicts) days.delete(date)
+ return [...days.values()]
+}

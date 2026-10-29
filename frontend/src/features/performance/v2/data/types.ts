@@ -3,11 +3,12 @@ export type ApiStatus = 'valid' | 'partial' | 'no_data' | 'not_applicable' | 'er
 export type Status = 'valid' | 'partial' | 'not_computable' | 'irrelevant' | 'error'
 /** Server call stats (WP-3, aromin_calls.daily_records): confirmed julio/ext mapping only; queue calls never credited to a person. */
 export type CallKey = 'calls_in' | 'calls_out' | 'calls_internal' | 'calls_answered' | 'calls_missed' | 'talk_seconds'
-export type ApiCalls = Record<CallKey, number>
-export type DailyKey = 'tasks' | 'contracts' | 'finance_documents' | 'tickets' | CallKey
+export type ApiCalls = Record<CallKey, number> & { effort_talk_seconds?: number }
+export type DailyKey = 'tasks' | 'contracts' | 'finance_documents' | 'tickets' | 'support_activity' | CallKey
 
 export interface ApiMetric {
 	id: string; label: string; unit: string; definition: string
+	parts?: { tickets: number; callsIn: number; callsOut: number }
 	value: number | null; numerator: number | null; denominator: number | null
 	status: ApiStatus; target: number | null
 	coverage: { records: number; issues: number }; source: string[]; detailsMetric: string; updatedAt?: number
@@ -20,6 +21,7 @@ export interface DetailRow { id: string; date: string; personId: string; metric:
 
 export interface Metric {
 	id: string; label: string; unit: string; definition: string
+	parts?: { tickets: number; callsIn: number; callsOut: number }
 	value: number | null; numerator: number | null; denominator: number | null
 	status: Status; target: number | null; records: number; issues: number
 	source: string[]; detailsMetric: string; dailyMetric: DailyKey | null; updatedAt?: number

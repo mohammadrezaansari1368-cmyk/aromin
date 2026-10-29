@@ -2674,6 +2674,64 @@ def attendance_upload(request: Request, payload: dict = Body(default={})):
     return _att_ingest(tenant, ident["user"], parsed, people)
 
 
+ZURVAN_API_URL = os.environ.get("ZURVAN_API_URL", "").strip()
+
+
+def _zurvan_rows(payload):
+    """Provisional {rows: [{card_no, date_j, punches: [HH:MM], present_min: minutes}]} → device sheets.
+    TODO: confirm the device response and authentication contract before connecting Zurvan.
+    Missing present_min is derived by the shared attendance parser from paired punches.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get("rows"), list):
+        raise PublicValidationError("قالب پاسخ زروان نامعتبر است.")
+    sheets = {}
+    for item in payload["rows"]:
+        if not isinstance(item, dict) or not str(item.get("card_no") or "").strip():
+            raise PublicValidationError("شماره کارت زروان نامعتبر است.")
+        card = str(item["card_no"]).strip()
+        punches = item.get("punches") or []
+        if not isinstance(punches, list) or len(punches) > 6:
+            raise PublicValidationError("تعداد تردد زروان نامعتبر است.")
+        row = {"شماره کارت": card, "تاریخ": item.get("date_j")}
+        for i, punch in enumerate(punches):
+            row[("ورود " if i % 2 == 0 else "خروج ") + str(i // 2 + 1)] = punch
+        if item.get("present_min") is not None:
+            minutes = item["present_min"]
+            if isinstance(minutes, bool) or not isinstance(minutes, int) or not 0 <= minutes <= 1440:
+                raise PublicValidationError("دقیقه حضور زروان نامعتبر است.")
+            row["حضور"] = "%02d:%02d" % divmod(minutes, 60)
+        sheets.setdefault("زروان " + card, []).append(row)
+    return sheets
+
+
+def zurvan_sync(tenant):
+    # An absent URL must not even query the secrets database.
+    if not ZURVAN_API_URL:
+        return {"ok": False, "error": "زروان هنوز تنظیم نشده است."}
+    key = secret_get("zurvan_api")
+    if not key:
+        return {"ok": False, "error": "زروان هنوز تنظیم نشده است."}
+    try:
+        req = urllib.request.Request(ZURVAN_API_URL, headers={"Authorization": "Bearer " + key, "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as response:
+            payload = json.load(response)
+        sheets = _zurvan_rows(payload)
+        raw = att.canonical(payload).encode("utf-8")
+        parsed = att.parse_payload({"fileName": "zurvan.json", "sha256": hashlib.sha256(raw).hexdigest(), "source": "zurvan", "sheets": sheets})
+        return _att_ingest(tenant, "zurvan", parsed, idmap.people_of(_tenant_full(tenant) or {}))
+    except Exception:
+        return {"ok": False, "error": "دریافت یا پردازش حضور زروان ناموفق بود."}
+
+
+@app.post("/api/performance/attendance/zurvan/sync")
+def zurvan_sync_route(request: Request, payload: dict = Body(default={})):
+    tenant = str((payload or {}).get("tenant") or "team")
+    ident = kb_identity(request, tenant)
+    if not ident or ident["role"] not in ("manager", "salesmgr", "accmgr"):
+        return _att_deny(403, "دسترسی مدیر لازم است.")
+    return zurvan_sync(tenant)
+
+
 def _att_ingest(tenant, uploader, parsed, people):
     """Upsert parsed sheets into attendance_days (one batch per file sha) + card aliases. Shared by the upload and Harikan."""
     sheet_cards = {s["sheet_name"]: s["card_no"] for s in parsed["sheets"]}
@@ -2739,11 +2797,11 @@ def attendance_archive_files():
     moved = {}
     try:
         with _SaTx() as t:
-            tenants = [r["tenant"] for r in t.x("SELECT DISTINCT tenant FROM attendance_batches WHERE source<>'harikan' AND tenant NOT LIKE %s", ("%~archive",)).fetchall()]
+            tenants = [r["tenant"] for r in t.x("SELECT DISTINCT tenant FROM attendance_batches WHERE source NOT IN ('harikan','zurvan') AND tenant NOT LIKE %s", ("%~archive",)).fetchall()]
             tenants += [r["tenant"] for r in t.x("SELECT tenant FROM attendance_settings WHERE tenant NOT LIKE %s", ("%~archive",)).fetchall() if r["tenant"] not in tenants]
             for tn in tenants:
                 arc = (tn + "~archive")[:64]
-                ids = [r["id"] for r in t.x("SELECT id FROM attendance_batches WHERE tenant=%s AND source<>'harikan'", (tn,)).fetchall()]
+                ids = [r["id"] for r in t.x("SELECT id FROM attendance_batches WHERE tenant=%s AND source NOT IN ('harikan','zurvan')", (tn,)).fetchall()]
                 if ids:
                     moved["days"] = moved.get("days", 0) + t.x("UPDATE attendance_days SET tenant=%s WHERE tenant=%s AND batch_id IN (" + _in(ids) + ")", [arc, tn] + ids).rowcount
                     moved["members"] = moved.get("members", 0) + t.x("UPDATE import_batch_rows SET tenant=%s WHERE tenant=%s AND domain='attendance' AND batch_id IN (" + _in(ids) + ")", [arc, tn] + ids).rowcount
@@ -3194,7 +3252,7 @@ def _perf_call_records(tenant, s, e, pids):
     except Exception as ex:
         print("[perf] call stats unavailable:", public_error(ex))
         return None
-    return [r for r in calls.daily_records(stats) if r["personId"] in pids]
+    return [r for r in calls.daily_records(stats, performance=True) if r["personId"] in pids]
 
 
 @app.post("/api/performance/calls/log")
@@ -4045,16 +4103,16 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
         all_rows+=ticket_rows or []
         rows=perf.in_period(all_rows,start,end)
         if view == 'details':
-            selected_rows=[r for r in rows if r['metric']==metric]
+            selected_rows=[r for r in rows if r['metric']==metric or (metric=='support_activity' and r['metric'] in ('tickets','calls_in_answered','calls_out_answered'))]
             selected_rows.sort(key=lambda r:(r['date'],r['id']))
             return {'ok':True,'rows':selected_rows[offset:offset+limit],'total':len(selected_rows),'offset':offset,'limit':limit}
         if view == 'daily':
             if not person: raise PublicValidationError('برای نمای سالانه یک شخص را انتخاب کنید.')
-            if metric not in ('tasks','contracts','finance_documents','tickets')+perf.CALL_METRICS: raise PublicValidationError('شاخص نامعتبر')
+            if metric not in ('tasks','contracts','finance_documents','tickets','support_activity')+perf.CALL_METRICS: raise PublicValidationError('شاخص نامعتبر')
             days={}
             for r in rows:
-                if r['metric']==metric: days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
-            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else 'تیکت' if metric=='tickets' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
+                if r['metric']==metric or (metric=='support_activity' and r['metric'] in ('tickets','calls_in_answered','calls_out_answered')): days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
+            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else 'تیکت' if metric=='tickets' else 'فعالیت' if metric=='support_activity' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
         entries=[]
         for p in selected:
             pid=str(p['id']); own=[r for r in rows if r['personId']==pid]; warnings=[i for i in issues if i['personId']==pid]
@@ -5768,6 +5826,7 @@ class LeadAlertError(Exception):
 # encrypt-then-MAC — keystream HMAC-SHA256(enc_key, nonce||counter), tag HMAC-SHA256(mac_key, "v1"||nonce||ct), keys derived
 # from the env key. Values are never returned by any API, logged or put in telemetry; GET returns {set, last4, source, ...}.
 SECRET_NAMES = {
+    "zurvan_api": {"label": "کلیدِ API دستگاه حضور و غیاب زروان", "kind": "apikey", "env": lambda: os.environ.get("ZURVAN_API_KEY", "")},
     "bale_leads": {"label": "ربات بله (لیدها)", "env": lambda: LEADS_BALE_TOKEN, "kind": "bot"},
     "telegram_leads": {"label": "ربات تلگرام (لیدها)", "env": lambda: LEADS_TG_TOKEN, "kind": "bot"},
     "update_token": {"label": "توکنِ به‌روزرسانی (UPDATE_TOKEN)", "env": lambda: UPDATE_TOKEN, "kind": "token"},
