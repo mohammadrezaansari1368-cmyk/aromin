@@ -44,7 +44,16 @@ class Browser:
     def __enter__(self):
         from playwright.sync_api import sync_playwright
         self.pw = sync_playwright().start()
-        self.context = self.pw.chromium.launch_persistent_context(str(self.folder/'joolio-profile'), headless=not self.visible)
+        # The Playwright CDN refuses Iran, so the system Edge/Chrome is used (still with its own dedicated profile).
+        last = None
+        for channel in ('msedge', 'chrome', None):
+            try:
+                self.context = self.pw.chromium.launch_persistent_context(str(self.folder/'joolio-profile'), headless=not self.visible, **({'channel': channel} if channel else {}))
+                break
+            except Exception as error:
+                last = error
+        else:
+            raise last
         self.page = self.context.new_page()
         return self
 
