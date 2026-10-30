@@ -280,6 +280,7 @@ export interface ContributionSkylineProps {
   /** Morph length, ms. */
   duration?: number
   /** 0 puts Sunday on the top row, 1 puts Monday there, 6 Saturday (Persian week). */
+  rtl?: boolean
   weekStart?: 0 | 1 | 6
   /** First day shown (default: one year before endDate). */
   startDate?: string | Date
@@ -457,6 +458,7 @@ export default function ContributionSkyline({
   heightScale = 1,
   duration = 1300,
   weekStart = 0,
+  rtl = false,
   startDate,
   labels,
   orbit = true,
@@ -515,8 +517,8 @@ export default function ContributionSkyline({
   }
 
   // Everything the render loop reads, refreshed every render so the loop never closes over stale props.
-  const cfg = React.useRef({ model, duration, heightScale, orbit, palette, legendLevel, onCellClick, target: view === "3d" ? 1 : 0, setActive, setWidth, setTheme, setAnnounce, describe })
-  cfg.current = { model, duration, heightScale, orbit, palette, legendLevel, onCellClick, target: view === "3d" ? 1 : 0, setActive, setWidth, setTheme, setAnnounce, describe }
+  const cfg = React.useRef({ model, rtl, duration, heightScale, orbit, palette, legendLevel, onCellClick, target: view === "3d" ? 1 : 0, setActive, setWidth, setTheme, setAnnounce, describe })
+  cfg.current = { model, rtl, duration, heightScale, orbit, palette, legendLevel, onCellClick, target: view === "3d" ? 1 : 0, setActive, setWidth, setTheme, setAnnounce, describe }
 
   React.useEffect(() => {
     const root = rootRef.current
@@ -598,12 +600,12 @@ export default function ContributionSkyline({
       }
       for (let i = 0; i < n; i++) {
         const c = m.cells[i]
-        wk[i] = c.week
+        wk[i] = cfg.current.rtl ? m.weeks - 1 - c.week : c.week
         dy[i] = c.day
         lv[i] = c.level
         hgt[i] = barHeight(c.count, m.max, cfg.current.heightScale)
       }
-      months = m.months
+      months = m.months.map(month => ({...month,week:cfg.current.rtl ? m.weeks-1-month.week : month.week}))
       const wf = new Intl.DateTimeFormat(locale, { weekday: "short", timeZone: "UTC" })
       weekdayRows = []
       for (let d = 0; d < 7 && d < n; d++) {
@@ -1027,8 +1029,8 @@ export default function ContributionSkyline({
         return
       }
       if (pinned >= 0 || activeIdx >= 0) {
-        if (ev.key === "ArrowLeft") i -= 7
-        if (ev.key === "ArrowRight") i += 7
+        if (ev.key === "ArrowLeft") i += cfg.current.rtl ? 7 : -7
+        if (ev.key === "ArrowRight") i += cfg.current.rtl ? -7 : 7
         if (ev.key === "ArrowUp") i -= 1
         if (ev.key === "ArrowDown") i += 1
         if (ev.key === "Home") i = 0
@@ -1144,7 +1146,7 @@ export default function ContributionSkyline({
     }
     // The loop reads everything else through cfg; it is built once per mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locale])
+  }, [locale, rtl])
 
   React.useEffect(() => {
     engine.current?.kick()

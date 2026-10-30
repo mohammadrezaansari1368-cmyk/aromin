@@ -46,8 +46,8 @@ export default function CalendarMap2D3D({ days, from, to, unit, title, onDay }: 
 	if (!start || !end) return null
 	// cells keep a readable size: short ranges (month/quarter) don't stretch to full width
 	const weeks = Math.ceil((Date.parse(end) - Date.parse(start)) / 86400000 / 7) + 1
-	return <div dir="ltr" style={{ ...THEME_VARS, maxWidth: Math.max(340, weeks * 24 + 90), marginInline: 'auto' }} className="pv-cal3d">
-		<ContributionSkyline data={data} startDate={start} endDate={end} weekStart={6} locale="fa-IR-u-ca-persian" palette={palette || undefined}
+	return <div dir="rtl" style={{ ...THEME_VARS, maxWidth: Math.max(340, weeks * 24 + 90), marginInline: 'auto' }} className="pv-cal3d">
+		<ContributionSkyline rtl data={data} startDate={start} endDate={end} weekStart={6} locale="fa-IR-u-ca-persian" palette={palette || undefined}
 			unit={unit} unitPlural={unit} labels={FA} title={title} defaultView="2d" footer={null}
 			onCellClick={onDay ? (d) => onDay(todayJ(new Date(d.date + 'T12:00:00Z'))) : undefined} />
 	</div>

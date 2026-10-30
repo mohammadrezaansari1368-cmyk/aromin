@@ -76,6 +76,11 @@
 
 2026-10-08 · Codex: انتخاب وضعیت قیف روی hover/focus خط مراحل با حفظ قفل اضافه شد؛ تصویب گروهی تعداد و جمع رسمی/غیررسمی همان ردیف‌ها را پیش از فرم و در مرور نهایی نشان می‌دهد؛ تغییر محدوده تأیید را باطل می‌کند. بازگشایی UI/API فقط نقش‌های مدیریتی موجود حتی با OTP معتبر؛ قیف تجمعی و شمارش وضعیت فعلی تفکیک شدند. Frontend 135 passed/1 skipped؛ backend 69 passed/6 skipped؛ typecheck/build/lint و مرورگر 320–1440 موفق. بدون deploy یا تغییر دادهٔ اصلی.
 
+## 3.10.9 — عملکرد WO4: نرخِ تبدیل، گیج‌های کوچک، نقشهٔ سالانه، ردیاب، تاریخچهٔ نقش، سطحِ پشتیبانی/مالی (Codex ساخت، Claude بازبینی)
+- `POST /api/performance/conversion` (مدیر): {month, rows:[{name, entered, won}]} ← `full.perfConversion[YYYY/MM][pid]`؛ در `_c1_save` حفظ می‌شود.
+- `people[].roleHistory` + `role_at`/`role_ranges`: هر رکورد با نقشِ همان روز. `POST /api/performance/role-history/seed` (کیمیا ۸۹۸: فروش تا ۱۴۰۵/۰۶/۳۱، پشتیبانی از ۰۷/۰۱). autosave نقشِ دارای تاریخچه را عوض نمی‌کند.
+- `MiniStarGauge` (از StarlightCluster) جای متنِ breakdown؛ نقشهٔ سالانه و ردیابِ وظیفه به دادهٔ سرور وصل شدند. سطح‌ها برای پشتیبانی/مالی + `perf.levelTargets`.
+
 ## 3.10.8 — عملکرد: سرعت و موشن (SWR بدونِ پرش) + وضعیتِ روزِ حضور از زروان (Codex ساخت، Claude بازبینی) — WO3
 - usePerf: stale-while-revalidate؛ clearPerfCache فقط stale می‌کند؛ پاک‌سازی روی تغییرِ فیلتر حذف شد ← گیج‌ها remount نمی‌شوند و موشن برگشت.
 - `lib/performanceDays.ts` بی‌xlsx؛ xlsx فقط dynamic import.

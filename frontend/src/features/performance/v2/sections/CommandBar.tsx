@@ -33,7 +33,7 @@ export function CommandBar({ period, setPeriod, people, stats, person, setPerson
 			{period.kind === 'custom'
 				? <span className="pv-custom"><input aria-label="از تاریخ" value={period.from} onChange={(e) => setPeriod({ ...period, from: e.target.value })} /><input aria-label="تا تاریخ" value={period.to} onChange={(e) => setPeriod({ ...period, to: e.target.value })} /></span>
 				: <span className="pv-stepper"><button type="button" aria-label="دورهٔ قبل" onClick={() => setPeriod(shift(period, -1))}>›</button><b aria-live="polite">{periodLabel(period)}</b><button type="button" aria-label="دورهٔ بعد" onClick={() => setPeriod(shift(period, 1))}>‹</button></span>}
-			{(manager || people.length > 1) && <PersonPicker people={people.filter((p) => !unit || p.unit === unit)} stats={stats} value={person} onChange={setPerson} allowAll={manager} />}
+			{(manager || people.length > 1) && <PersonPicker people={people.filter((p) => !unit || p.unit === unit || p.units?.includes(unit))} stats={stats} value={person} onChange={setPerson} allowAll={manager} />}
 			{manager && units.length > 1 && <select className="pv-unit" aria-label="واحد" value={unit} onChange={(e) => setUnit(e.target.value)}>
 				<option value="">همهٔ واحدها</option>{units.map((u) => <option key={u} value={u}>{UNIT_LABEL[u] || u}</option>)}
 			</select>}

@@ -11,14 +11,15 @@ describe('WO2 sales UI', () => {
   const activity = toMetric({id:'activity',value:457,status:'valid',basis:'calendar'})
   const efficiency = toMetric({id:'efficiency',value:50,status:'partial',answerRate:80,parts:{activity:{actual:457,target:1040,pct:43.9},count:{actual:2,target:null,pct:null},amount:{actual:30,target:60,pct:50},weights:{activity:.5,count:0,amount:.5}}})
   const html = renderToStaticMarkup(<AchievementBreakdown metrics={[activity,efficiency]} />)
-  for (const label of ['بر پایهٔ تقویم؛ حضور ثبت نشده','فعالیت','تعداد قرارداد','مبلغ قرارداد','وزن','نرخ پاسخ','۴۵۷','۱٬۰۴۰','۴۳٫۹']) expect(html).toContain(label)
+  for (const label of ['تقویم','فعالیت','تعداد قرارداد','مبلغ قرارداد','وزن','نرخ پاسخ','۴۵۷','۱٬۰۴۰','۴۳٫۹']) expect(html).toContain(label)
+  expect(html.match(/class="pv-mini-star"/g)).toHaveLength(5)
   expect(html).toContain('—')
  })
  it('renders mixed daily basis, contribution counts and missing-card issue', () => {
   const metric=toMetric({id:'activity',value:10,status:'partial',basis:'mixed',attendanceDays:2,calendarDays:3,targetStatus:'partial',targetIssues:[{personId:'1',metric:'activity',reason:'کارتِ حضورِ این شخص نگاشت نشده'}]})
   expect(metric.targetStatus).toBe('partial')
   const html=renderToStaticMarkup(<AchievementBreakdown metrics={[metric]} />)
-  for (const text of ['بخشی بر پایهٔ حضور، بخشی بر پایهٔ تقویم','روز کارکرد از حضور: ۲','روز کارکرد از تقویم: ۳','کارتِ حضورِ این شخص نگاشت نشده']) expect(html).toContain(text)
+  for (const text of ['حضور و تقویم','حضور: ۲','تقویم: ۳','کارتِ حضورِ این شخص نگاشت نشده']) expect(html).toContain(text)
  })
  it('renders 4–6 hours in the yellow normal zone and peak share below effort', () => {
   for (const hours of [4,5,6]) {

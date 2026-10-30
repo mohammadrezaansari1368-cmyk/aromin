@@ -47,7 +47,7 @@ def select(people, pid='', unit=''):
     return [p for p in people if (not pid or str(p['id'])==str(pid)) and (not unit or UNITS.get(p.get('role'),'other')==unit)]
 
 def public_person(p):
-    return {'id':str(p['id']),'name':p['name'],'role':p.get('role',''),'unit':UNITS.get(p.get('role'),'other'),'inactive':bool(p.get('inactive')),'employmentKnown':False,'level':('middle' if p.get('level')=='mid' else p.get('level'))}
+    return {'id':str(p['id']),'name':p['name'],'role':p.get('role',''),'unit':UNITS.get(p.get('role'),'other'),'inactive':bool(p.get('inactive')),'employmentKnown':False,'roleHistory':p.get('roleHistory',[]),'units':sorted({UNITS.get(h['role'],'other') for h in p.get('roleHistory',[])} | {UNITS.get(p.get('role'),'other')}),'level':('middle' if p.get('level')=='mid' else p.get('level'))}
 
 def number(value):
     try:
@@ -111,6 +111,129 @@ def records(full, people, stamp_to_j):
     return out,issues
 
 def in_period(rows,start,end): return [r for r in rows if start<=r['date']<=end]
+
+def role_at(person, date):
+    history = sorted(person.get('roleHistory') or [], key=lambda h: h['from'])
+    return next((h['role'] for h in reversed(history) if h['from'] <= date),
+                history[0]['role'] if history else person.get('role'))
+
+def role_ranges(person, start, end, unit=None):
+    from aromin_calls import _ordinal
+    # Use Jalali month boundaries rather than converting Gregorian dates back.
+    y, m = map(int, start.split('/')[:2]); dates=[]
+    while '%04d/%02d/01' % (y,m) <= end:
+        dates.extend(d for d in month_dates(y,m) if start<=d<=end)
+        y,m=y+(m==12),m%12+1
+    ranges=[]
+    for d in dates:
+        role=role_at(person,d)
+        if unit and UNITS.get(role)!=unit: continue
+        if ranges and ranges[-1]['role']==role and _ordinal(d)==_ordinal(ranges[-1]['to'])+1:
+            ranges[-1]['to']=d
+        else: ranges.append({'role':role,'from':d,'to':d})
+    return ranges
+
+def update_role_history(old, new, today, manager):
+    previous={str(p['id']):p for p in (old or {}).get('people',[])}
+    for p in new.get('people',[]):
+        before=previous.get(str(p['id']),{})
+        if not manager:
+            if before.get('roleHistory'): p['roleHistory']=before['roleHistory']
+            else: p.pop('roleHistory',None)
+            continue
+        history=p.get('roleHistory',before.get('roleHistory')) or []
+        if not isinstance(history,list) or any(not isinstance(h,dict) or not isinstance(h.get('role'),str) or date_key(h.get('from'))!=h.get('from') for h in history):
+            raise PublicValidationError('تاریخچه نقش نامعتبر است.')
+        history=sorted(history,key=lambda h:h['from'])
+        if len({h['from'] for h in history})!=len(history): raise PublicValidationError('تاریخ نقش تکراری است.')
+        if any(h['from']>today for h in history): raise PublicValidationError('تاریخ نقش آینده مجاز نیست.')
+        if before and before.get('role')!=p.get('role') and history==before.get('roleHistory',[]):
+            if not history: history=[{'role':before['role'],'from':'1300/01/01'}]
+            history=[h for h in history if h['from']!=today]+[{'role':p['role'],'from':today}]
+        if history:
+            p['roleHistory']=history
+            p['role']=history[-1]['role']
+
+def task_targets(full, person, start, end, attendance, holidays, history):
+    cfg=full.get('perf') or {}; monthly=number((person.get('perfSet') or {}).get('taskTarget',cfg.get('taskTarget',300)))
+    y,m=map(int,start.split('/')[:2]); daily={}; total=0
+    while '%04d/%02d/01' % (y,m)<=end:
+        dates=month_dates(y,m)
+        target=sales_targets(full,person,dates[0],dates[-1],attendance,holidays,history)
+        days=target['workingDays']
+        value=monthly/days if monthly is not None and days and not target['issue'] else None
+        for d in dates:
+            if start<=d<=end: daily[d]=value
+        included=sales_targets(full,person,max(start,dates[0]),min(end,dates[-1]),attendance,holidays,history)['workingDays']
+        if value is not None: total+=value*included
+        y,m=y+(m==12),m%12+1
+    return {'daily':daily,'target':total,'monthly':monthly}
+
+def unit_target(full, person, unit, start, end, attendance, holidays, history):
+    cfg=full.get('perf') or {}; level=person.get('level','junior')
+    if level=='middle': level='mid'
+    config=((cfg.get('levelTargets') or {}).get(unit) or {}).get(level) or {}
+    if not isinstance(config,dict): config={'monthly':config}
+    ranges=role_ranges(person,start,end,unit)
+    working=sum(sales_targets(full,person,r['from'],r['to'],attendance,holidays,history)['workingDays'] for r in ranges)
+    if number(config.get('daily')) is not None: return number(config['daily'])*working
+    if number(config.get('monthly')) is not None:
+        total=0
+        for r in ranges:
+            for month in sorted({d[:7] for d in calendar_days(r['from'],r['to'])}):
+                dates=month_dates(*map(int,month.split('/')))
+                denominator=sales_targets(full,person,dates[0],dates[-1],attendance,holidays,history)['workingDays']
+                included=sales_targets(full,person,max(r['from'],dates[0]),min(r['to'],dates[-1]),attendance,holidays,history)['workingDays']
+                total+=number(config['monthly'])*included/denominator if denominator else 0
+        return total
+    shares=(cfg.get('levelShares') or {}).get(unit) or {'senior':.5,'mid':.3,'junior':.2}
+    # Each won contract is attributed by the seller's role on its date.
+    people={str(p['id']):p for p in full.get('people',[])}
+    won=sum(r['metric']=='contracts' and start<=r['date']<=end and UNITS.get(role_at(people[r['personId']],r['date']))=='sales' for r in history if r['personId'] in people)
+    peers=[p for p in people.values() if ('mid' if p.get('level')=='middle' else p.get('level','junior'))==level and role_ranges(p,start,end,unit)]
+    denominator=sum(sum(sales_targets(full,p,r['from'],r['to'],attendance,holidays,history)['workingDays'] for r in role_ranges(p,start,end,unit)) for p in peers)
+    return won*(8 if unit=='finance' else 1)*(number(shares.get(level)) or 0)*working/denominator if denominator else 0
+
+def conversion_store(full, payload, normalize, at):
+    import re
+    month=payload.get('month')
+    if not isinstance(month,str) or not re.fullmatch(r'14\d{2}/(0[1-9]|1[0-2])',month) or payload.get('source')!='joolio':
+        raise PublicValidationError('ماه یا منبع نامعتبر است.')
+    rows=payload.get('rows')
+    if not isinstance(rows,list): raise PublicValidationError('ردیف‌ها نامعتبر است.')
+    names=defaultdict(list)
+    for p in full.get('people',[]): names[normalize(p.get('name',''))].append(str(p['id']))
+    mapped={}; unmapped=[]
+    for r in rows:
+        if not isinstance(r,dict) or not isinstance(r.get('name'),str): raise PublicValidationError('نام نامعتبر است.')
+        a,b=r.get('entered'),r.get('won')
+        if type(a) is not int or type(b) is not int or not 0<=b<=a: raise PublicValidationError('تعداد نامعتبر است.')
+        matches=names.get(normalize(r['name']),[])
+        if len(matches)!=1: unmapped.append(r['name']); continue
+        if matches[0] in mapped: raise PublicValidationError('شخص تکراری است.')
+        mapped[matches[0]]={'entered':a,'won':b,'at':at}
+    full.setdefault('perfConversion',{}).setdefault(month,{}).update(mapped)
+    return {'ok':True,'mapped':len(mapped),'unmapped':unmapped}
+
+def conversion_metric(full, people, start, end):
+    ids={str(p['id']) for p in people}; persons={str(p['id']):p for p in people}; entered=won=0; count=0; partial=False; missing=False
+    y,m=map(int,start.split('/')[:2])
+    while '%04d/%02d/01' % (y,m)<=end:
+        dates=month_dates(y,m); month=dates[0][:7]
+        partial |= start>dates[0] or end<dates[-1]
+        for pid in ids:
+            sales_days=[d for d in dates if UNITS.get(role_at(persons[pid],d))=='sales']
+            if not any(start<=d<=end for d in sales_days): continue
+            partial |= len(sales_days)!=len(dates)
+            row=(full.get('perfConversion',{}).get(month) or {}).get(pid)
+            if row is None: missing=True; continue
+            entered+=row['entered']; won+=row['won']; count+=1
+        y,m=y+(m==12),m%12+1
+    return {'id':'conversion','label':'نرخ تبدیل','unit':'٪','value':won/entered*100 if entered else None,
+            'numerator':won,'denominator':entered,'target':100,'status':('partial' if partial or missing else 'valid') if entered else 'no_data',
+            'definition':'معاملات ورودی واجد شرایط که بعداً بستن شده‌اند ÷ ورودی واجد شرایط',
+            'note':'نرخ تبدیل ماهانه است؛ بازه ماه را قطع کرده؛ تفکیک تغییر نقش در میانه ماه دقیق نیست' if partial else '',
+            'coverage':{'records':count,'issues':int(missing)},'source':['joolio'],'detailsMetric':'','period':{'from':start,'to':end}}
 
 def month_dates(year, month):
     from aromin_calls import _ordinal

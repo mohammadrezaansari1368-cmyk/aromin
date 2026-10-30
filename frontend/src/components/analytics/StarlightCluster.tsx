@@ -7,6 +7,7 @@
  * هندسه، رنگ و زمان‌بندی عیناً از README بسته؛ کاشی‌ها با دستگیرهٔ ⠿ جابه‌جا می‌شوند.
  */
 
+import { StarArc } from './MiniStarGauge'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import Sortable from '@/components/ui/sortable'
 import logoUrl from '@/assets/starlight-logo.png'
@@ -116,15 +117,11 @@ function gaugeView(key: Key, lt: number, s: StarlightData, big: boolean) {
 function Dial({ k, size, lt, s, big }: { k: Key; size: string; lt: number; s: StarlightData; big: boolean }) {
 	const g = gaugeView(k, lt, s, big)
 	const warnFa = g.warn ? ' — هشدار' : ''
-	const p = tickPhase(lt), dash = `${(424.1 * g.f).toFixed(1)} 565.5`
+	const p = tickPhase(lt)
 	return (
 		<div role="img" aria-label={g.none ? `${g.c.fa}: داده‌ای نیست` : `${g.c.fa}: ${g.value} ${g.c.unit}${warnFa}`} className="relative aspect-square max-h-full" style={{ width: size, containerType: 'inline-size' }}>
 			<svg viewBox="0 0 200 200" className="absolute inset-0 size-full overflow-visible" aria-hidden>
-				<circle cx="100" cy="100" r="90" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="0.6" strokeLinecap="round" transform="rotate(135 100 100)" style={{ strokeDasharray: '424.1 565.5' }} />
-				{/* درخشش با خطِ پهنِ کم‌رنگ زیرِ خطِ اصلی (به‌جای filter که در هر به‌روزرسانی گران است) */}
-				<circle cx="100" cy="100" r="90" fill="none" stroke={g.color} strokeWidth="3.2" strokeOpacity="0.12" strokeLinecap="round" transform="rotate(135 100 100)" style={{ strokeDasharray: dash }} />
-				<circle cx="100" cy="100" r="90" fill="none" stroke={g.color} strokeWidth="1.8" strokeOpacity="0.22" strokeLinecap="round" transform="rotate(135 100 100)" style={{ strokeDasharray: dash }} />
-				<circle cx="100" cy="100" r="90" fill="none" stroke={g.color} strokeWidth="0.9" strokeLinecap="round" transform="rotate(135 100 100)" style={{ strokeDasharray: dash }} />
+				<StarArc fraction={g.f} color={g.color} />
 				<Ticks k={k} p={p} />
 				<g transform={`rotate(${(-135 + g.f * 270).toFixed(2)} 100 100)`} opacity={g.needleOp}>
 					<line x1="100" y1="42" x2="100" y2="12" stroke={g.color} strokeWidth="4.5" strokeOpacity="0.14" strokeLinecap="round" />

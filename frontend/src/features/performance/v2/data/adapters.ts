@@ -19,7 +19,7 @@ export function toMetric(raw: Partial<ApiMetric> | null | undefined): Metric {
 	const computable = status === 'valid' || status === 'partial'
 	return {
 		attendance: r.attendance, attendanceDays: r.attendanceDays, calendarDays: r.calendarDays, targetStatus: r.targetStatus, targetIssues: r.targetIssues,
-		parts: r.parts, answerRate: r.answerRate, basis: r.basis, pct: r.pct, workingDays: r.workingDays, id: String(r.id || ''), label: String(r.label || '—'), unit: String(r.unit || ''), definition: String(r.definition || ''),
+		note: r.note, parts: r.parts, answerRate: r.answerRate, basis: r.basis, pct: r.pct, workingDays: r.workingDays, id: String(r.id || ''), label: String(r.label || '—'), unit: String(r.unit || ''), definition: String(r.definition || ''),
 		value: computable ? num(r.value) : null, numerator: computable ? num(r.numerator) : null, denominator: computable ? num(r.denominator) : null,
 		status: computable && num(r.value) === null ? 'not_computable' : status,
 		target: num(r.target), records: num(r.coverage?.records) ?? 0, issues: num(r.coverage?.issues) ?? 0,
@@ -48,7 +48,7 @@ export function callMetrics(calls: ApiCalls | null | undefined): Metric[] {
 }
 export function toPerson(raw: Partial<ApiPerson> | null | undefined): PersonVM {
 	const r = raw || {}, name = String(r.name || '—'), unit = String(r.unit || 'other')
-	return { id: String(r.id ?? ''), name, level: r.level, initial: name.trim().charAt(0) || '؟', role: String(r.role || ''), unit, unitLabel: UNIT_LABEL[unit] || UNIT_LABEL.other, inactive: !!r.inactive, tasks: num(r.tasks), calls: toCalls(r.calls), metrics: Array.isArray(r.metrics) ? r.metrics.map(toMetric) : [] }
+	return { id: String(r.id ?? ''), name, units:r.units, level: r.level, initial: name.trim().charAt(0) || '؟', role: String(r.role || ''), unit, unitLabel: UNIT_LABEL[unit] || UNIT_LABEL.other, inactive: !!r.inactive, tasks: num(r.tasks), calls: toCalls(r.calls), metrics: Array.isArray(r.metrics) ? r.metrics.map(toMetric) : [] }
 }
 export const toPeople = (raw: unknown): PersonVM[] => (Array.isArray(raw) ? raw.map((p) => toPerson(p as ApiPerson)).filter((p) => p.id) : [])
 export function toDays(raw: Partial<ApiDaily> | null | undefined): DayVM[] {

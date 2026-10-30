@@ -629,6 +629,7 @@ def _import_key(entry):
 
 
 def _preserve_import_history(old, new):
+    new["perfConversion"] = (old or {}).get("perfConversion") or {}
     deleted = set((old or {}).get("_importDeleted") or [])
     entries = {}
     for entry in ((old or {}).get("importLog") or []) + (new.get("importLog") or []):
@@ -735,6 +736,15 @@ def post_state(request: Request, payload: dict = Body(default={}), tenant: str =
                 denied = _state_credentials(old, st, ident)
                 if denied is not None:
                     return denied
+                import aromin_performance as perf
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                now=datetime.now(ZoneInfo('Asia/Tehran'))
+                today='%04d/%02d/%02d' % tuple(_jalali(now.year,now.month,now.day))
+                try:
+                    perf.update_role_history(old,st,today,ident['role'] in KB_ADMIN_ROLES)
+                except ValueError as e:
+                    return _c1_deny(public_error(e),400)
                 _preserve_import_history(old, st)
                 _preserve_compensation(old, st)
                 _merge_sale_dates(old, st)
@@ -2460,6 +2470,11 @@ def _c1_save(tenant, full):
             cur.execute("SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE", (tenant,))
             row = cur.fetchone()
             previous = parse(row["payload"]) if row else None
+            for p in full.get('people',[]):
+                prior=next((x for x in (previous or {}).get('people',[]) if str(x.get('id'))==str(p.get('id'))),{})
+                if prior.get('roleHistory'):
+                    p['roleHistory']=prior['roleHistory']
+                    p['role']=prior['role']
             _preserve_import_history(previous, full)
             _preserve_compensation(previous, full)
             _merge_sale_dates(previous, full)
@@ -4109,6 +4124,49 @@ def _perf_target_attendance(tenant, start, end):
     except Exception as ex:
         print('[perf] target attendance unavailable:',public_error(ex))
         return {'rows':[],'coverage':set(),'mappedPersons':set(),'available':False},set()
+def _performance_patch(request, payload, mutate):
+    tenant = str(payload.get('tenant') or 'team')
+    ident = kb_identity(request, tenant)
+    if not ident: return _c1_deny('ورود معتبر نیست.', 401)
+    if ident['role'] not in KB_ADMIN_ROLES: return _c1_deny('فقط مدیر مجاز است.', 403)
+    cx = db_conn()
+    cx.autocommit(False)
+    try:
+        with cx.cursor() as cur:
+            cur.execute('SELECT payload FROM tenant_state WHERE tenant=%s FOR UPDATE', (tenant,))
+            row = cur.fetchone()
+            if not row: return _c1_deny('داده موجود نیست.', 404)
+            full = parse(row['payload'])
+            result = mutate(full)
+            full['ts'] = int(time.time()*1000)
+            cur.execute('UPDATE tenant_state SET payload=%s WHERE tenant=%s', (j(full),tenant))
+        cx.commit()
+        return result
+    except ValueError as e:
+        cx.rollback()
+        return _c1_deny(public_error(e),400)
+    finally:
+        cx.close()
+
+
+@app.post('/api/performance/conversion')
+def performance_conversion(request: Request, payload: dict = Body(default={})):
+    import aromin_performance as perf
+    return _performance_patch(request,payload,lambda full: perf.conversion_store(full,payload,joolio_name,int(time.time()*1000)))
+
+
+@app.post('/api/performance/role-history/seed')
+def performance_role_seed(request: Request, payload: dict = Body(default={})):
+    def seed(full):
+        person=next((p for p in full.get('people',[]) if str(p.get('id'))=='898'),None)
+        if person is None: raise PublicValidationError('شخص ۸۹۸ پیدا نشد.')
+        if person.get('roleHistory'): return {'ok':True,'unchanged':True}
+        person['roleHistory']=[{'role':'sales','from':'1300/01/01'},{'role':'support','from':'1405/07/01'}]
+        person['role']='support'
+        return {'ok':True,'unchanged':False}
+    return _performance_patch(request,payload,seed)
+
+
 # Read-only performance workspace: scope checked for every projection and export page.
 @app.get('/api/performance/{view}')
 def performance_read(view: str, request: Request, tenant: str = Query(default='team'), person: str = Query(default=''), unit: str = Query(default=''), start: str = Query(default=''), end: str = Query(default=''), metric: str = Query(default='tasks'), offset: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=200)):
@@ -4122,10 +4180,20 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
     users, _ = _kb_directory(tenant)
     try:
         allowed = perf.directory(full, ident, users)
-        selected = perf.select(allowed, person, unit)
+        if ident['role'] in ('salesmgr','accmgr'):
+            allowed=[p for p in full.get('people',[]) if perf.UNITS.get(p.get('role'))==perf.UNITS[ident['role']] or any(perf.UNITS.get(h['role'])==perf.UNITS[ident['role']] for h in p.get('roleHistory',[]))]
+        if ident['role'] in ('salesmgr','accmgr'):
+            scope_unit=perf.UNITS[ident['role']]
+            if unit and unit!=scope_unit: raise PublicPermissionError('واحد خارج از دامنه مجاز است.')
+            unit=scope_unit
+        selected = perf.select(allowed, person, '')
+        if unit:
+            selected=[p for p in selected if perf.role_ranges(p,perf.date_key(start),perf.date_key(end),unit)] if perf.date_key(start) and perf.date_key(end) else perf.select(allowed,person,unit)
         if view == 'directory':
             return {'ok':True,'people':[perf.public_person(p) for p in allowed],'role':ident['role'],'updatedAt':full.get('ts'),'scope':'organization' if ident['role']=='manager' else 'unit' if ident['role'] in ('salesmgr','accmgr') else 'self'}
         if view == 'source':
+            if ident['role'] in ('salesmgr','accmgr'):
+                allowed=[{**p,'perf':{'dailyTasks':{d:v for d,v in ((p.get('perf') or {}).get('dailyTasks') or {}).items() if perf.date_key(d) and perf.UNITS.get(perf.role_at(p,perf.date_key(d)))==unit}}} for p in allowed]
             return {'ok':True,'full':{'performanceScoped':True,'organizationScope':ident['role']=='manager','people':[{**{k:p[k] for k in ('id','name','role','inactive') if k in p}, 'perf':{k:(p.get('perf') or {})[k] for k in PERF_SOURCE_KEYS if k in (p.get('perf') or {})},**({'perfSet':{k:p['perfSet'][k] for k in ('taskTarget','callTarget') if k in p['perfSet']}} if isinstance(p.get('perfSet'),dict) else {})} for p in allowed],'perfCfg':{k:(full.get('perf') or {})[k] for k in ('taskCapMin','taskTarget','callTarget') if k in (full.get('perf') or {})},'callHours':((full.get('callstats') or {}).get('hours') or {})}}
         if view not in ('summary','daily','details','holidays'): return JSONResponse({'ok':False,'error':'مسیر نامعتبر'},status_code=404)
         start, end = perf.date_key(start), perf.date_key(end)
@@ -4142,38 +4210,82 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
         ticket_rows=_perf_ticket_records(tenant,start,end,{str(p['id']) for p in selected})
         all_rows+=ticket_rows or []
         rows=perf.in_period(all_rows,start,end)
+        people_by_id={str(p['id']):p for p in selected}
+        if ident['role'] in ('salesmgr','accmgr'):
+            rows=[r for r in rows if perf.UNITS.get(perf.role_at(people_by_id[r['personId']],r['date']))==perf.UNITS[ident['role']]]
+        if unit: rows=[r for r in rows if perf.UNITS.get(perf.role_at(people_by_id[r['personId']],r['date']))==unit]
         if view == 'details':
             selected_rows=[r for r in rows if r['metric']==metric or (metric=='support_activity' and r['metric'] in ('tickets','calls_in_answered','calls_out_answered'))]
             selected_rows.sort(key=lambda r:(r['date'],r['id']))
             return {'ok':True,'rows':selected_rows[offset:offset+limit],'total':len(selected_rows),'offset':offset,'limit':limit}
         if view == 'daily':
-            if not person: raise PublicValidationError('برای نمای سالانه یک شخص را انتخاب کنید.')
+            if not person or not selected: raise PublicValidationError('برای نمای سالانه یک شخص را انتخاب کنید.')
             if metric not in ('tasks','contracts','finance_documents','tickets','support_activity')+perf.CALL_METRICS: raise PublicValidationError('شاخص نامعتبر')
             days={}
             for r in rows:
                 if r['metric']==metric or (metric=='support_activity' and r['metric'] in ('tickets','calls_in_answered','calls_out_answered')): days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
-            return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else 'تیکت' if metric=='tickets' else 'فعالیت' if metric=='support_activity' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
-        target_attendance,holidays=(_perf_target_attendance(tenant,start[:8]+'01',perf.month_dates(*map(int,end.split('/')[:2]))[-1])
-                                    if any(perf.UNITS.get(p.get('role'))=='sales' for p in selected) else ([],set()))
-        sales_people=[p for p in full.get('people',[]) if perf.UNITS.get(p.get('role'))=='sales']
-        history,history_issues=perf.records(full,sales_people,stamp_to_j)
-        target_by_id={str(p['id']):perf.sales_targets(full,p,start,end,target_attendance,holidays,history) for p in selected if perf.UNITS.get(p.get('role'))=='sales'}
+            task_target=None
+            if metric=='tasks':
+                target_att,holiday_set=_perf_target_attendance(tenant,start[:8]+'01',perf.month_dates(*map(int,end.split('/')[:2]))[-1])
+                task_target=perf.task_targets(full,selected[0],start,end,target_att,holiday_set,all_rows)
+            return {'ok':True,'taskTargets':task_target,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else 'تیکت' if metric=='tickets' else 'فعالیت' if metric=='support_activity' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
+        target_attendance,holidays=_perf_target_attendance(tenant,start[:8]+'01',perf.month_dates(*map(int,end.split('/')[:2]))[-1])
+        history,history_issues=perf.records(full,full.get('people',[]),stamp_to_j)
+        target_by_id={}
+        for p in selected:
+            pieces=[perf.sales_targets(full,p,r['from'],r['to'],target_attendance,holidays,history) for r in perf.role_ranges(p,start,end,'sales')]
+            if not pieces: continue
+            target=dict(pieces[0])
+            for key in ('activity','amount','count','workingDays','attendanceDays','calendarDays'):
+                target[key]=sum(t[key] for t in pieces) if all(t[key] is not None for t in pieces) else None
+            target['attendance']={k:sum(t['attendance'][k] for t in pieces) for k in pieces[0]['attendance'] if k!='basis'}
+            target['basis']=pieces[0]['basis'] if len({t['basis'] for t in pieces})==1 else 'mixed'
+            target['attendance']['basis']=target['basis']
+            target['issues']=[i for t in pieces for i in t['issues']]
+            target['issue']=any(t['issue'] for t in pieces)
+            target_by_id[str(p['id'])]=target
         issues.extend(i for target in target_by_id.values() for i in target['issues'])
-        def projected(u, own, warnings, members):
-            base=perf.metrics(u,own,warnings,start,end,full.get('ts'))
+        def projected(u, own, warnings, members, span_start=None, span_end=None):
+            lo,hi=span_start or start,span_end or end
+            base=perf.metrics(u,own,warnings,lo,hi,full.get('ts'))
             if u=='sales':
                 ids={str(p['id']) for p in members}
                 warnings=warnings+[i for i in history_issues if i['personId'] in ids and i not in warnings]
-                base=perf.sales_projection(base,own,[target_by_id[str(p['id'])] for p in members],full.get('perf') or {},warnings,call_rows is not None)
+                base=perf.sales_projection(base,own,([perf.sales_targets(full,p,lo,hi,target_attendance,holidays,history) for p in members] if span_start else [target_by_id[str(p['id'])] for p in members]),full.get('perf') or {},warnings,call_rows is not None)
+                base=[perf.conversion_metric(full,members,lo,hi) if m['id']=='conversion' else m for m in base]
+            if u in ('support','finance'):
+                key='tickets' if u=='support' else 'finance_documents'
+                target=sum(perf.unit_target(full,p,u,lo,hi,target_attendance,holidays,history) for p in members)
+                if u=='support':
+                    tickets=[r for r in own if r['metric']=='tickets']
+                    actual=len(tickets) if ticket_rows is not None else None
+                    base.append({'id':'tickets','label':'تیکت پشتیبانی','unit':'تیکت','definition':'تیکت یکتا در بازه نقش پشتیبانی؛ هدف بر اساس سطح دانش و تجربه.',
+                                 'value':actual,'numerator':actual,'denominator':None,'target':target,'status':'valid' if ticket_rows is not None else 'no_data',
+                                 'coverage':{'records':len(tickets),'issues':0},'source':['ticket_logs'],'detailsMetric':'tickets','period':{'from':lo,'to':hi}})
+                for metric_row in base:
+                    if metric_row['id']==key:
+                        metric_row['target']=target
+                        metric_row['pct']=metric_row['value']/target*100 if target and metric_row['value'] is not None else None
             return base
+        def unit_rows(own,u):
+            return [r for r in own if perf.UNITS.get(perf.role_at(people_by_id[r['personId']],r['date']))==u]
         entries=[]
         for p in selected:
             pid=str(p['id']); own=[r for r in rows if r['personId']==pid]; warnings=[i for i in issues if i['personId']==pid]
-            entries.append({**perf.public_person(p),**({'attendance':target_by_id[pid]['attendance']} if pid in target_by_id else {}),'metrics':projected(perf.UNITS.get(p.get('role'),'other'),own,warnings,[p]),'tasks':sum(r['value'] for r in own if r['metric']=='tasks') if any(r['metric']=='tasks' for r in own) else None,'calls':perf.call_totals(own) if call_rows is not None else None,'issues':warnings})
+            segments=[{**r,'unit':perf.UNITS.get(r['role'],'other'),'metrics':projected(perf.UNITS.get(r['role'],'other'),[x for x in own if r['from']<=x['date']<=r['to']],warnings,[p],r['from'],r['to'])} for r in perf.role_ranges(p,start,end) if not unit or perf.UNITS.get(r['role'])==unit]
+            for segment in segments:
+                segment_rows=[r for r in own if segment['from']<=r['date']<=segment['to']]
+                segment['tasks']=sum(r['value'] for r in segment_rows if r['metric']=='tasks')
+                segment['calls']=perf.call_totals(segment_rows) if call_rows is not None else None
+                segment['attendance']=perf.sales_targets(full,p,segment['from'],segment['to'],target_attendance,holidays,history)['attendance']
+                segment['taskTargets']=perf.task_targets(full,p,segment['from'],segment['to'],target_attendance,holidays,history)
+            display_unit=unit or (segments[-1]['unit'] if segments else perf.UNITS.get(p.get('role'),'other'))
+            entries.append({'rolePeriods':segments,**perf.public_person(p),'unit':display_unit,**({'attendance':target_by_id[pid]['attendance']} if pid in target_by_id else {}),'metrics':projected(display_unit,unit_rows(own,display_unit),warnings,[p]) if segments else [],'tasks':sum(r['value'] for r in own if r['metric']=='tasks') if any(r['metric']=='tasks' for r in own) else None,'calls':perf.call_totals(own) if call_rows is not None else None,'issues':warnings})
         groups=[]
         for u in ('sales','support','finance'):
-            members=[p for p in selected if perf.UNITS.get(p.get('role'))==u]; pids={str(p['id']) for p in members}
-            if members: groups.append({'unit':u,'people':len(members),'metrics':projected(u,[r for r in rows if r['personId'] in pids],[i for i in issues if i['personId'] in pids],members),'calls':perf.call_totals([r for r in rows if r['personId'] in pids]) if call_rows is not None else None})
+            members=[p for p in selected if perf.role_ranges(p,start,end,u)]; pids={str(p['id']) for p in members}
+            if unit and u!=unit: continue
+            if members: groups.append({'tasks':sum(r['value'] for r in unit_rows([r for r in rows if r['personId'] in pids],u) if r['metric']=='tasks'),'unit':u,'people':len(members),'metrics':projected(u,unit_rows([r for r in rows if r['personId'] in pids],u),[i for i in issues if i['personId'] in pids],members),'calls':perf.call_totals(unit_rows([r for r in rows if r['personId'] in pids],u)) if call_rows is not None else None})
         return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['حضور از جدول سروری attendance_days و فقط برای نگاشت تأییدشده کارت↔شخص.','تماس از جدول سروری call_logs و فقط برای نگاشت تأییدشده julio/داخلی↔شخص؛ تماس صف و بی‌نگاشت به شخص نسبت داده نمی‌شود.' if call_rows is not None else 'دادهٔ سروریِ تماس در دسترس نبود؛ آمار تماس نمایش داده نمی‌شود.','تیکت از جدول سروری ticket_logs به تاریخ ثبت و فقط برای نگاشت تأییدشدهٔ نام کارشناس↔شخص.' if ticket_rows is not None else 'دادهٔ سروریِ تیکت در دسترس نبود؛ محورهای پشتیبانی بی‌داده‌اند.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف قرارداد از تارگت‌های تب پیش‌بینی خوانده می‌شود.']}
     except PermissionError as e:
         return JSONResponse({'ok':False,'error':public_error(e)},status_code=403)

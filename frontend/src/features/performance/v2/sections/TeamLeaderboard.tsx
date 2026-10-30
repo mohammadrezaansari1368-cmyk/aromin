@@ -1,3 +1,4 @@
+import { LEVEL_LABEL } from '../data/adapters'
 import { useState } from 'react'
 import type { CallKey, Metric, PersonVM } from '../data/types'
 import { fa, faMoney } from '../data/adapters'
@@ -14,7 +15,7 @@ export function TeamLeaderboard({ people, metric, selected, onSelect }: { people
 		{!rows.length ? <p className="pv-empty">بدون داده</p> : <ScrollFadeList label="افراد">
 			{rows.map((p) => { const n = val(p), st = p.metrics.find((m) => m.id === metric.id)?.status; return <button key={p.id} role="listitem" type="button" className="pv-row" data-inactive={p.inactive} aria-pressed={selected === p.id} onClick={() => onSelect(p.id)}>
 				<span className="pv-avatar">{p.initial}</span>
-				<span className="pv-row-n">{p.name}<span className="pv-bar"><i style={{ width: max && n !== null ? (Math.max(0, n) / max) * 100 + '%' : '0%' }} /></span></span>
+				<span className="pv-row-n">{p.name} · {LEVEL_LABEL[p.level||'']||'—'}<span className="pv-bar"><i style={{ width: max && n !== null ? (Math.max(0, n) / max) * 100 + '%' : '0%' }} /></span></span>
 				<b>{fmt(n)}</b><small aria-label={n === null ? 'بدون داده' : st === 'partial' ? 'ناقص' : 'معتبر'}>{n === null ? '○' : st === 'partial' ? '◐' : '●'}</small>
 			</button> })}
 		</ScrollFadeList>}

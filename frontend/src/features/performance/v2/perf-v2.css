@@ -214,6 +214,7 @@
 .pv-peak span { position: absolute; bottom: 0; font-size: 9px; color: var(--pv-dim); } .pv-peak span:first-of-type { left: 0; } .pv-peak span:last-of-type { right: 0; }
 .pv-crumb { display: inline-flex; gap: 4px; align-items: center; } .pv-crumb button { border: 0; background: none; padding: 0 2px; color: var(--pv-acc); cursor: pointer; font: inherit; } .pv-crumb [aria-current=true] { font-weight: 800; }
 .pv-cal3d { min-width: 0; }
+.pv-mini-star small, [aria-label="مبنای روز کارکرد"] small { display: inline-block; border: 1px solid hsl(var(--border)); border-radius: 999px; padding: 2px 8px; font-size: 11px; }
 @media (max-width: 480px) { .pv-effort-dial { width: min(240px, 72vw); } .pv-ef-figs { grid-template-columns: repeat(2, auto); } }
 /* WP-3 call tiles */
 .pv-calls { padding: 14px; display: grid; gap: 10px; }

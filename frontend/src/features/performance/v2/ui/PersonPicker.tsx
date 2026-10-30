@@ -38,7 +38,7 @@ export default function PersonPicker({ people, stats, value, onChange, allowAll 
 	}
 	return <div className="pv-picker" ref={box}>
 		<button type="button" className="pv-chip" aria-haspopup="listbox" aria-expanded={open} aria-label={'شخص: ' + (chosen?.name || 'همه')} onClick={() => setOpen((o) => !o)}>
-			<span className="pv-avatar">{chosen?.initial || '∗'}</span>{chosen?.name || 'همهٔ افراد'}<span aria-hidden className="pv-chev">▾</span>
+			<span className="pv-avatar">{chosen?.initial || '∗'}</span>{chosen?chosen.name+(chosen.level?' · '+(LEVEL_LABEL[chosen.level]||''):''):'همهٔ افراد'}<span aria-hidden className="pv-chev">▾</span>
 		</button>
 		{open && <div className="pv-pop" onKeyDown={key}>
 			<input ref={input} className="pv-search" placeholder="جستجو" aria-label="جستجوی شخص" value={q} onChange={(e) => { setQ(e.target.value); setCur(0) }}

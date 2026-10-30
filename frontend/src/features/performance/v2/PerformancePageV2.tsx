@@ -1,5 +1,5 @@
 /** Performance tab v2 — instrument-cluster UI over the same read-only /api/performance endpoints. No sample data. */
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
 import type { ServerAttendance } from '@/lib/attendanceApi'
@@ -23,6 +23,7 @@ import EffortPanel from './cluster/EffortPanel'
 import { serverEffort, serverAttendanceDays } from './lib/effort'
 import { TaskTracker } from './sections/TaskTracker'
 import { CallTiles } from './sections/CallTiles'
+import RoleHistorySettings from './sections/RoleHistorySettings'
 import SalesTargetSettings from './sections/SalesTargetSettings'
 import AchievementBreakdown from './sections/AchievementBreakdown'
 import { LEVEL_LABEL } from './data/adapters'
@@ -44,6 +45,7 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const [heatYear, setHeatYear] = useState(+today.slice(0, 4)), [heatMetric, setHeatMetric] = useState<DailyKey>('tasks')
 	const [drawer, setDrawer] = useState<{ metric: Metric; start: string; end: string } | null>(null)
 	const connect = () => go?.('import')
+ useEffect(()=>setHeatYear(period.kind==='custom'?(+(parseJ(period.from)?.j.slice(0,4)||period.year)):period.year),[period.year,period.kind,period.from])
 
 	const directory = usePerf<ApiDirectory>(session, 'directory', {})
 	const people = useMemo(() => toPeople(directory.data?.people), [directory.data])
@@ -63,7 +65,7 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const group = !person && unit ? summary.data?.groups?.find((g) => g.unit === unit) : undefined
 	const effUnit = current?.unit || unit
 	const calls = current ? callMetrics(current.calls) : group ? callMetrics(toCalls(group.calls)) : []
-	const metrics: Metric[] = current ? [...current.metrics, tasksMetric(current.tasks), ...calls] : group ? [...group.metrics.map(toMetric), ...calls] : []
+	const metrics: Metric[] = current ? [...current.metrics, tasksMetric(current.tasks), ...calls] : group ? [...group.metrics.map(toMetric),tasksMetric(group.tasks), ...calls] : []
 
  const attendance = usePerf<ServerAttendance>(session, 'attendance', { person, start, end }, !!person && !!start && !!end)
  const chosen = people.find((p) => p.id === person)
@@ -107,7 +109,7 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const missing = new Set([main, ...minis].filter((g) => g && g.metric.status === 'not_computable').map((g) => g!.metric.id)).size + (person && effort.zone === 'none' ? 1 : 0)
 	const personTitle = current || chosen
 	const title = personTitle ? personTitle.name + (personTitle.level ? ' · ' + (LEVEL_LABEL[personTitle.level] || '') : '') : (unit ? 'واحد ' + UNIT_LABEL[unit] : 'همهٔ واحدها')
-	const units = [...new Set(people.map((p) => p.unit))]
+	const units = [...new Set(people.flatMap((p) => p.units || [p.unit]))]
 	const scopeNote = `دامنه: ${directory.data?.scope === 'organization' ? 'کل سازمان' : directory.data?.scope === 'unit' ? 'واحد شما' : 'فقط خودتان'} · سال مالیِ اسناد مستقل است · Asia/Tehran`
 
 	const cabin = directory.error && !directory.data ? <p role="alert" className="pv-alert">{directory.error}</p>
@@ -124,21 +126,23 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
  onDay={(d) => { const m = metrics.find((x) => x.dailyMetric === heatMetric); if (m) open(m, d, d) }} error={year.error} loading={year.loading} needPerson={!person} />
 
 	const callTiles = calls.length > 0 && <CallTiles metrics={calls} activeId={activeMetric.id} onSelect={(m) => { setActive(m.id); if (m.dailyMetric) setHeatMetric(m.dailyMetric) }} onConnect={connect} />
-	const tracker = <TaskTracker session={session} person={person} year={heatYear} monthlyTarget={taskTarget} holidays={holidays} onDay={(d) => open(tasksMetric(current?.tasks), d, d)} />
+	const rolePeriods=summary.data?.people.find(p=>p.id===person)?.rolePeriods || []
+ const roleChips=<div className="pv-card" aria-label="تاریخچه نقش در دوره">{rolePeriods.map(r=><section key={r.from}><small>{UNIT_LABEL[r.unit]} از {r.from} تا {r.to}</small><div>{r.metrics.map(m=><span key={m.id} style={{marginInlineEnd:12}}>{m.label}: {m.value?.toLocaleString('fa-IR')??'—'} {m.unit}</span>)}</div></section>)}</div>
+ const tracker = <TaskTracker session={session} person={person} year={period.year} start={start} end={end} summary={current?.tasks} monthlyTarget={taskTarget} holidays={holidays} onDay={(d) => open(tasksMetric(current?.tasks), d, d)} />
 	return <div aria-busy={summaryRead.loading || summaryRead.refreshing} dir="rtl" className="pv-root" data-performance-v2>
 		<CommandBar period={period} setPeriod={setPeriod} people={people} stats={team} person={person} setPerson={setPick} unit={unit} setUnit={(u) => { setUnit(u); setPick('') }} units={units} manager={manager} scopeNote={scopeNote} />
 		<DriveModeSelector mode={mode} setMode={setMode} classic={session.role === 'manager'} />
 		{mode === 'cabin' && <>
 			{cabin}
-            <AchievementBreakdown metrics={metrics} />
+            <AchievementBreakdown metrics={metrics} />{person && roleChips}
             {callTiles}
 			<div className="pv-grid2">{person ? trendCard : <TeamLeaderboard people={team} metric={activeMetric} selected={person} onSelect={setPick} />}{person ? heat : trendCard}</div>
 			{person && tracker}
 			{person && manager && team.length > 1 && <TeamLeaderboard people={team} metric={activeMetric} selected={person} onSelect={setPick} />}
 		</>}
-		{mode === 'person' && <>{person ? <>{cabin}<AchievementBreakdown metrics={metrics} />{callTiles}{trendCard}{heat}{tracker}</> : <p className="pv-empty pv-card">یک شخص انتخاب کنید</p>}</>}
+		{mode === 'person' && <>{person ? <>{cabin}<AchievementBreakdown metrics={metrics} />{person && roleChips}{callTiles}{trendCard}{heat}{tracker}</> : <p className="pv-empty pv-card">یک شخص انتخاب کنید</p>}</>}
 		{mode === 'review' && renderReview({ ...EMPTY_FILTER, from: start, to: end, person: chosen?.name || '', team: '' }, team.map((p) => p.name))}
-		{mode === 'settings' && <><SalesTargetSettings session={session} year={period.year} />{renderSettings()}</>}
+		{mode === 'settings' && <><SalesTargetSettings session={session} year={period.year} /><RoleHistorySettings session={session} />{renderSettings()}</>}
 		{mode === 'legacy' && manager && renderLegacy()}
 		{(mode === 'cabin' || mode === 'person') && !summary.loading && <DataHealthBar missing={missing} issues={groupIssues(summary.data?.issues)} updatedAt={summary.data?.updatedAt} onConnect={connect} />}
 		{drawer && <MetricDrawer session={session} metric={drawer.metric} who={title} params={{ person, unit, start: drawer.start, end: drawer.end }} onClose={() => setDrawer(null)} onConnect={connect} />}
