@@ -23,8 +23,9 @@ def secure_home():
     # Replace inherited access, and remove explicit grants except this owner.
     subprocess.run(['icacls',str(folder),'/inheritance:r','/grant:r',f'*{sid}:(OI)(CI)F'], check=True, capture_output=True)
     # Fail closed if any other explicit principal still has access.
-    script = '(Get-Acl -LiteralPath $args[0]).Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }'
-    principals = subprocess.check_output(['powershell','-NoProfile','-NonInteractive','-Command',script,str(folder)], text=True).split()
+    # -Command does not bind trailing arguments to $args, so the path travels in an environment variable.
+    script = '(Get-Acl -LiteralPath $env:AROMIN_SYNC_HOME).Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }'
+    principals = subprocess.check_output(['powershell','-NoProfile','-NonInteractive','-Command',script], text=True, env={**os.environ, 'AROMIN_SYNC_HOME': str(folder)}).split()
     if any(p != sid for p in principals):
         raise OSError('دسترسی پوشه فقط باید برای کاربر جاری باشد.')
     return folder
