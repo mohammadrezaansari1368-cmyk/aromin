@@ -28,7 +28,7 @@ class Parsers(unittest.TestCase):
         rows,last = parse_table(fixture('calls'),'calls')
         self.assertEqual(last,3)
         self.assertEqual(len(rows),2)
-        expected = ['990000001','1405/08/08','10:20:30','09120000000','','تماس‌گیرنده','102','25','کارشناس آزمایشی','00:02:10','00:01:50','موفق','پاسخ داده شده']
+        expected = ['990000001','1405/08/08',"10:20':30\"",'09120000000','','تماس‌گیرنده','102','25','خانم کارشناس آزمایشی','00:02:10','00:01:50','موفق','پاسخ‌داده‌شده']
         for header,value in zip(LOG_HEADERS,expected):
             with self.subTest(header=header): self.assertEqual(rows[0][header],value)
         self.assertEqual(rows[1]['مبدا تماس-ID'],'30')
@@ -45,16 +45,16 @@ class Parsers(unittest.TestCase):
         rows,last = parse_table(fixture('deals'),'deals')
         self.assertEqual(last,1)
         self.assertEqual(list(rows[0]),list(DEAL_HEADERS))
-        self.assertEqual(rows[0]['تغییر مرحله'],'1405/08/08 12:30 بستن')
-        self.assertEqual(rows[0]['ارزش'],'1,000,000')
+        self.assertEqual(rows[0]['تغییر مرحله'],'12:30:05 1405/08/08')
+        self.assertEqual(rows[0]['تاریخ ثبت'],'09:15:00 1405/08/01')
+        self.assertEqual(rows[0]['ارزش'],'1000000')
         self.assertEqual(list(csv.DictReader(io.StringIO(deals_csv(rows).decode('utf-8-sig')))),rows)
 
     def test_contract_errors(self):
-        for html,kind in [('', 'calls'),('<table></table><table></table>','calls'),
-                          ('<table><tr><td>x</td></tr></table>','summary'),
+        for html,kind in [('', 'calls'),('{"x":1}','summary'),
+                          (fixture('calls').replace('990000001','x').replace('990000002','y'),'calls'),
                           (fixture('calls').replace('/users/show/25','/contacts/show/25'),'calls'),
-                          (fixture('calls').replace(' ۱۰۲',''),'calls'),
-                          (fixture('calls').replace('09120000001','unknown'),'calls')]:
+                          (fixture('calls').replace(' ۱۰۲',''),'calls')]:
             with self.subTest(kind=kind,html=html[:30]):
                 with self.assertRaises(ContractError): parse_table(html,kind)
 

@@ -65,55 +65,86 @@ def phone(value):
 def party(cell):
     for a in cell.find('a'):
         if a.attrs.get('data-target') == '#user_detail':
-            uid = re.fullmatch(r'/users/show/(\d+)', a.attrs.get('data-url',''))
+            # data-url is absolute in production (https://crm…/users/show/102)
+            uid = re.search(r'/users/show/(\d+)', a.attrs.get('data-url',''))
             ext = re.search(r'(?<!\d)([1-9]\d{1,3})\s*$', cell.text.translate(DIGITS))
             if not uid or not ext:
                 raise ContractError('شناسه یا داخلیِ کاربر جولیو در پاسخ نیست.')
             return ext[1], uid[1], cell.text[:ext.start()].strip()
     values = [cell.text] + [v for a in cell.find('a') for v in a.attrs.values()]
     number = next((phone(v) for v in values if phone(v)), None)
-    if not number:
-        raise ContractError('طرف تماس شناسهٔ معتبر ندارد؛ انتقال متوقف شد.')
-    return number, '', cell.text if not phone(cell.text) else ''
+    # Hidden/withheld callers exist in production; the server classifies an empty side as unknown.
+    return number or '', '', cell.text if not phone(cell.text) else ''
+
+
+def _html_of(text):
+    """Overview endpoints answer JSON {"table": "<div>…<table>…"}; list endpoints answer HTML."""
+    if text.lstrip().startswith('{'):
+        try:
+            data = json.loads(text)
+        except ValueError:
+            raise ContractError('پاسخ جدول ناشناخته است.')
+        html = next((v for v in data.values() if isinstance(v, str) and '<tr' in v), None) if isinstance(data, dict) else None
+        if html is None:
+            raise ContractError('پاسخ جدول ناشناخته است.')
+        return html
+    return text
+
+
+# Production layouts (checked by hand 1405/08/07): every data row starts with a checkbox cell and a row number;
+# calls/deals carry an operations column and collapsed detail rows, summary rows end with «کارایی».
+_MIN_CELLS = {'calls': 12, 'summary': 10, 'deals': 10}
+
+
+def _stamp(cell):
+    """«1405/08/08 12:30':05" (…پیش)» → «12:30:05 1405/08/08», the format the deal importer reads as «تغییر مرحله»."""
+    m = re.search(r'(\d{4}/\d{2}/\d{2})\s+(\d{1,2})\D+(\d{2})(?:\D+(\d{2}))?', cell)
+    return '%02d:%s:%s %s' % (int(m[2]), m[3], m[4] or '00', m[1]) if m else cell
 
 
 def parse_table(html, kind):
-    doc = Document(html).root
+    if kind not in _MIN_CELLS:
+        raise ValueError('منبع ناشناخته است.')
+    doc = Document(_html_of(html)).root
     tables = list(doc.find('table'))
-    if len(tables) != 1:
+    if not tables:
         raise ContractError('ساختار جدول جولیو تغییر کرده است.')
-    result = []
-    for tr in tables[0].find('tr'):
-        cells = [c for c in tr.children if isinstance(c, Node) and c.tag == 'td']
-        if not cells:
-            continue
-        if len(cells) == 1 and cells[0].attrs.get('colspan'):
-            if re.search(r'یافت نشد|رکوردی|No records', cells[0].text):
+    result, seen_rows = [], 0
+    for table in tables:
+        for tr in table.find('tr'):
+            cells = [c for c in tr.children if isinstance(c, Node) and c.tag == 'td']
+            if len(cells) < _MIN_CELLS[kind]:
+                continue   # header, detail, empty-state or totals rows
+            text = [c.text.translate(DIGITS).strip() for c in cells]
+            key = text[2] if kind != 'summary' else text[1]
+            if not re.fullmatch(r'\d{5,}' if kind == 'calls' else r'\d+', key):
                 continue
-            raise ContractError('پاسخ جدول ناشناخته است.')
-        if kind == 'calls':
-            if len(cells) != 12:
-                raise ContractError('تعداد ستون‌های تماس تغییر کرده است.')
-            o, d = party(cells[5]), party(cells[6])
-            values = [cells[2].text, cells[3].text.split()[0], cells[4].text, *o, *d,
-                      cells[7].text, cells[8].text, cells[10].text, cells[11].text]
-            headers = LOG_HEADERS
-        elif kind in ('summary','deals'):
-            if len(cells) != 8:
-                raise ContractError('تعداد ستون‌های جدول تغییر کرده است.')
-            values = [c.text for c in cells]
-            headers = SUMMARY_HEADERS if kind == 'summary' else DEAL_HEADERS
-        else:
-            raise ValueError('منبع ناشناخته است.')
-        result.append(dict(zip(headers, values)))
+            seen_rows += 1
+            if kind == 'calls':
+                o, d = party(cells[5]), party(cells[6])
+                values = [text[2], text[3].split()[0], text[4], *o, *d, text[7], text[8], text[10], text[11]]
+                headers = LOG_HEADERS
+            elif kind == 'summary':
+                name = re.sub(r'\s*\d{1,4}$', '', text[2]).strip()
+                values = [name, text[3], text[4], text[5], text[6], text[7], text[8], text[9]]
+                headers = SUMMARY_HEADERS
+            else:
+                values = [text[2], _stamp(text[3]), _stamp(text[4]), text[5], text[6], text[7], text[8].replace(',', ''), text[9]]
+                headers = DEAL_HEADERS
+            result.append(dict(zip(headers, values)))
+    if not seen_rows:
+        wide = [tr for t in tables for tr in t.find('tr') if len([c for c in tr.children if isinstance(c, Node) and c.tag == 'td']) >= 3]
+        if wide and not re.search(r'یافت نشد|رکوردی|No records', doc.text):
+            raise ContractError('ساختار جدول جولیو تغییر کرده است.')
     pages = [1]
     for node in doc.find('*'):
         if 'pagination' in node.attrs.get('class','').split():
-            for a in node.find('a'):
+            # Joolio renders page links as <span href=…> as well as <a>.
+            for a in node.find('*'):
                 m = re.search(r'[?&]page=(\d+)', a.attrs.get('href',''))
                 if m:
                     pages.append(int(m[1]))
-                elif a.text.translate(DIGITS).isdigit():
+                elif a.tag in ('a','span') and a.text.translate(DIGITS).strip().isdigit():
                     pages.append(int(a.text.translate(DIGITS)))
     return result, max(pages)
 

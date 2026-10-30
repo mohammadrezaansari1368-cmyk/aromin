@@ -79,8 +79,11 @@ class Browser:
             landing, path, form, method = '/call-reports/all', '/call-reports/all/filter', '#call-reports-search-form', 'POST'
             extra = dict(search_date_radio='',join_related_records=1)
         elif kind == 'summary':
-            landing = path = '/call-reports/overview/external_' + ('incoming' if direction == 'in' else 'outgoing')
-            form, method, extra = None, 'GET', {}
+            # The XHR path itself has no CSRF meta (it answers JSON), so land on the overview page.
+            landing, path = '/call-reports/overview', '/call-reports/overview/external_' + ('incoming' if direction == 'in' else 'outgoing')
+            form, method = None, 'GET'
+            extra = dict(data_type='', sort_export='ext_number_unsigned', order_export='desc', date_type='created_at', search_date_radio=end,
+                         time_from='00:00', time_to='23:59', department_id='all', group_id='all', keyword='')
         elif kind == 'deals':
             landing, path, form, method, extra = '/deals', '/deals/filter', '#search-form', 'POST', dict(date_type='last_state')
         else:
