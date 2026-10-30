@@ -3276,10 +3276,11 @@ def _perf_call_records(tenant, s, e, pids):
 @app.post("/api/performance/calls/log")
 def calls_log_upload(request: Request, payload: dict = Body(default={})):
     tenant = str((payload or {}).get("tenant") or "team")
-    ident, full, people, err = _att_ctx(request, tenant, write=True)
+    ident, err = _sync_auth(request, tenant, "calls:write", ATT_ADMIN_ROLES)
     if err:
         return err
     try:
+        people = idmap.people_of(_tenant_full(tenant) or {})
         parsed = calls.parse_log_payload(payload)
     except att.TooLarge as e:
         return _att_deny(413, public_error(e))
@@ -3339,10 +3340,11 @@ def calls_log_upload(request: Request, payload: dict = Body(default={})):
 @app.post("/api/performance/calls/summary")
 def calls_summary_upload(request: Request, payload: dict = Body(default={})):
     tenant = str((payload or {}).get("tenant") or "team")
-    ident, full, people, err = _att_ctx(request, tenant, write=True)
+    ident, err = _sync_auth(request, tenant, "calls:write", ATT_ADMIN_ROLES)
     if err:
         return err
     try:
+        people = idmap.people_of(_tenant_full(tenant) or {})
         parsed = calls.parse_summary_payload(payload)
     except att.TooLarge as e:
         return _att_deny(413, public_error(e))
@@ -3887,8 +3889,13 @@ API_SCOPES = {   # scope → MCP tools it opens
     "attendance:write": ("save_attendance_export",),
     "attendance:read": ("get_attendance_export", "list_attendance_exports"),
     "agent:ask": ("ask_aromin_agent",),
+    "calls:write": (),
+    "joolio:write": (),
+    "conversion:write": (),
+    "sync:notify": (),
 }
 API_SCOPE_FA = {"attendance:write": "ثبتِ خروجیِ کارکرد (هاریکان)", "attendance:read": "خواندنِ خروجیِ کارکرد", "agent:ask": "پرسش از ایجنتِ آرومین"}
+API_SCOPE_FA.update({"calls:write": "ثبت تماس‌های جولیو", "joolio:write": "ارسال گزارش جولیو", "conversion:write": "ثبت نرخ تبدیل", "sync:notify": "اعلان آرومین‌سینک"})
 API_KEY_DDL = """CREATE TABLE IF NOT EXISTS api_keys (
  id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant VARCHAR(64) NOT NULL, name VARCHAR(80) NOT NULL, prefix VARCHAR(16) NOT NULL,
  key_hash CHAR(64) NOT NULL, scopes VARCHAR(200) NOT NULL, created_by VARCHAR(120) NULL, created_at DATETIME NOT NULL,
@@ -3930,6 +3937,56 @@ def api_key_lookup(key):
         except Exception:
             pass
     return {"id": r["id"], "tenant": r["tenant"], "name": r["name"], "scopes": [x for x in str(r["scopes"]).split(",") if x in API_SCOPES]}
+
+
+def _sync_auth(request, tenant, scope, session_roles=KB_ADMIN_ROLES):
+    """Explicit keys fail closed; never let a session override a bad key."""
+    key = request.headers.get("x-api-key")
+    if key is not None:
+        found = api_key_lookup(key)
+        if not found:
+            return None, _att_deny(401, "کلید معتبر نیست.")
+        if found["tenant"] != tenant or scope not in found["scopes"]:
+            return None, _att_deny(403, "دسترسی کلید کافی نیست.")
+        return {"user": "api-key:%s" % found["id"], "name": found["name"], "role": "manager", "key_id": found["id"]}, None
+    ident = kb_identity(request, tenant)
+    if not ident:
+        return None, _att_deny(401, "ورود معتبر نیست.")
+    if ident.get("role") not in session_roles:
+        return None, _att_deny(403, "فقط مدیر مجاز است.")
+    return ident, None
+
+
+@app.post("/api/sync/notify")
+def sync_notify(request: Request, payload: dict = Body(default={}), tenant: str = Query(default="team")):
+    ident, err = _sync_auth(request, tenant, "sync:notify")
+    if err:
+        return err
+    text = payload.get("text")
+    if not isinstance(text, str) or not text.strip() or len(text) > 500 or any(ord(c) < 32 and c != '\n' for c in text):
+        return _att_deny(400, "متن باید بین ۱ تا ۵۰۰ نویسه باشد.")
+    who = str(ident.get("key_id") or ("session:" + str(ident.get("user"))))
+    # sa_state already exists; the transaction provides a shared limit across workers/restarts.
+    now = int(time.time())
+    with _SaTx() as tx:
+        key = "sync:" + hashlib.sha256(who.encode("utf-8")).hexdigest()[:27]
+        tx.x("INSERT IGNORE INTO sa_state (tenant,k,v) VALUES (%s,%s,'0')", (tenant, key))
+        row = tx.one("SELECT v FROM sa_state WHERE tenant=%s AND k=%s FOR UPDATE", (tenant, key))
+        if now - int(row["v"] or 0) < 600:
+            return JSONResponse({"ok": False, "sent": False, "error": "هر ده دقیقه یک اعلان مجاز است."}, status_code=429)
+        tx.x("UPDATE sa_state SET v=%s WHERE tenant=%s AND k=%s", (str(now), tenant, key))
+    manager = sa_manager(tenant)
+    if not manager:
+        return {"ok": True, "sent": False}
+    for channel in ("bale", "tg"):
+        chat = lead_chat_id(tenant, manager["id"], channel)
+        if chat:
+            try:
+                lead_send(channel, chat, text.strip())
+                return {"ok": True, "sent": True}
+            except Exception:
+                continue
+    return {"ok": True, "sent": False}
 
 
 def _mcp_allowed(scopes):
@@ -4124,11 +4181,15 @@ def _perf_target_attendance(tenant, start, end):
     except Exception as ex:
         print('[perf] target attendance unavailable:',public_error(ex))
         return {'rows':[],'coverage':set(),'mappedPersons':set(),'available':False},set()
-def _performance_patch(request, payload, mutate):
+def _performance_patch(request, payload, mutate, sync_scope=None):
     tenant = str(payload.get('tenant') or 'team')
-    ident = kb_identity(request, tenant)
-    if not ident: return _c1_deny('ورود معتبر نیست.', 401)
-    if ident['role'] not in KB_ADMIN_ROLES: return _c1_deny('فقط مدیر مجاز است.', 403)
+    if sync_scope:
+        ident, err = _sync_auth(request, tenant, sync_scope)
+        if err: return err
+    else:
+        ident = kb_identity(request, tenant)
+        if not ident: return _c1_deny('ورود معتبر نیست.', 401)
+        if ident['role'] not in KB_ADMIN_ROLES: return _c1_deny('فقط مدیر مجاز است.', 403)
     cx = db_conn()
     cx.autocommit(False)
     try:
@@ -4152,7 +4213,7 @@ def _performance_patch(request, payload, mutate):
 @app.post('/api/performance/conversion')
 def performance_conversion(request: Request, payload: dict = Body(default={})):
     import aromin_performance as perf
-    return _performance_patch(request,payload,lambda full: perf.conversion_store(full,payload,joolio_name,int(time.time()*1000)))
+    return _performance_patch(request,payload,lambda full: perf.conversion_store(full,payload,joolio_name,int(time.time()*1000)), sync_scope="conversion:write")
 
 
 @app.post('/api/performance/role-history/seed')
@@ -6658,7 +6719,8 @@ def joolio_send(tenant, snapshot, force=False):
 
 @app.post("/api/joolio/snapshot")
 def joolio_snapshot_post(request: Request, payload: dict = Body(default={}), tenant: str = Query(default="")):
-    ident, err = _sa_guard(request, tenant, True)
+    tenant = tenant or str(payload.get("tenant") or "team")
+    ident, err = _sync_auth(request, tenant, "joolio:write")
     if err:
         return err
     try:

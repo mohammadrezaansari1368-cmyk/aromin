@@ -60,7 +60,13 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 			try { localStorage.setItem(RIAL_KEY, rial ? '1' : '0') } catch { /* */ }
 			const cb = custbookFromDeals(parsed.sheets)
 			let res: ReturnType<typeof applyDealImport> | null = null
-			await saveState((f) => { res = applyDealImport(f, parsed.rows, { mode, rial, date1904: parsed.date1904, source: file.name, sheet: parsed.sheets[0]?.name, fileName: file.name, sig: parsed.det.sig, custbook: cb }) }, { forceBackup: true, tag: 'پیش از ایمپورتِ معاملاتِ ۱۴۰۵ (نسخهٔ جدید)' })
+			await saveState((f) => {
+				if (file.name === 'aromin-sync.csv') {
+					const fresh = planDealImport(parsed.rows, f, { mode, rial, date1904: parsed.date1904, source: file.name, sheet: parsed.sheets[0]?.name })
+					if (mode !== 'append' || !rial || fresh.error || fresh.cnt.conflict || fresh.cnt.invalid || Object.keys(fresh.newNames).length) throw new Error('پیش‌نمایش تغییر کرد؛ انتقال آرومین‌سینک متوقف شد.')
+				}
+				res = applyDealImport(f, parsed.rows, { mode, rial, date1904: parsed.date1904, source: file.name, sheet: parsed.sheets[0]?.name, fileName: file.name, sig: parsed.det.sig, custbook: cb })
+			}, { forceBackup: true, tag: 'پیش از ایمپورتِ معاملاتِ ۱۴۰۵ (نسخهٔ جدید)' })
 			clearPerfCache()
 			const r = res as unknown as ReturnType<typeof applyDealImport>
 			onDone({ dateUpdates: r.plan.dateUpdates.length, valid: r.plan.cnt.valid, previous: r.plan.cnt.previous, years: r.plan.years, duplicate: r.plan.cnt.duplicate, conflict: r.plan.cnt.conflict, invalid: r.plan.cnt.invalid, repeatN: r.repeatN, created: r.created, name: file.name })
@@ -73,7 +79,9 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 	}
 
 	return (
-		<section className={`${CARD} p-4 sm:p-5`} dir="rtl" aria-label="پیش‌نمایشِ ایمپورتِ معاملات">
+		<section className={`${CARD} p-4 sm:p-5`} dir="rtl" aria-label="پیش‌نمایشِ ایمپورتِ معاملات"
+			data-sync-ready={!!plan && !plan.error && !busy && !err ? 'true' : 'false'}
+			data-sync-conflicts={plan?.cnt.conflict} data-sync-invalid={plan?.cnt.invalid} data-sync-new-experts={newNames.length}>
 			<header className="mb-3 flex flex-wrap items-center gap-2">
 				<h3 className="text-[14px] font-extrabold text-foreground">ایمپورتِ معاملات — سالِ مالیِ {fa(TARGET_FY)}</h3>
 				<span className="min-w-0 truncate text-[12px] text-muted-foreground" dir="ltr">{file.name}</span>
@@ -178,7 +186,7 @@ export default function DealImport({ file, onClose, onDone }: { file: { name: st
 			)}
 			{err && <p className="mt-3 rounded-md bg-error/10 px-3 py-2 text-[13px] font-bold text-error" role="alert">{err}</p>}
 			<div className="mt-4 flex flex-wrap items-center gap-2">
-				<button type="button" className={BTN_PRIMARY} disabled={busy || !plan || !!plan.error || !(plan.total || plan.dateUpdates.length)} onClick={commit}>
+				<button data-sync-commit type="button" className={BTN_PRIMARY} disabled={busy || !plan || !!plan.error || !(plan.total || plan.dateUpdates.length)} onClick={commit}>
 					{busy ? 'بک‌آپ و ثبت…' : plan && (plan.total || plan.dateUpdates.length) ? `ثبت ${fa(plan.total)} ردیف و تکمیل ${fa(plan.dateUpdates.length)} تاریخ فروش` : 'ردیفِ معتبری برای ثبت نیست'}
 				</button>
 				<button type="button" className={BTN_GHOST} disabled={busy} onClick={onClose}>انصراف</button>

@@ -85,9 +85,9 @@ class JoolioDaily(unittest.TestCase):
         self.assertNotIn('09121234567', str(log.call_args_list))
 
     def test_endpoint(self):
-        with patch.object(server, '_sa_guard', return_value=(None, 'denied')):
+        with patch.object(server, '_sync_auth', return_value=(None, 'denied')):
             self.assertEqual(server.joolio_snapshot_post(None, self.payload(), 't'), 'denied')
-        with patch.object(server, '_sa_guard', return_value=({'role': 'manager'}, None)):
+        with patch.object(server, '_sync_auth', return_value=({'role': 'manager'}, None)):
             out = server.joolio_snapshot_post(None, self.payload(), 't')
             self.assertEqual((out['matched'], out['unmatched']), (1, 0))
 

@@ -72,10 +72,10 @@ class WorkOrderFour(unittest.TestCase):
         cur.fetchone.return_value={'payload':json.dumps(self.full)}
         payload=dict(month='1405/01',rows=[dict(name='Synthetic',entered=5,won=2)],source='joolio')
         with patch.object(server,'db_conn',return_value=cx), patch.object(server,'kb_identity',return_value=dict(role='manager')):
-            result=server.performance_conversion(MagicMock(),payload)
+            result=server.performance_conversion(MagicMock(headers={}),payload)
         self.assertTrue(result['ok']); self.assertIn('FOR UPDATE',cur.execute.call_args_list[0].args[0]); cx.commit.assert_called_once()
         with patch.object(server,'db_conn') as db, patch.object(server,'kb_identity',return_value=dict(role='support')):
-            self.assertEqual(server.performance_conversion(MagicMock(),payload).status_code,403); db.assert_not_called()
+            self.assertEqual(server.performance_conversion(MagicMock(headers={}),payload).status_code,403); db.assert_not_called()
 
     def test_role_groups_split_calls(self):
         result=self.read()
