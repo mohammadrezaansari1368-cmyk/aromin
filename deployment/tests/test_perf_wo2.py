@@ -75,8 +75,8 @@ class WorkOrderTwo(unittest.TestCase):
         self.full['perf']={'callTarget':400}
         self.person['perfSet']={'callTarget':800}
         t=self.targets('1405/01/01','1405/01/31')
-        # 01/14, 01/21, 01/28 and 01/07 are Fridays; none overlap Nowruz.
-        self.assertEqual((t['workingDays'],t['dailyCallTarget'],t['activity']),(21,40,840))
+        # Solar holidays plus tabular 2 Shawwal on 01/01 and 25 Shawwal on 01/24.
+        self.assertEqual((t['workingDays'],t['dailyCallTarget'],t['activity']),(20,40,800))
 
     def test_daily_target_precedence_and_zero(self):
         self.full['perf']={'dailyCallTarget':50,'levelCallTarget':{'middle':60}}
@@ -92,9 +92,9 @@ class WorkOrderTwo(unittest.TestCase):
     def test_explicit_holidays_union_and_friday_overlap(self):
         self.full['perf']={'holidays':['1405/01/07','1405/01/08','1405/01/08']}
         t=self.targets('1405/01/01','1405/01/31',holidays={'1405/01/08','1405/01/09'})
-        self.assertEqual(t['workingDays'],25)
+        self.assertEqual(t['workingDays'],18)
         self.full['perf']['holidays']=[]
-        self.assertEqual(self.targets('1405/01/01','1405/01/31')['workingDays'],27)
+        self.assertEqual(self.targets('1405/01/01','1405/01/31')['workingDays'],20)
 
     def test_solar_defaults_follow_period_year_across_year_boundary(self):
         self.assertEqual(self.targets('1406/01/01','1406/01/04')['workingDays'],0)

@@ -73,6 +73,7 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const effort = serverEffort(current?.calls, inSpan.length, 0, current?.tasks ?? 0)
 	const taskTarget = srcPerson?.perfSet?.taskTarget ?? cfgP.taskTarget ?? 300, callTarget = current?.metrics.find(m => m.id === 'activity')?.target ?? null
  // Preserve the tracker's holiday classification using only server rows, settings and overrides.
+ const holidayCalendar = usePerf<{holidays: Record<string,string>}>(session, 'holidays', { start: `${heatYear}/01/01`, end: yearDays(heatYear).at(-1)!.date })
  const holidays = useMemo(() => {
   const codes = ['official_holiday', 'friday', 'birthday', 'official_worked', 'friday_worked', 'birthday_worked']
   const server = attendance.data
@@ -80,8 +81,8 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
    const edits = Object.fromEntries(Object.entries(c.overrides).map(([date, fields]) => [c.sheetName + '|' + date, fields as RowEdit]))
    return processSheet(c.rows, c.sheetName, rules({ ...DEFAULT_SETTINGS, ...server?.settings }), { person: chosen?.name || null, personHow: 'manual', owner: null, ownerName: '', ownerHow: 'none' }, null, null, edits, '')?.rows || []
   })
-  return new Set(parsed.filter((r) => codes.includes(r.code)).map((r) => r.date))
- }, [attendance.data, person, chosen?.name])
+  return new Set([...Object.keys(holidayCalendar.data?.holidays ?? {}), ...parsed.filter((r) => codes.includes(r.code)).map((r) => r.date)])
+ }, [attendance.data, person, chosen?.name, holidayCalendar.data])
 
 	const peers = (id: string) => team.map((p) => (id === 'tasks' ? p.tasks : p.calls && id in p.calls ? (p.calls[id as keyof typeof p.calls] ?? null) : p.metrics.find((m) => m.id === id)?.value ?? null))
 	const cfg = CLUSTER[effUnit]
@@ -129,7 +130,7 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 		</>}
 		{mode === 'person' && <>{person ? <>{cabin}<AchievementBreakdown metrics={metrics} />{callTiles}{trendCard}{heat}{tracker}</> : <p className="pv-empty pv-card">یک شخص انتخاب کنید</p>}</>}
 		{mode === 'review' && renderReview({ ...EMPTY_FILTER, from: start, to: end, person: chosen?.name || '', team: '' }, team.map((p) => p.name))}
-		{mode === 'settings' && <><SalesTargetSettings role={session.role} />{renderSettings()}</>}
+		{mode === 'settings' && <><SalesTargetSettings session={session} year={period.year} />{renderSettings()}</>}
 		{mode === 'legacy' && manager && renderLegacy()}
 		{(mode === 'cabin' || mode === 'person') && !summary.loading && <DataHealthBar missing={missing} issues={groupIssues(summary.data?.issues)} updatedAt={summary.data?.updatedAt} onConnect={connect} />}
 		{drawer && <MetricDrawer session={session} metric={drawer.metric} who={title} params={{ person, unit, start: drawer.start, end: drawer.end }} onClose={() => setDrawer(null)} onConnect={connect} />}

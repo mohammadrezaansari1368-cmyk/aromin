@@ -4124,9 +4124,12 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
             return {'ok':True,'people':[perf.public_person(p) for p in allowed],'role':ident['role'],'updatedAt':full.get('ts'),'scope':'organization' if ident['role']=='manager' else 'unit' if ident['role'] in ('salesmgr','accmgr') else 'self'}
         if view == 'source':
             return {'ok':True,'full':{'performanceScoped':True,'organizationScope':ident['role']=='manager','people':[{**{k:p[k] for k in ('id','name','role','inactive') if k in p}, 'perf':{k:(p.get('perf') or {})[k] for k in PERF_SOURCE_KEYS if k in (p.get('perf') or {})},**({'perfSet':{k:p['perfSet'][k] for k in ('taskTarget','callTarget') if k in p['perfSet']}} if isinstance(p.get('perfSet'),dict) else {})} for p in allowed],'perfCfg':{k:(full.get('perf') or {})[k] for k in ('taskCapMin','taskTarget','callTarget') if k in (full.get('perf') or {})},'callHours':((full.get('callstats') or {}).get('hours') or {})}}
-        if view not in ('summary','daily','details'): return JSONResponse({'ok':False,'error':'مسیر نامعتبر'},status_code=404)
+        if view not in ('summary','daily','details','holidays'): return JSONResponse({'ok':False,'error':'مسیر نامعتبر'},status_code=404)
         start, end = perf.date_key(start), perf.date_key(end)
         if not start or not end or start>end: raise PublicValidationError('بازه شمسی معتبر را انتخاب کنید.')
+        if view == 'holidays':
+            from aromin_holidays import official_holidays_named, effective_holidays_named
+            return {'ok':True,'official':official_holidays_named(start,end),'holidays':effective_holidays_named(start,end,full.get('perf') or {})}
         def stamp_to_j(ts):
             dt=datetime.fromtimestamp(float(ts)/1000,ZoneInfo('Asia/Tehran'))
             return '%04d/%02d/%02d' % tuple(_jalali(dt.year,dt.month,dt.day))
@@ -5475,20 +5478,7 @@ def sa_render(tpl, data, max_len=700):
 
 
 # ---- شمسی و وقتِ ایران ----
-def _jalali(gy, gm, gd):
-    g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-    gy2 = gy + 1 if gm > 2 else gy
-    days = 355666 + (365 * gy) + ((gy2 + 3) // 4) - ((gy2 + 99) // 100) + ((gy2 + 399) // 400) + gd + g_d_m[gm - 1]
-    jy = -1595 + (33 * (days // 12053))
-    days %= 12053
-    jy += 4 * (days // 1461)
-    days %= 1461
-    if days > 365:
-        jy += (days - 1) // 365
-        days = (days - 1) % 365
-    jm = 1 + days // 31 if days < 186 else 7 + (days - 186) // 30
-    jd = 1 + (days % 31 if days < 186 else (days - 186) % 30)
-    return jy, jm, jd
+from aromin_stage import _jalali
 
 
 def sa_fa_dt(utc_dt, with_time=True):
