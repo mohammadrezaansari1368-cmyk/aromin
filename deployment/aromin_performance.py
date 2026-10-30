@@ -133,8 +133,14 @@ def sales_targets(full, person, start, end, attendance, holidays, history):
     pid=str(person['id']); cfg=full.get('perf') or {}; level=person.get('level')
     if level=='mid': level='middle'
     levels=cfg.get('levelCallTarget') or {}
-    daily=next((n for v in [(person.get('perfSet') or {}).get('callTarget'), levels.get(level), cfg.get('callTarget'),40]
+    daily=next((n for v in [(person.get('perfSet') or {}).get('dailyCallTarget'), levels.get(level), cfg.get('dailyCallTarget'),40]
                 if (n:=number(v)) is not None),40)
+    # An explicit empty list disables solar defaults; attendance holidays still apply.
+    holidays=set(holidays) | set(cfg['holidays'] if 'holidays' in cfg else (
+        '%04d/%s' % (year, day)
+        for year in range(int(start[:4]), int(end[:4])+1)
+        for day in ('01/01','01/02','01/03','01/04','01/12','01/13',
+                    '03/14','03/15','11/22','12/29')))
     attendance=attendance or {}
     own=[r for r in attendance.get('rows',[]) if str(r['personId'])==pid and start<=r['date']<=end]
     covered={d for d in attendance.get('coverage',()) if start<=d<=end}

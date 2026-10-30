@@ -63,13 +63,42 @@ class WorkOrderTwo(unittest.TestCase):
         self.assertNotIn('1405/07/02',perf.calendar_days('1405/07/01','1405/07/30',holidays))
 
     def test_attendance_zero_is_not_calendar_and_precedence(self):
-        self.full['perf']={'callTarget':50,'levelCallTarget':{'senior':60}}
+        self.full['perf']={'dailyCallTarget':50,'levelCallTarget':{'senior':60}}
         self.person['level']='senior'
         self.assertEqual(self.targets()['dailyCallTarget'],60)
-        self.person['perfSet']={'callTarget':70}
+        self.person['perfSet']={'dailyCallTarget':70}
         self.assertEqual(self.targets()['dailyCallTarget'],70)
         t=self.targets(start='1405/07/01',end='1405/07/01',attendance=[dict(personId='1',date='1405/07/01',presentMin=0)])
         self.assertEqual((t['activity'],t['basis']),(0,'attendance'))
+
+    def test_farvardin_solar_defaults_and_legacy_monthly_target(self):
+        self.full['perf']={'callTarget':400}
+        self.person['perfSet']={'callTarget':800}
+        t=self.targets('1405/01/01','1405/01/31')
+        # 01/14, 01/21, 01/28 and 01/07 are Fridays; none overlap Nowruz.
+        self.assertEqual((t['workingDays'],t['dailyCallTarget'],t['activity']),(21,40,840))
+
+    def test_daily_target_precedence_and_zero(self):
+        self.full['perf']={'dailyCallTarget':50,'levelCallTarget':{'middle':60}}
+        self.person['level']='mid'
+        self.assertEqual(self.targets()['dailyCallTarget'],60)
+        self.person['perfSet']={'dailyCallTarget':70,'callTarget':400}
+        self.assertEqual(self.targets()['dailyCallTarget'],70)
+        self.person['perfSet']['dailyCallTarget']=0
+        self.assertEqual(self.targets()['activity'],0)
+        self.person.pop('perfSet'); self.person.pop('level')
+        self.assertEqual(self.targets()['dailyCallTarget'],50)
+
+    def test_explicit_holidays_union_and_friday_overlap(self):
+        self.full['perf']={'holidays':['1405/01/07','1405/01/08','1405/01/08']}
+        t=self.targets('1405/01/01','1405/01/31',holidays={'1405/01/08','1405/01/09'})
+        self.assertEqual(t['workingDays'],25)
+        self.full['perf']['holidays']=[]
+        self.assertEqual(self.targets('1405/01/01','1405/01/31')['workingDays'],27)
+
+    def test_solar_defaults_follow_period_year_across_year_boundary(self):
+        self.assertEqual(self.targets('1406/01/01','1406/01/04')['workingDays'],0)
+        self.assertEqual(self.targets('1405/12/29','1406/01/04')['workingDays'],0)
 
     def test_missing_target_renormalises_caps_and_no_data(self):
         target=dict(activity=10,count=None,amount=100,basis='calendar',workingDays=1)
