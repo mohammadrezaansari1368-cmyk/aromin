@@ -21,6 +21,9 @@ import EffortPanel from './cluster/EffortPanel'
 import { serverEffort, serverAttendanceDays } from './lib/effort'
 import { TaskTracker } from './sections/TaskTracker'
 import { CallTiles } from './sections/CallTiles'
+import SalesTargetSettings from './sections/SalesTargetSettings'
+import AchievementBreakdown from './sections/AchievementBreakdown'
+import { LEVEL_LABEL } from './data/adapters'
 import './perf-v2.css'
 
 const MANAGERS = ['manager', 'salesmgr', 'accmgr']
@@ -68,7 +71,7 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const srcPerson = source.data?.full?.people?.find((p) => String(p.id) === person)
 	const cfgP = source.data?.full?.perfCfg || {}
 	const effort = serverEffort(current?.calls, inSpan.length, 0, current?.tasks ?? 0)
-	const taskTarget = srcPerson?.perfSet?.taskTarget ?? cfgP.taskTarget ?? 300, callTarget = srcPerson?.perfSet?.callTarget ?? cfgP.callTarget ?? 400
+	const taskTarget = srcPerson?.perfSet?.taskTarget ?? cfgP.taskTarget ?? 300, callTarget = current?.metrics.find(m => m.id === 'activity')?.target ?? null
  // Preserve the tracker's holiday classification using only server rows, settings and overrides.
  const holidays = useMemo(() => {
   const codes = ['official_holiday', 'friday', 'birthday', 'official_worked', 'friday_worked', 'birthday_worked']
@@ -93,14 +96,15 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const year = usePerf<ApiDaily>(session, 'daily', { person, start: yd[0]?.date || '', end: yd.at(-1)?.date || '', metric: heatMetric }, !!person)
 	const avg = byId('contract_average')
 	const missing = new Set([main, ...minis].filter((g) => g && g.metric.status === 'not_computable').map((g) => g!.metric.id)).size + (person && effort.zone === 'none' ? 1 : 0)
-	const title = current?.name || chosen?.name || (unit ? 'واحد ' + UNIT_LABEL[unit] : 'همهٔ واحدها')
+	const personTitle = current || chosen
+	const title = personTitle ? personTitle.name + (personTitle.level ? ' · ' + (LEVEL_LABEL[personTitle.level] || '') : '') : (unit ? 'واحد ' + UNIT_LABEL[unit] : 'همهٔ واحدها')
 	const units = [...new Set(people.map((p) => p.unit))]
 	const scopeNote = `دامنه: ${directory.data?.scope === 'organization' ? 'کل سازمان' : directory.data?.scope === 'unit' ? 'واحد شما' : 'فقط خودتان'} · سال مالیِ اسناد مستقل است · Asia/Tehran`
 
 	const cabin = directory.error ? <p role="alert" className="pv-alert">{directory.error}</p>
 		: summary.error ? <p role="alert" className="pv-alert">{summary.error}</p>
 			: directory.loading || summary.loading ? <div className="pv-cabin pv-cabin-load"><AromLoader /></div>
-				: <InstrumentCluster main={main} side={person ? <EffortPanel effort={effort} callTarget={callTarget} taskTarget={taskTarget} sales={avg?.denominator ?? null} salesTarget={null} callHours={source.data?.full?.callHours || {}} onImport={connect} /> : <p className="pv-cabin-hint">ساعت تلاش: یک شخص انتخاب کنید</p>} minis={minis} title={title} period={periodLabel(period)}
+				: <InstrumentCluster main={main} side={person ? <EffortPanel effort={effort} callActual={effUnit === 'sales' ? metrics.find(m => m.id === 'efficiency')?.parts?.activity?.actual ?? null : undefined} callTarget={callTarget} taskTarget={taskTarget} sales={metrics.find(m => m.id === 'efficiency')?.parts?.count?.actual ?? avg?.denominator ?? null} salesTarget={metrics.find(m => m.id === 'efficiency')?.parts?.count?.target ?? null} peakHourShare={current?.calls?.peakHourShare} callHours={source.data?.full?.callHours || {}} onImport={connect} /> : <p className="pv-cabin-hint">ساعت تلاش: یک شخص انتخاب کنید</p>} minis={minis} title={title} period={periodLabel(period)}
 					contracts={avg?.denominator ?? null} avgContract={avg?.value ?? null} workdays={inSpan.length || null}
 					activeId={activeMetric.id} onSelect={(m) => { setActive(m.id); if (m.dailyMetric) setHeatMetric(m.dailyMetric) }} onConnect={connect} />
 	const open = (m: Metric, s = start, e = end) => setDrawer({ metric: m, start: s, end: e })
@@ -117,14 +121,15 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 		<DriveModeSelector mode={mode} setMode={setMode} classic={session.role === 'manager'} />
 		{mode === 'cabin' && <>
 			{cabin}
-			{callTiles}
+            <AchievementBreakdown metrics={metrics} />
+            {callTiles}
 			<div className="pv-grid2">{person ? trendCard : <TeamLeaderboard people={team} metric={activeMetric} selected={person} onSelect={setPick} />}{person ? heat : trendCard}</div>
 			{person && tracker}
 			{person && manager && team.length > 1 && <TeamLeaderboard people={team} metric={activeMetric} selected={person} onSelect={setPick} />}
 		</>}
-		{mode === 'person' && <>{person ? <>{cabin}{callTiles}{trendCard}{heat}{tracker}</> : <p className="pv-empty pv-card">یک شخص انتخاب کنید</p>}</>}
+		{mode === 'person' && <>{person ? <>{cabin}<AchievementBreakdown metrics={metrics} />{callTiles}{trendCard}{heat}{tracker}</> : <p className="pv-empty pv-card">یک شخص انتخاب کنید</p>}</>}
 		{mode === 'review' && renderReview({ ...EMPTY_FILTER, from: start, to: end, person: chosen?.name || '', team: '' }, team.map((p) => p.name))}
-		{mode === 'settings' && renderSettings()}
+		{mode === 'settings' && <><SalesTargetSettings role={session.role} />{renderSettings()}</>}
 		{mode === 'legacy' && manager && renderLegacy()}
 		{(mode === 'cabin' || mode === 'person') && !summary.loading && <DataHealthBar missing={missing} issues={groupIssues(summary.data?.issues)} updatedAt={summary.data?.updatedAt} onConnect={connect} />}
 		{drawer && <MetricDrawer session={session} metric={drawer.metric} who={title} params={{ person, unit, start: drawer.start, end: drawer.end }} onClose={() => setDrawer(null)} onConnect={connect} />}

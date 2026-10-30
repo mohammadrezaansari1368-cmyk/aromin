@@ -191,7 +191,7 @@
 .pv-effort-dial { position: relative; width: 220px; }
 .pv-effort-dial svg { width: 100%; display: block; }
 .pv-ez { fill: none; stroke-width: 9; } .pv-ez[data-off=true] { stroke: hsl(var(--border)) !important; }
-.pv-ez-low { stroke: hsl(var(--error) / .75); } .pv-ez-normal { stroke: hsl(var(--warning) / .8); } .pv-ez-good { stroke: hsl(var(--success) / .85); } .pv-ez-burnout { stroke: hsl(var(--error)); }
+.pv-ez-low { stroke: hsl(var(--error) / .75); } .pv-ez-normal { stroke: #eab308; } .pv-ez-good { stroke: hsl(var(--success) / .85); } .pv-ez-burnout { stroke: hsl(var(--error)); }
 .pv-ef-num { fill: var(--pv-dim); font-size: 9px; text-anchor: middle; }
 .pv-ef-target { stroke: var(--pv-ink); stroke-width: 2.5; }
 .pv-ef-val { display: flex; flex-direction: column; align-items: center; margin-top: -26px; }
@@ -199,7 +199,7 @@
 .pv-dec { font-weight: 400; font-family: system-ui, sans-serif; margin-inline: 1px; color: var(--pv-dim); }
 .pv-ef-val em { font-style: normal; font-size: 11.5px; font-weight: 800; }
 .pv-effort[data-zone=low] .pv-ef-val em, .pv-effort[data-zone=burnout] .pv-ef-val em { color: hsl(var(--error)); }
-.pv-effort[data-zone=normal] .pv-ef-val em { color: hsl(var(--warning)); } .pv-effort[data-zone=good] .pv-ef-val em { color: hsl(var(--success)); }
+.pv-effort[data-zone=normal] .pv-ef-val em { color: #eab308; } .pv-effort[data-zone=good] .pv-ef-val em { color: hsl(var(--success)); }
 .pv-effort[data-zone=none] .pv-effort-dial { opacity: .6; }
 .pv-rings { display: flex; gap: 10px; }
 .pv-ring { position: relative; width: 58px; display: flex; flex-direction: column; align-items: center; font-size: 10px; color: var(--pv-dim); }

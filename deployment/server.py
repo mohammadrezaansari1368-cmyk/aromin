@@ -4072,6 +4072,40 @@ def _perf_ticket_records(tenant, s, e, pids):
 
 # Fields the effort formula (legacy effortOf) reads; projection only, no calculation here.
 PERF_SOURCE_KEYS=('dailyTasks','dayStatus','dayType','tasks','callsIn','callsOut','callAns','talkIn','talkOut','talkMin','taskMins','effortMin','activeDays')
+
+def _perf_target_attendance(tenant, start, end):
+    """Source-independent daily coverage from confirmed cards and persisted sync periods."""
+    try:
+        with _SaTx() as t:
+            aliases=t.x("SELECT alias_key,person_id,status FROM identity_aliases WHERE tenant=%s AND kind='card'", (tenant,)).fetchall()
+            days=t.x("SELECT card_no,date_j,present_min,note FROM attendance_days WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant,start,end)).fetchall()
+            edits=t.x("SELECT card_no,date_j,fields FROM attendance_overrides WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant,start,end)).fetchall()
+            batches=t.x("SELECT period_from,period_to FROM attendance_batches WHERE tenant=%s AND source IN ('harikan','zurvan') AND period_from<=%s AND period_to>=%s", (tenant,end,start)).fetchall()
+        index={a['alias_key']:str(a['person_id']) for a in aliases if a['status']=='confirmed' and a['person_id'] is not None}
+        overrides={(e['card_no'],e['date_j']):json.loads(e['fields']) if isinstance(e['fields'],str) else e['fields'] for e in edits}
+        rows={}; holidays=set()
+        for d in days:
+            edit=overrides.get((d['card_no'],d['date_j'])) or {}
+            if edit.get('code') in ('official_holiday','official_worked') or ('رسمی' in (d.get('note') or '') and not edit.get('code')): holidays.add(d['date_j'])
+            pid=index.get(d['card_no'])
+            if pid:
+                present=d['present_min']
+                if 'present' in edit: present=att.to_minutes(edit['present'])
+                key=(pid,d['date_j'])
+                rows.setdefault(key,[]).append(present)
+        import aromin_performance as perf
+        coverage={date for _,date in rows}
+        for batch in batches:
+            first,last=max(start,batch['period_from']),min(end,batch['period_to'])
+            y,m=map(int,first.split('/')[:2])
+            while '%04d/%02d/01' % (y,m)<=last:
+                coverage.update(d for d in perf.month_dates(y,m) if first<=d<=last)
+                y,m=y+(m==12),m%12+1
+        return {'rows':[{'personId':pid,'date':date,'presentMin':values[0] if len(set(values))==1 else None} for (pid,date),values in rows.items()],
+                'coverage':coverage,'mappedPersons':set(index.values()),'available':True},holidays
+    except Exception as ex:
+        print('[perf] target attendance unavailable:',public_error(ex))
+        return {'rows':[],'coverage':set(),'mappedPersons':set(),'available':False},set()
 # Read-only performance workspace: scope checked for every projection and export page.
 @app.get('/api/performance/{view}')
 def performance_read(view: str, request: Request, tenant: str = Query(default='team'), person: str = Query(default=''), unit: str = Query(default=''), start: str = Query(default=''), end: str = Query(default=''), metric: str = Query(default='tasks'), offset: int = Query(default=0, ge=0), limit: int = Query(default=100, ge=1, le=200)):
@@ -4113,15 +4147,28 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
             for r in rows:
                 if r['metric']==metric or (metric=='support_activity' and r['metric'] in ('tickets','calls_in_answered','calls_out_answered')): days[r['date']]=days.get(r['date'],0)+(1 if metric=='contracts' else r['value'])
             return {'ok':True,'days':[{'date':d,'value':v,'status':'valid'} for d,v in sorted(days.items())],'metric':metric,'unit':'وظیفه' if metric=='tasks' else 'قرارداد' if metric=='contracts' else 'سند' if metric=='finance_documents' else 'تیکت' if metric=='tickets' else 'فعالیت' if metric=='support_activity' else perf.CALL_UNITS[metric],'issues':issues,'updatedAt':full.get('ts')}
+        target_attendance,holidays=(_perf_target_attendance(tenant,start[:8]+'01',perf.month_dates(*map(int,end.split('/')[:2]))[-1])
+                                    if any(perf.UNITS.get(p.get('role'))=='sales' for p in selected) else ([],set()))
+        sales_people=[p for p in full.get('people',[]) if perf.UNITS.get(p.get('role'))=='sales']
+        history,history_issues=perf.records(full,sales_people,stamp_to_j)
+        target_by_id={str(p['id']):perf.sales_targets(full,p,start,end,target_attendance,holidays,history) for p in selected if perf.UNITS.get(p.get('role'))=='sales'}
+        issues.extend(i for target in target_by_id.values() for i in target['issues'])
+        def projected(u, own, warnings, members):
+            base=perf.metrics(u,own,warnings,start,end,full.get('ts'))
+            if u=='sales':
+                ids={str(p['id']) for p in members}
+                warnings=warnings+[i for i in history_issues if i['personId'] in ids and i not in warnings]
+                base=perf.sales_projection(base,own,[target_by_id[str(p['id'])] for p in members],full.get('perf') or {},warnings,call_rows is not None)
+            return base
         entries=[]
         for p in selected:
             pid=str(p['id']); own=[r for r in rows if r['personId']==pid]; warnings=[i for i in issues if i['personId']==pid]
-            entries.append({**perf.public_person(p),'metrics':perf.metrics(perf.UNITS.get(p.get('role'),'other'),own,warnings,start,end,full.get('ts')),'tasks':sum(r['value'] for r in own if r['metric']=='tasks') if any(r['metric']=='tasks' for r in own) else None,'calls':perf.call_totals(own) if call_rows is not None else None,'issues':warnings})
+            entries.append({**perf.public_person(p),'metrics':projected(perf.UNITS.get(p.get('role'),'other'),own,warnings,[p]),'tasks':sum(r['value'] for r in own if r['metric']=='tasks') if any(r['metric']=='tasks' for r in own) else None,'calls':perf.call_totals(own) if call_rows is not None else None,'issues':warnings})
         groups=[]
         for u in ('sales','support','finance'):
             members=[p for p in selected if perf.UNITS.get(p.get('role'))==u]; pids={str(p['id']) for p in members}
-            if members: groups.append({'unit':u,'people':len(members),'metrics':perf.metrics(u,[r for r in rows if r['personId'] in pids],[i for i in issues if i['personId'] in pids],start,end,full.get('ts')),'calls':perf.call_totals([r for r in rows if r['personId'] in pids]) if call_rows is not None else None})
-        return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['حضور از جدول سروری attendance_days و فقط برای نگاشت تأییدشده کارت↔شخص.','تماس از جدول سروری call_logs و فقط برای نگاشت تأییدشده julio/داخلی↔شخص؛ تماس صف و بی‌نگاشت به شخص نسبت داده نمی‌شود.' if call_rows is not None else 'دادهٔ سروریِ تماس در دسترس نبود؛ آمار تماس نمایش داده نمی‌شود.','تیکت از جدول سروری ticket_logs به تاریخ ثبت و فقط برای نگاشت تأییدشدهٔ نام کارشناس↔شخص.' if ticket_rows is not None else 'دادهٔ سروریِ تیکت در دسترس نبود؛ محورهای پشتیبانی بی‌داده‌اند.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف دارای تاریخ اعتبار در منابع عملکرد یافت نشد.']}
+            if members: groups.append({'unit':u,'people':len(members),'metrics':projected(u,[r for r in rows if r['personId'] in pids],[i for i in issues if i['personId'] in pids],members),'calls':perf.call_totals([r for r in rows if r['personId'] in pids]) if call_rows is not None else None})
+        return {'ok':True,'people':entries,'groups':groups,'issues':issues,'updatedAt':full.get('ts'),'period':{'from':start,'to':end},'notes':['حضور از جدول سروری attendance_days و فقط برای نگاشت تأییدشده کارت↔شخص.','تماس از جدول سروری call_logs و فقط برای نگاشت تأییدشده julio/داخلی↔شخص؛ تماس صف و بی‌نگاشت به شخص نسبت داده نمی‌شود.' if call_rows is not None else 'دادهٔ سروریِ تماس در دسترس نبود؛ آمار تماس نمایش داده نمی‌شود.','تیکت از جدول سروری ticket_logs به تاریخ ثبت و فقط برای نگاشت تأییدشدهٔ نام کارشناس↔شخص.' if ticket_rows is not None else 'دادهٔ سروریِ تیکت در دسترس نبود؛ محورهای پشتیبانی بی‌داده‌اند.','بازه همکاری تاریخی اشخاص در منبع تعریف نشده؛ قطع همکاری مشخص است و شخص بی‌داده حذف نمی‌شود.','هدف قرارداد از تارگت‌های تب پیش‌بینی خوانده می‌شود.']}
     except PermissionError as e:
         return JSONResponse({'ok':False,'error':public_error(e)},status_code=403)
     except ValueError as e:

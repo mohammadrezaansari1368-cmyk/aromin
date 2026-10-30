@@ -153,7 +153,7 @@ export const MARGIN_STD: [string, string][] = [
 ]
 export const STRAT_FA: Record<string, string> = { survive: 'بقا', hold: 'حفظ', grow: 'رشد' }
 export const FC_USD_HIST: Record<number, number> = { 1403: 80000, 1404: 93000 }
-export const LEVELW: Record<string, number> = { senior: 1.5, mid: 1.0, junior: 0.6 }
+export const LEVELW: Record<string, number> = { senior: 1.5, middle: 1.0, mid: 1.0, junior: 0.6 }
 
 /* ---------- رمضان/محرم (تقویمِ اسلامیِ مرورگر) ---------- */
 const _lunarCache: Record<number, { ramadan: number; muharram: number }> = {}

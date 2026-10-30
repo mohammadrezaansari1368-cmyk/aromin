@@ -18,7 +18,8 @@ export function toMetric(raw: Partial<ApiMetric> | null | undefined): Metric {
 	const status = toStatus(r.status)
 	const computable = status === 'valid' || status === 'partial'
 	return {
-		parts: r.parts, id: String(r.id || ''), label: String(r.label || '—'), unit: String(r.unit || ''), definition: String(r.definition || ''),
+		attendanceDays: r.attendanceDays, calendarDays: r.calendarDays, targetStatus: r.targetStatus, targetIssues: r.targetIssues,
+		parts: r.parts, answerRate: r.answerRate, basis: r.basis, pct: r.pct, workingDays: r.workingDays, id: String(r.id || ''), label: String(r.label || '—'), unit: String(r.unit || ''), definition: String(r.definition || ''),
 		value: computable ? num(r.value) : null, numerator: computable ? num(r.numerator) : null, denominator: computable ? num(r.denominator) : null,
 		status: computable && num(r.value) === null ? 'not_computable' : status,
 		target: num(r.target), records: num(r.coverage?.records) ?? 0, issues: num(r.coverage?.issues) ?? 0,
@@ -34,7 +35,9 @@ export function tasksMetric(tasks: number | null | undefined): Metric {
 export function toCalls(raw: unknown): ApiCalls | null {
 	if (!raw || typeof raw !== 'object') return null
 	const r = raw as Record<string, unknown>
-	return CALL_KEYS.every(([k]) => num(r[k]) !== null) ? ({ ...Object.fromEntries(CALL_KEYS.map(([k]) => [k, r[k]])), effort_talk_seconds: num(r.effort_talk_seconds) ?? undefined } as ApiCalls) : null
+	return CALL_KEYS.every(([k]) => num(r[k]) !== null) ? ({ ...Object.fromEntries(CALL_KEYS.map(([k]) => [k, r[k]])),
+        ...(num(r.effort_talk_seconds) !== null ? { effort_talk_seconds: num(r.effort_talk_seconds)! } : {}),
+        ...('peakHourShare' in r ? { peakHourShare: num(r.peakHourShare) } : {}) } as ApiCalls) : null
 }
 /** Call stats are pseudo-metrics like tasks; they do not redefine any axis (activity/efficiency mapping is not decided). */
 export function callMetrics(calls: ApiCalls | null | undefined): Metric[] {
@@ -45,7 +48,7 @@ export function callMetrics(calls: ApiCalls | null | undefined): Metric[] {
 }
 export function toPerson(raw: Partial<ApiPerson> | null | undefined): PersonVM {
 	const r = raw || {}, name = String(r.name || '—'), unit = String(r.unit || 'other')
-	return { id: String(r.id ?? ''), name, initial: name.trim().charAt(0) || '؟', role: String(r.role || ''), unit, unitLabel: UNIT_LABEL[unit] || UNIT_LABEL.other, inactive: !!r.inactive, tasks: num(r.tasks), calls: toCalls(r.calls), metrics: Array.isArray(r.metrics) ? r.metrics.map(toMetric) : [] }
+	return { id: String(r.id ?? ''), name, level: r.level, initial: name.trim().charAt(0) || '؟', role: String(r.role || ''), unit, unitLabel: UNIT_LABEL[unit] || UNIT_LABEL.other, inactive: !!r.inactive, tasks: num(r.tasks), calls: toCalls(r.calls), metrics: Array.isArray(r.metrics) ? r.metrics.map(toMetric) : [] }
 }
 export const toPeople = (raw: unknown): PersonVM[] => (Array.isArray(raw) ? raw.map((p) => toPerson(p as ApiPerson)).filter((p) => p.id) : [])
 export function toDays(raw: Partial<ApiDaily> | null | undefined): DayVM[] {
@@ -60,7 +63,7 @@ export function groupIssues(raw: unknown): IssueGroup[] {
 }
 /** Gauge scale is decided here, not in the gauge: target×1.25 when a real target exists, else the team maximum. */
 export function gaugeMax(m: Metric, peers: (number | null)[]): number {
-	if (m.unit === '٪') return 100
+	if (m.unit === '٪') return m.id === 'efficiency' && m.parts?.activity ? 150 : 100
 	if (m.target !== null && m.target > 0) return m.target * 1.25
 	const best = Math.max(0, ...peers.filter((v): v is number => v !== null), m.value ?? 0)
 	return best > 0 ? best : 1
@@ -76,3 +79,5 @@ export function ago(ts: number | undefined, now = Date.now()): string {
 	const d = Math.floor((now - ts) / 86400000)
 	return d <= 0 ? 'امروز' : d === 1 ? 'دیروز' : fa(d, 0) + ' روز پیش'
 }
+
+export const LEVEL_LABEL: Record<string,string> = { senior: 'سنیور', middle: 'میدل', mid: 'میدل', junior: 'جونیور' }

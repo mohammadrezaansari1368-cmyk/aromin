@@ -2005,7 +2005,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
         <span class="pblabel">سطح:</span>
         <select id="personLevel" aria-label="سطح ارشدیت" style="min-width:120px">
           <option value="senior">ارشد (Senior)</option>
-          <option value="mid">میانی (Mid)</option>
+          <option value="mid">میدل (Middle)</option>
           <option value="junior">تازه‌کار (Junior)</option>
         </select>
         <span class="pblabel">نقش:</span>
@@ -3601,7 +3601,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
       <h2>👥 افزودنِ کارشناس <span class="sub">کارشناسِ جدید را این‌جا بساز؛ بعد در جدولِ «دسترسی کاربران» نقش، سطح، موبایل و رمزش را تنظیم کن — فقط مدیر</span></h2>
       <div class="btnrow" style="gap:8px;flex-wrap:wrap;align-items:center">
         <input type="text" id="staffNewName" placeholder="نامِ کاملِ کارشناس (مثلاً محمد محمدی)" style="flex:1;min-width:220px">
-        <select id="staffNewLevel" style="min-width:120px"><option value="junior">تازه‌کار</option><option value="mid">میانی</option><option value="senior">ارشد</option></select>
+        <select id="staffNewLevel" style="min-width:120px"><option value="junior">جونیور</option><option value="mid">میدل</option><option value="senior">سنیور</option></select>
         <select id="staffNewRole" style="min-width:140px"><option value="sales">کارشناس فروش</option><option value="support">کارشناس پشتیبانی</option><option value="finance">کارشناس مالی</option><option value="salesmgr">مدیر فروش</option><option value="manager">مدیر</option></select>
         <button class="btn gold" id="staffAddBtn">➕ ساختِ کارشناس</button>
       </div>
@@ -4003,7 +4003,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     officialDeduct:10, months:{} }; }
 
   /* ---------- چند کارشناس ---------- */
-  var APP_VERSION = "3.10.2";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
+  var APP_VERSION = "3.10.3";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
   var DATA_VERSION=3;             // نسخه‌ی ساختار داده (برای مهاجرت خودکار)
   var PEOPLE=[], activePid=null, gid=1;
   var SALESCRISIS=false;   // شرایطِ بحرانی: مدیرِ فروش هم تارگت می‌گیرد و می‌فروشد
@@ -4034,7 +4034,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   var TARGETS={};  // تارگت هر کارشناس به تفکیک ماه (تومان): TARGETS[pid]=[۱۲ ماه] [سال‌مالی‌محور]
   var FY="";       // سالِ مالیِ جاری (مثلاً "1404")
   var YEARS={};    // دادهٔ هر سالِ مالی: YEARS[y]={budget:{}, targets:{}} — فاکتورها در p.invY[y]
-  var LEVELW={senior:1.5, mid:1.0, junior:0.6};   // وزن تارگت بر اساس تجربه
+  var LEVELW={senior:1.5, middle:1.0, mid:1.0, junior:0.6};   // وزن تارگت بر اساس تجربه
   var budM=3;
   var GM="all";   // ماه فعال سراسری ("all" = همه‌ی ماه‌ها)
   var SERVICE={byAgent:{}, byDeal:{}, total:0};
@@ -4256,7 +4256,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   function activeName(){ var p=activePerson(); return p?p.name:""; }
   var ROLES=[{v:"sales",t:"کارشناس فروش"},{v:"support",t:"کارشناس پشتیبانی"},{v:"finance",t:"کارشناس مالی"}];
   var LEVELS=[{v:"senior",t:"ارشد",en:"Senior",c:"#1E8E3E"},{v:"mid",t:"میانی",en:"Mid",c:"var(--gold)"},{v:"junior",t:"تازه‌کار",en:"Junior",c:"var(--petrol-2)"}];
-  function levelOf(p){ return (p&&p.level)||"junior"; }
+  function levelOf(p){ return p&&p.level==="middle"?"mid":((p&&p.level)||"junior"); }
   function levelLabel(v){ for(var i=0;i<LEVELS.length;i++) if(LEVELS[i].v===v) return LEVELS[i].t; return "تازه‌کار"; }
   function levelEn(v){ for(var i=0;i<LEVELS.length;i++) if(LEVELS[i].v===v) return LEVELS[i].en; return "Junior"; }
   function levelColor(v){ for(var i=0;i<LEVELS.length;i++) if(LEVELS[i].v===v) return LEVELS[i].c; return "var(--ink-3)"; }
@@ -8373,8 +8373,8 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
       var canEdit=(p.canEdit!=null)?p.canEdit:!(acc==="sales"||acc==="support");
       var opts=[["manager","مدیر"],["finance","کارشناس مالی"],["sales","کارشناس فروش"],["support","کارشناس پشتیبانی"]]
         .map(function(o){ return '<option value="'+o[0]+'"'+(acc===o[0]?" selected":"")+'>'+o[1]+'</option>'; }).join("");
-      var lvl=levelOf(p);
-      var lvlOpts=[["senior","ارشد"],["mid","میانی"],["junior","تازه‌کار"]]
+      var lvl=levelOf(p)==="mid"?"middle":levelOf(p);
+      var lvlOpts=[["senior","سنیور"],["middle","میدل"],["junior","جونیور"]]
         .map(function(o){ return '<option value="'+o[0]+'"'+(lvl===o[0]?" selected":"")+'>'+o[1]+'</option>'; }).join("");
       var pr=(typeof personaOf==="function")?personaOf(acc):null;
       var glyph=(pr&&typeof personaGlyph==="function")?('<span title="'+pr.name+'">'+personaGlyph(pr.id,20)+'</span> <span style="font-size:11px;color:var(--ink-3)">'+pr.name+'</span>'):'—';

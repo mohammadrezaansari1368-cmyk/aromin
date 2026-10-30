@@ -12,14 +12,16 @@ AXES = {
 }
 
 # WP-3: server call stats (aromin_calls.daily_records). Kept beside the axes, not mapped onto activity/efficiency (owner has not defined that mapping).
-CALL_METRICS=('calls_in','calls_out','calls_internal','calls_answered','calls_missed','talk_seconds','calls_in_answered','calls_out_answered','effort_talk_seconds')
+CALL_METRICS=('calls_in','calls_out','calls_internal','calls_answered','calls_missed','talk_seconds','calls_in_answered','calls_out_answered','effort_talk_seconds','calls_peak_answered')
 CALL_UNITS={m:('ثانیه' if m in ('talk_seconds','effort_talk_seconds') else 'تماس') for m in CALL_METRICS}
 
 def call_totals(rows):
     """Per-metric sums of call records; None when there is no call record (no data ≠ zero)."""
     group=[r for r in rows if r['metric'] in CALL_METRICS]
     if not group: return None
-    return {m:sum(r['value'] for r in group if r['metric']==m) for m in CALL_METRICS}
+    totals={m:sum(r['value'] for r in group if r['metric']==m) for m in CALL_METRICS}
+    totals['peakHourShare']=totals['calls_peak_answered']/totals['calls_answered']*100 if totals['calls_answered'] else None
+    return totals
 
 def date_key(raw):
     r = parse_stage_change(str(raw or ''))
@@ -45,7 +47,7 @@ def select(people, pid='', unit=''):
     return [p for p in people if (not pid or str(p['id'])==str(pid)) and (not unit or UNITS.get(p.get('role'),'other')==unit)]
 
 def public_person(p):
-    return {'id':str(p['id']),'name':p['name'],'role':p.get('role',''),'unit':UNITS.get(p.get('role'),'other'),'inactive':bool(p.get('inactive')),'employmentKnown':False}
+    return {'id':str(p['id']),'name':p['name'],'role':p.get('role',''),'unit':UNITS.get(p.get('role'),'other'),'inactive':bool(p.get('inactive')),'employmentKnown':False,'level':('middle' if p.get('level')=='mid' else p.get('level'))}
 
 def number(value):
     try:
@@ -109,6 +111,115 @@ def records(full, people, stamp_to_j):
     return out,issues
 
 def in_period(rows,start,end): return [r for r in rows if start<=r['date']<=end]
+
+def month_dates(year, month):
+    from aromin_calls import _ordinal
+    first = '%04d/%02d/01' % (year, month)
+    following = '%04d/%02d/01' % (year + (month == 12), month % 12 + 1)
+    return ['%04d/%02d/%02d' % (year, month, day) for day in range(1, _ordinal(following)-_ordinal(first)+1)]
+
+def calendar_days(start, end, holidays=()):
+    from aromin_calls import _ordinal
+    import datetime
+    y, m = map(int, start.split('/')[:2]); out=[]
+    while '%04d/%02d/01' % (y,m) <= end:
+        out += [d for d in month_dates(y,m) if start<=d<=end and d not in holidays
+                and datetime.date.fromordinal(_ordinal(d)).weekday()!=4]
+        y, m = y+(m==12), m%12+1
+    return out
+
+def sales_targets(full, person, start, end, attendance, holidays, history):
+    """Existing forecast targets are monthly toman amounts, indexed from zero, by fiscal year."""
+    pid=str(person['id']); cfg=full.get('perf') or {}; level=person.get('level')
+    if level=='mid': level='middle'
+    levels=cfg.get('levelCallTarget') or {}
+    daily=next((n for v in [(person.get('perfSet') or {}).get('callTarget'), levels.get(level), cfg.get('callTarget'),40]
+                if (n:=number(v)) is not None),40)
+    attendance=attendance or {}
+    own=[r for r in attendance.get('rows',[]) if str(r['personId'])==pid and start<=r['date']<=end]
+    covered={d for d in attendance.get('coverage',()) if start<=d<=end}
+    all_dates=set()
+    cy,cm=map(int,start.split('/')[:2])
+    while '%04d/%02d/01' % (cy,cm)<=end:
+        all_dates.update(d for d in month_dates(cy,cm) if start<=d<=end)
+        cy,cm=cy+(cm==12),cm%12+1
+    attendance_days=len({r['date'] for r in own if r['date'] in covered and (r.get('presentMin') or 0)>0})
+    calendar_count=len(set(calendar_days(start,end,holidays))-covered)
+    days=attendance_days+calendar_count
+    basis='mixed' if covered and all_dates-covered else 'attendance' if covered else 'calendar'
+    target_issues=[]
+    if covered and pid not in attendance.get('mappedPersons',()):
+        target_issues.append({'personId':pid,'metric':'activity','reason':'کارتِ حضورِ این شخص نگاشت نشده'})
+    if not attendance.get('available',True) or any(r.get('presentMin') is None for r in own):
+        target_issues.append({'personId':pid,'metric':'activity','reason':'دادهٔ حضور ناقص یا در دسترس نیست'})
+    amount=0; missing=False
+    y,m=map(int,start.split('/')[:2])
+    while '%04d/%02d/01' % (y,m)<=end:
+        bucket=(full.get('years') or {}).get(str(y)) or {}
+        targets=bucket.get('targets')
+        if targets is None and str(full.get('fy'))==str(y): targets=full.get('targets')
+        monthly=(targets or {}).get(pid)
+        value=number(monthly[m-1]) if isinstance(monthly,list) and len(monthly)>=m else None
+        if value is None: missing=True
+        else:
+            dates=month_dates(y,m); working=calendar_days(dates[0],dates[-1],holidays)
+            included=sum(start<=d<=end for d in working)
+            amount+=value*(included/len(working) if working else 0)
+        y,m=y+(m==12),m%12+1
+    # Twelve Jalali calendar months ending on the selected end date, inclusive.
+    ey,em,ed=map(int,end.split('/')); sy=ey-1
+    cutoff='%04d/%02d/%02d' % (sy,em,min(ed,len(month_dates(sy,em))))
+    won=[r for r in history if r['metric']=='contracts' and cutoff<r['date']<=end]
+    personal=[r for r in won if r['personId']==pid]
+    sample=personal or won
+    avg=sum(r['value'] for r in sample)/len(sample) if sample else None
+    amount=None if missing else amount
+    import math
+    return {'activity':None if target_issues else daily*days,'amount':amount,'count':math.floor(amount/avg+0.5) if amount is not None and avg else None,
+            'basis':basis,'workingDays':days,'attendanceDays':attendance_days,'calendarDays':calendar_count,'dailyCallTarget':daily,
+            'issue':bool(target_issues),'issues':target_issues,'avgContract':avg}
+
+def sales_projection(base, rows, targets, cfg, issues=(), calls_available=True):
+    """Sum member actuals/targets before achievement; missing member targets keep the group partial."""
+    keys=('activity','count','amount')
+    calls=call_totals(rows)
+    contracts=[r for r in rows if r['metric']=='contracts']
+    actual={'activity':(calls['calls_answered'] if calls else 0) if calls_available else None,
+            'count':len(contracts),'amount':sum(r['value'] for r in contracts)}
+    totals={k:sum(t[k] for t in targets if t[k] is not None) if any(t[k] is not None for t in targets) else None for k in keys}
+    parts={k:{'actual':actual[k],'target':totals[k], 'pct':min(150,actual[k]/totals[k]*100)
+              if actual[k] is not None and totals[k] and totals[k]>0 else None} for k in keys}
+    configured=cfg.get('efficiencyWeights') or {}
+    weights={k:number(configured.get(k,1/3)) or 0 for k in keys if parts[k]['pct'] is not None}
+    total=sum(weights.values())
+    if weights and not total: weights={k:1 for k in weights}; total=len(weights)
+    weights={k:v/total for k,v in weights.items()}
+    parts['weights']={k:weights.get(k,0) for k in keys}
+    issues=list(issues)
+    for target in targets:
+        for issue in target.get('issues',[]):
+            if issue not in issues: issues.append(issue)
+    relevant=[i for i in issues if not i.get('metric') or set(([i['metric']] if isinstance(i['metric'],str) else i['metric'])).intersection(set(CALL_METRICS)|{'contracts','efficiency','activity'})]
+    partial=bool(relevant) or any(t.get('issue') for t in targets) or any(t[k] is None for t in targets for k in keys) or len(weights)<3
+    denominator=sum(r['value'] for r in rows if r['metric'] in ('calls_in','calls_out'))
+    for metric in base:
+        if metric['id']=='activity':
+            target_issues=[i for t in targets for i in t.get('issues',[])]
+            metric.update(target=totals['activity'],pct=parts['activity']['pct'],basis=targets[0]['basis'] if len({t['basis'] for t in targets})==1 else 'mixed',workingDays=sum(t['workingDays'] for t in targets),
+                          attendanceDays=sum(t.get('attendanceDays',0) for t in targets),calendarDays=sum(t.get('calendarDays',0) for t in targets),
+                          targetStatus='partial' if any(t.get('issue') for t in targets) else 'valid',targetIssues=target_issues)
+            if target_issues:
+                metric['status']='partial'
+                metric['coverage']['issues']=sum(not i.get('metric') or bool(set([i['metric']] if isinstance(i['metric'],str) else i['metric']).intersection(set(CALL_METRICS)|{'activity'})) for i in issues)
+        if metric['id']=='efficiency':
+            metric.update(value=sum(parts[k]['pct']*w for k,w in weights.items()) if weights else None,
+                          target=100,parts=parts,numerator=None,denominator=None,
+                          answerRate=actual['activity']/denominator*100 if denominator and actual['activity'] is not None else None,
+                          status=('partial' if partial else 'valid') if weights else ('partial' if any(totals[k] and totals[k]>0 for k in keys) else 'no_data'),
+                          definition='میانگین وزنی تحقق هدف فعالیت، تعداد و مبلغ قرارداد؛ هر بخش با سقف ۱۵۰٪.',
+                          source=['call_logs','people.invY','targets','attendance_days'])
+            metric['coverage']['issues']=len(relevant)
+    return base
 
 # Owner decision (2026-10-14): sales activity = answered calls; sales efficiency = answered ÷ (in + out) × 100.
 SALES_CALL_AXES={'activity':'calls_answered','efficiency':'calls_answered'}

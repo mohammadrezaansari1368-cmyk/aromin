@@ -20,9 +20,9 @@ function Ring({ label, pct }: { label: string; pct: number | null }) {
 	</div>
 }
 
-export default function EffortPanel({ effort, callTarget, taskTarget, sales, salesTarget, callHours, onImport }: {
+export default function EffortPanel({ effort, callActual, callTarget, taskTarget, sales, salesTarget, callHours, peakHourShare, onImport }: {
 	effort: Effort; callTarget: number | null; taskTarget: number | null; sales: number | null; salesTarget: number | null
-	callHours: Record<string, number>; onImport: () => void
+	callActual?: number | null; callHours: Record<string, number>; peakHourShare?: number | null; onImport: () => void
 }) {
 	const c = 100, rad = 78, has = effort.perDay !== null
 	const maxHour = Math.max(1, ...Object.values(callHours))
@@ -42,7 +42,7 @@ export default function EffortPanel({ effort, callTarget, taskTarget, sales, sal
 		</div>
 		{!has ? <TactileButton onClick={onImport}>ایمپورت گزارش</TactileButton> : <>
 			<div className="pv-rings">
-				<Ring label="تماس" pct={achieve(effort.calls, callTarget)} /><Ring label="وظیفه" pct={achieve(effort.tasks, taskTarget)} /><Ring label="فروش" pct={achieve(sales, salesTarget)} />
+				<Ring label="تماس" pct={achieve(callActual === undefined ? effort.calls : callActual, callTarget)} /><Ring label="وظیفه" pct={achieve(effort.tasks, taskTarget)} /><Ring label="فروش" pct={achieve(sales, salesTarget)} />
 			</div>
 			<dl className="pv-ef-figs">
 				<div><dt>مکالمه</dt><dd>{fa(effort.talkMin / 60, 1)}<small> ساعت</small></dd></div>
@@ -51,6 +51,7 @@ export default function EffortPanel({ effort, callTarget, taskTarget, sales, sal
 				<div><dt>فروش</dt><dd>{fa(sales, 0)}</dd></div>
 			</dl>
 		</>}
+		<p>سهم تماس در ساعت پیک: {fa(peakHourShare)}٪</p>
 		<div className="pv-peak" aria-label="اوج تماس: B2B ۱۰–۱۱ و ۱۴–۱۵ · B2C ۱۷–۲۰">
 			{Array.from({ length: 13 }, (_, i) => i + 8).map((h) => <i key={h} title={fa(h, 0) + ':۰۰ · ' + fa(callHours[h] || 0, 0) + ' تماس'} data-b2b={B2B.includes(h)} data-b2c={B2C.includes(h)} style={{ ['--h' as string]: ((callHours[h] || 0) / maxHour).toFixed(2) }} />)}
 			<span aria-hidden>۸</span><span aria-hidden>۲۰</span>

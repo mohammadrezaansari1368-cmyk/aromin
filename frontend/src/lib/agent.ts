@@ -27,7 +27,7 @@ const WRITABLE: Record<string, Record<string, (v: string) => string | null>> = {
 	people: {
 		mobile: (v) => { const s = v.replace(/[^\d]/g, '').replace(/^98/, '0').replace(/^9/, '09'); return /^09\d{9}$/.test(s) ? s : null },
 		email: (v) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? v.trim().toLowerCase() : null),
-		level: (v) => (['junior', 'mid', 'senior'].includes(v) ? v : null),
+		level: (v) => (v === 'middle' ? 'mid' : ['junior', 'mid', 'senior'].includes(v) ? v : null),
 	},
 	users: {
 		role: (v) => (ROLES.some((r) => r.id === v) ? v : null),
