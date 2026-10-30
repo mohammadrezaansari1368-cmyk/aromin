@@ -8,7 +8,8 @@ export type DailyKey = 'tasks' | 'contracts' | 'finance_documents' | 'tickets' |
 
 export type AchievementPart = { actual: number | null; target: number | null; pct: number | null }
 export type MetricParts = { tickets?: number; callsIn?: number; callsOut?: number; activity?: AchievementPart; count?: AchievementPart; amount?: AchievementPart; weights?: Record<string,number> }
-export interface TargetCoverage { attendanceDays?: number; calendarDays?: number; targetStatus?: 'valid' | 'partial'; targetIssues?: { personId: string; metric: string; reason: string }[] }
+export interface AttendanceCoverage { presentDays: number; leaveDays: number; absentDays: number; holidayDays: number; closureDays: number; calendarDays: number; basis: string }
+export interface TargetCoverage { attendance?: AttendanceCoverage; attendanceDays?: number; calendarDays?: number; targetStatus?: 'valid' | 'partial'; targetIssues?: { personId: string; metric: string; reason: string }[] }
 export interface ApiMetric extends TargetCoverage {
 	id: string; label: string; unit: string; definition: string
 	parts?: MetricParts; answerRate?: number | null; basis?: string; pct?: number | null; workingDays?: number
@@ -16,7 +17,7 @@ export interface ApiMetric extends TargetCoverage {
 	status: ApiStatus; target: number | null
 	coverage: { records: number; issues: number }; source: string[]; detailsMetric: string; updatedAt?: number
 }
-export interface ApiPerson { id: string; name: string; level?: string; role: string; unit: string; inactive: boolean; tasks?: number | null; calls?: ApiCalls | null; metrics?: ApiMetric[]; issues?: { personId?: string; reason: string }[] }
+export interface ApiPerson { attendance?: AttendanceCoverage; id: string; name: string; level?: string; role: string; unit: string; inactive: boolean; tasks?: number | null; calls?: ApiCalls | null; metrics?: ApiMetric[]; issues?: { personId?: string; reason: string }[] }
 export interface ApiSummary { people: ApiPerson[]; groups: { unit: string; people: number; metrics: ApiMetric[]; calls?: ApiCalls | null }[]; issues: { personId: string; reason: string }[]; notes: string[]; updatedAt?: number }
 export interface ApiDirectory { people: ApiPerson[]; role: string; scope: string; updatedAt?: number }
 export interface ApiDaily { days: { date: string; value: number; status: string }[]; metric: string; unit: string; updatedAt?: number }

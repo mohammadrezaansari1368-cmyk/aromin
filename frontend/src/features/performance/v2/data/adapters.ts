@@ -18,7 +18,7 @@ export function toMetric(raw: Partial<ApiMetric> | null | undefined): Metric {
 	const status = toStatus(r.status)
 	const computable = status === 'valid' || status === 'partial'
 	return {
-		attendanceDays: r.attendanceDays, calendarDays: r.calendarDays, targetStatus: r.targetStatus, targetIssues: r.targetIssues,
+		attendance: r.attendance, attendanceDays: r.attendanceDays, calendarDays: r.calendarDays, targetStatus: r.targetStatus, targetIssues: r.targetIssues,
 		parts: r.parts, answerRate: r.answerRate, basis: r.basis, pct: r.pct, workingDays: r.workingDays, id: String(r.id || ''), label: String(r.label || '—'), unit: String(r.unit || ''), definition: String(r.definition || ''),
 		value: computable ? num(r.value) : null, numerator: computable ? num(r.numerator) : null, denominator: computable ? num(r.denominator) : null,
 		status: computable && num(r.value) === null ? 'not_computable' : status,

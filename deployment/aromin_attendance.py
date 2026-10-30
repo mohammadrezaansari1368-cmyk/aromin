@@ -25,6 +25,17 @@ class TooLarge(PublicValidationError):
     """Payload over LIMITS → 413."""
 
 
+DAY_STATUSES = frozenset(('present', 'leave', 'sick', 'absent', 'holiday', 'closure', 'mission'))
+
+
+def day_status(raw):
+    """Read the optional normalized Zurvan status without changing the storage schema."""
+    if isinstance(raw, str):
+        raw = json.loads(raw)
+    status = (raw or {}).get('status')
+    return status if isinstance(status, str) and status in DAY_STATUSES else None
+
+
 def norm_header(s):
     if s is None: return ''
     return re.sub(r'\s+', ' ', str(s).translate(_HEADER)).strip().lower()
@@ -120,7 +131,7 @@ def parse_sheet(name, rows):
         if present is None and len(punches) >= 2 and len(punches) % 2 == 0:
             present = sum(max(0, punches[i + 1] - punches[i]) for i in range(0, len(punches), 2))
         days[date] = {'date_j': date, 'punches': punches, 'present_min': present, 'note': _note(r, cmap, columns)[:300] or None,
-                      'raw_json': raw, 'row_sha256': sha}
+                      'raw_json': raw, 'row_sha256': sha, 'day_status': day_status(r)}
     return {'card_no': cards.pop(), 'sheet_name': name, 'person_name': person[:200] or None, 'ignored_rows': len(rows) - len(dated),
             'days': [days[d] for d in sorted(days)]}, None
 
@@ -234,7 +245,7 @@ def compose(days_rows, override_rows, alias_by_card, people_by_id, admin):
     for d in sorted(days_rows, key=lambda r: (r['card_no'], r['date_j'])):
         c = cards.setdefault(d['card_no'], {'cardNo': d['card_no'], 'rows': [], 'days': [], 'overrides': {}, '_last': d})
         c['rows'].append(json.loads(d['raw_json']))
-        c['days'].append({'date': d['date_j'], 'presentMin': d['present_min']})
+        c['days'].append({'date': d['date_j'], 'presentMin': d['present_min'], 'dayStatus': day_status(d['raw_json'])})
         c['_last'] = d
     for o in override_rows:
         if o['card_no'] in cards: cards[o['card_no']]['overrides'][o['date_j']] = json.loads(o['fields'])

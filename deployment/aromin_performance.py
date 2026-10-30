@@ -147,14 +147,34 @@ def sales_targets(full, person, start, end, attendance, holidays, history):
     while '%04d/%02d/01' % (cy,cm)<=end:
         all_dates.update(d for d in month_dates(cy,cm) if start<=d<=end)
         cy,cm=cy+(cm==12),cm%12+1
-    attendance_days=len({r['date'] for r in own if r['date'] in covered and (r.get('presentMin') or 0)>0})
-    calendar_count=len(set(calendar_days(start,end,holidays))-covered)
-    days=attendance_days+calendar_count
+    # Explicit day types override minutes; coverage with no presence closes the company.
+    def status(r):
+        return r.get('dayStatus') or r.get('day_status') or r.get('status')
+    def present(r):
+        code=status(r)
+        return code in ('present','mission') if code else (r.get('presentMin') or 0)>0
+    grouped=defaultdict(list)
+    for r in attendance.get('rows',[]):
+        if r['date'] in covered: grouped[r['date']].append(r)
+    closures={d for d in covered if not any(present(r) for r in grouped[d])}
+    calendar=set(calendar_days(start,end,holidays))
+    own_by_date={r['date']:r for r in own}
+    worked={d for d in calendar if d not in closures and
+            (d not in covered or (d in own_by_date and present(own_by_date[d])))}
+    attendance_days=len(worked & covered)
+    calendar_count=len(worked-covered)
+    days=len(worked)
+    day_counts={'presentDays':attendance_days,
+                'leaveDays':sum(status(r) in ('leave','sick') for r in own),
+                'absentDays':sum(status(r)=='absent' or (not status(r) and r.get('presentMin')==0) for r in own),
+                'holidayDays':sum(status(r)=='holiday' for r in own),
+                'closureDays':len((closures & calendar) | {r['date'] for r in own if status(r)=='closure'}),
+                'calendarDays':len(calendar)}
     basis='mixed' if covered and all_dates-covered else 'attendance' if covered else 'calendar'
     target_issues=[]
     if covered and pid not in attendance.get('mappedPersons',()):
         target_issues.append({'personId':pid,'metric':'activity','reason':'کارتِ حضورِ این شخص نگاشت نشده'})
-    if not attendance.get('available',True) or any(r.get('presentMin') is None for r in own):
+    if not attendance.get('available',True) or any(r.get('presentMin') is None and not status(r) for r in own):
         target_issues.append({'personId':pid,'metric':'activity','reason':'دادهٔ حضور ناقص یا در دسترس نیست'})
     amount=0; missing=False
     y,m=map(int,start.split('/')[:2])
@@ -167,7 +187,7 @@ def sales_targets(full, person, start, end, attendance, holidays, history):
         if value is None: missing=True
         else:
             dates=month_dates(y,m); working=calendar_days(dates[0],dates[-1],holidays)
-            included=sum(start<=d<=end for d in working)
+            included=sum(d in worked for d in working)
             amount+=value*(included/len(working) if working else 0)
         y,m=y+(m==12),m%12+1
     # Twelve Jalali calendar months ending on the selected end date, inclusive.
@@ -181,7 +201,7 @@ def sales_targets(full, person, start, end, attendance, holidays, history):
     import math
     return {'activity':None if target_issues else daily*days,'amount':amount,'count':math.floor(amount/avg+0.5) if amount is not None and avg else None,
             'basis':basis,'workingDays':days,'attendanceDays':attendance_days,'calendarDays':calendar_count,'dailyCallTarget':daily,
-            'issue':bool(target_issues),'issues':target_issues,'avgContract':avg}
+            'attendance':{**day_counts,'basis':basis},'issue':bool(target_issues),'issues':target_issues,'avgContract':avg}
 
 def sales_projection(base, rows, targets, cfg, issues=(), calls_available=True):
     """Sum member actuals/targets before achievement; missing member targets keep the group partial."""
@@ -209,6 +229,8 @@ def sales_projection(base, rows, targets, cfg, issues=(), calls_available=True):
     for metric in base:
         if metric['id']=='activity':
             target_issues=[i for t in targets for i in t.get('issues',[])]
+            metric['attendance']={k:sum(t.get('attendance',{}).get(k,0) for t in targets) for k in ('presentDays','leaveDays','absentDays','holidayDays','closureDays','calendarDays')}
+            metric['attendance']['basis']=targets[0]['basis'] if len({t['basis'] for t in targets})==1 else 'mixed'
             metric.update(target=totals['activity'],pct=parts['activity']['pct'],basis=targets[0]['basis'] if len({t['basis'] for t in targets})==1 else 'mixed',workingDays=sum(t['workingDays'] for t in targets),
                           attendanceDays=sum(t.get('attendanceDays',0) for t in targets),calendarDays=sum(t.get('calendarDays',0) for t in targets),
                           targetStatus='partial' if any(t.get('issue') for t in targets) else 'valid',targetIssues=target_issues)
@@ -219,7 +241,7 @@ def sales_projection(base, rows, targets, cfg, issues=(), calls_available=True):
             metric.update(value=sum(parts[k]['pct']*w for k,w in weights.items()) if weights else None,
                           target=100,parts=parts,numerator=None,denominator=None,
                           answerRate=actual['activity']/denominator*100 if denominator and actual['activity'] is not None else None,
-                          status=('partial' if partial else 'valid') if weights else ('partial' if any(totals[k] and totals[k]>0 for k in keys) else 'no_data'),
+                          status=('partial' if partial else 'valid') if weights else ('partial' if any(t.get('issue') for t in targets) or any(totals[k] and totals[k]>0 for k in keys) else 'no_data'),
                           definition='میانگین وزنی تحقق هدف فعالیت، تعداد و مبلغ قرارداد؛ هر بخش با سقف ۱۵۰٪.',
                           source=['call_logs','people.invY','targets','attendance_days'])
             metric['coverage']['issues']=len(relevant)

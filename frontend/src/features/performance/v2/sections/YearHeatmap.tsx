@@ -1,4 +1,4 @@
-import { yearDays } from '@/components/performance/PerformanceWorkspace'
+import { yearDays } from '../lib/yearDays'
 import type { DailyKey, DayVM } from '../data/types'
 import { persian } from '../data/adapters'
 import { BentoCard } from '../ui/primitives'

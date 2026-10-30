@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react'
 import type { Session } from '@/lib/auth'
 import { MONTHS } from '@/engines/commission'
-import { yearDays } from '@/components/performance/PerformanceWorkspace'
+import { yearDays } from '../lib/yearDays'
 import type { ApiDaily } from '../data/types'
 import { persian, toDays } from '../data/adapters'
 import { usePerf } from '../data/hooks'

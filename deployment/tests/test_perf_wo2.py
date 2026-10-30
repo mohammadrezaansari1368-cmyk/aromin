@@ -31,7 +31,7 @@ class WorkOrderTwo(unittest.TestCase):
         return {m['id']:m for m in perf.sales_projection(perf.metrics('sales',rows,issues,'1405/07/01','1405/07/30',None),rows,targets,self.full.get('perf',{}),issues,available)}
 
     def test_moharrami_26_days_1040_439(self):
-        attendance=[dict(personId='1',date='1405/07/%02d'%d,presentMin=450) for d in range(1,27)]
+        attendance=[dict(personId='1',date=d,presentMin=450) for d in perf.calendar_days('1405/07/01','1405/07/30')]
         t=self.targets(attendance=self.attendance(attendance,perf.month_dates(1405,7)))
         self.assertEqual((t['activity'],t['workingDays'],t['basis']),(1040,26,'attendance'))
         activity=self.projection([self.row('calls_answered',457)],[t])['activity']
@@ -158,7 +158,7 @@ class WorkOrderTwo(unittest.TestCase):
         from starlette.requests import Request
         self.person['inv']=[dict(id='old',saleDate='1405/06/01',amount=30_000_000),dict(id='current',saleDate='1405/07/01',amount=30_000_000)]
         self.person['level']='middle'
-        attendance=[dict(personId='1',date='1405/07/%02d'%d,presentMin=450) for d in range(1,27)]
+        attendance=[dict(personId='1',date=d,presentMin=450) for d in perf.calendar_days('1405/07/01','1405/07/30')]
         request=Request({'type':'http','headers':[]})
         with patch.object(server,'kb_identity',return_value={'role':'manager','user':'test'}), \
              patch.object(server,'_tenant_full',return_value=self.full), \

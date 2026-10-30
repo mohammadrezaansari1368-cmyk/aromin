@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchFull, saveState } from '@/lib/forecastStore'
 import type { Session } from '@/lib/auth'
 import { parseJ } from '@/lib/jalali'
-import { yearDays } from '@/components/performance/PerformanceWorkspace'
+import { yearDays } from '../lib/yearDays'
 import { usePerf, clearPerfCache } from '../data/hooks'
 
 export default function SalesTargetSettings({ session, year }: { session: Session; year: number }) {

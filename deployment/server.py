@@ -2678,7 +2678,7 @@ ZURVAN_API_URL = os.environ.get("ZURVAN_API_URL", "").strip()
 
 
 def _zurvan_rows(payload):
-    """Provisional {rows: [{card_no, date_j, punches: [HH:MM], present_min: minutes}]} → device sheets.
+    """Provisional {rows: [{card_no, date_j, punches: [HH:MM], present_min: minutes, status?: present|leave|sick|absent|holiday|closure|mission}]} → device sheets.
     TODO: confirm the device response and authentication contract before connecting Zurvan.
     Missing present_min is derived by the shared attendance parser from paired punches.
     """
@@ -2689,10 +2689,13 @@ def _zurvan_rows(payload):
         if not isinstance(item, dict) or not str(item.get("card_no") or "").strip():
             raise PublicValidationError("شماره کارت زروان نامعتبر است.")
         card = str(item["card_no"]).strip()
+        if item.get('status') is not None and (not isinstance(item['status'], str) or item['status'] not in att.DAY_STATUSES):
+            raise PublicValidationError('Invalid Zurvan day status')
         punches = item.get("punches") or []
         if not isinstance(punches, list) or len(punches) > 6:
             raise PublicValidationError("تعداد تردد زروان نامعتبر است.")
         row = {"شماره کارت": card, "تاریخ": item.get("date_j")}
+        if item.get('status') is not None: row['status'] = item['status']
         for i, punch in enumerate(punches):
             row[("ورود " if i % 2 == 0 else "خروج ") + str(i // 2 + 1)] = punch
         if item.get("present_min") is not None:
@@ -4078,7 +4081,7 @@ def _perf_target_attendance(tenant, start, end):
     try:
         with _SaTx() as t:
             aliases=t.x("SELECT alias_key,person_id,status FROM identity_aliases WHERE tenant=%s AND kind='card'", (tenant,)).fetchall()
-            days=t.x("SELECT card_no,date_j,present_min,note FROM attendance_days WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant,start,end)).fetchall()
+            days=t.x("SELECT card_no,date_j,present_min,note,raw_json FROM attendance_days WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant,start,end)).fetchall()
             edits=t.x("SELECT card_no,date_j,fields FROM attendance_overrides WHERE tenant=%s AND date_j>=%s AND date_j<=%s", (tenant,start,end)).fetchall()
             batches=t.x("SELECT period_from,period_to FROM attendance_batches WHERE tenant=%s AND source IN ('harikan','zurvan') AND period_from<=%s AND period_to>=%s", (tenant,end,start)).fetchall()
         index={a['alias_key']:str(a['person_id']) for a in aliases if a['status']=='confirmed' and a['person_id'] is not None}
@@ -4092,7 +4095,7 @@ def _perf_target_attendance(tenant, start, end):
                 present=d['present_min']
                 if 'present' in edit: present=att.to_minutes(edit['present'])
                 key=(pid,d['date_j'])
-                rows.setdefault(key,[]).append(present)
+                rows.setdefault(key,[]).append((present, att.day_status(d.get('raw_json'))))
         import aromin_performance as perf
         coverage={date for _,date in rows}
         for batch in batches:
@@ -4101,7 +4104,7 @@ def _perf_target_attendance(tenant, start, end):
             while '%04d/%02d/01' % (y,m)<=last:
                 coverage.update(d for d in perf.month_dates(y,m) if first<=d<=last)
                 y,m=y+(m==12),m%12+1
-        return {'rows':[{'personId':pid,'date':date,'presentMin':values[0] if len(set(values))==1 else None} for (pid,date),values in rows.items()],
+        return {'rows':[{'personId':pid,'date':date,'presentMin':values[0][0] if len(set(values))==1 else None, **({'dayStatus':values[0][1]} if len(set(values))==1 and values[0][1] else {})} for (pid,date),values in rows.items()],
                 'coverage':coverage,'mappedPersons':set(index.values()),'available':True},holidays
     except Exception as ex:
         print('[perf] target attendance unavailable:',public_error(ex))
@@ -4166,7 +4169,7 @@ def performance_read(view: str, request: Request, tenant: str = Query(default='t
         entries=[]
         for p in selected:
             pid=str(p['id']); own=[r for r in rows if r['personId']==pid]; warnings=[i for i in issues if i['personId']==pid]
-            entries.append({**perf.public_person(p),'metrics':projected(perf.UNITS.get(p.get('role'),'other'),own,warnings,[p]),'tasks':sum(r['value'] for r in own if r['metric']=='tasks') if any(r['metric']=='tasks' for r in own) else None,'calls':perf.call_totals(own) if call_rows is not None else None,'issues':warnings})
+            entries.append({**perf.public_person(p),**({'attendance':target_by_id[pid]['attendance']} if pid in target_by_id else {}),'metrics':projected(perf.UNITS.get(p.get('role'),'other'),own,warnings,[p]),'tasks':sum(r['value'] for r in own if r['metric']=='tasks') if any(r['metric']=='tasks' for r in own) else None,'calls':perf.call_totals(own) if call_rows is not None else None,'issues':warnings})
         groups=[]
         for u in ('sales','support','finance'):
             members=[p for p in selected if perf.UNITS.get(p.get('role'))==u]; pids={str(p['id']) for p in members}

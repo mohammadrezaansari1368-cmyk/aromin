@@ -1,14 +1,13 @@
-/** Shared invalidation for successful imports; stale requests cannot repopulate a cleared cache. */
+/** Shared invalidation for successful imports; stale requests cannot overwrite invalidated data. */
 export const PERF_CACHE_TTL = 60_000
 const cache = new Map<string, { data: unknown; at: number }>()
 const listeners = new Set<() => void>()
 let generation = 0
 export const perfCacheGeneration = () => generation
-export function clearPerfCache() { cache.clear(); generation++; listeners.forEach((fn) => fn()) }
+export function clearPerfCache() { cache.forEach((hit) => { hit.at = -Infinity }); generation++; listeners.forEach((fn) => fn()) }
 export function readPerfCache<T>(key: string): T | undefined {
  const hit = cache.get(key)
  if (!hit) return undefined
- if (Date.now() - hit.at >= PERF_CACHE_TTL) { cache.delete(key); return undefined }
  return hit.data as T
 }
 export function writePerfCache(key: string, data: unknown, expectedGeneration: number) {

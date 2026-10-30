@@ -1,6 +1,6 @@
 ﻿import { afterEach, describe, expect, it, vi } from 'vitest'
 import { serverAttendanceDays, serverEffort } from '../lib/effort'
-import { clearPerfCache, perfCacheGeneration, readPerfCache, writePerfCache } from '../data/perfCache'
+import { clearPerfCache, perfCacheGeneration, readPerfCache, writePerfCache, perfCacheRemaining } from '../data/perfCache'
 
 afterEach(() => { clearPerfCache(); vi.useRealTimers() })
 describe('WO1 server effort', () => {
@@ -22,14 +22,14 @@ describe('WO1 server effort', () => {
  })
 })
 describe('WO1 cache', () => {
- it('expires at 60 seconds', () => {
+ it('marks data stale at 60 seconds', () => {
   vi.useFakeTimers(); writePerfCache('a', { value: 1 }, perfCacheGeneration())
   vi.advanceTimersByTime(59_999); expect(readPerfCache('a')).toEqual({ value: 1 })
-  vi.advanceTimersByTime(1); expect(readPerfCache('a')).toBeUndefined()
+  vi.advanceTimersByTime(1); expect(readPerfCache('a')).toEqual({ value: 1 }); expect(perfCacheRemaining('a')).toBe(0)
  })
- it('clears all entries and rejects a stale in-flight response', () => {
+ it('invalidates entries and rejects a stale in-flight response', () => {
   const generation = perfCacheGeneration(); writePerfCache('a', 1, generation); writePerfCache('b', 2, generation)
   clearPerfCache(); writePerfCache('a', 3, generation)
-  expect(readPerfCache('a')).toBeUndefined(); expect(readPerfCache('b')).toBeUndefined()
+  expect(readPerfCache('a')).toBe(1); expect(readPerfCache('b')).toBe(2); expect(perfCacheRemaining('a')).toBe(0)
  })
 })

@@ -5,11 +5,11 @@ import { currentTenant } from '@/lib/data'
 
 import { perfCacheGeneration, readPerfCache, writePerfCache, subscribePerfCache, perfCacheRemaining } from './perfCache'
 export { clearPerfCache } from './perfCache'
-export interface Read<T> { data?: T; error?: string; loading: boolean }
+export interface Read<T> { data?: T; error?: string; loading: boolean; refreshing?: boolean }
 
 export function usePerf<T>(session: Session, view: string, params: Record<string, string>, enabled = true): Read<T> {
 	const key = view + '?' + new URLSearchParams({ tenant: currentTenant(), ...params }).toString()
-	const ck = session.user + '\u0000' + key
+	const ck = session.user + '\u0000' + session.pass + '\u0000' + key
  const [version, setVersion] = useState(0)
  const [state, setState] = useState<{ ck: string; error?: string }>({ ck: '' })
  useEffect(() => subscribePerfCache(() => { setState({ ck: '' }); setVersion((v) => v + 1) }), [])
@@ -19,7 +19,7 @@ export function usePerf<T>(session: Session, view: string, params: Record<string
   let timer: ReturnType<typeof setTimeout>
   const refresh = () => setVersion((v) => v + 1)
   const cached = readPerfCache<T>(ck)
-  if (cached !== undefined) { timer = setTimeout(refresh, perfCacheRemaining(ck)); return () => clearTimeout(timer) }
+  if (cached !== undefined && perfCacheRemaining(ck) > 0) { timer = setTimeout(refresh, perfCacheRemaining(ck)); return () => clearTimeout(timer) }
   setState({ ck: '' })
   fetch('/api/performance/' + key, { headers: authHeaders(session), signal: ac.signal })
    .then(async (r) => { const d = await r.json(); if (!r.ok || !d.ok) throw new Error(d.error || 'دریافت داده ناموفق بود'); return d as T })
@@ -29,10 +29,10 @@ export function usePerf<T>(session: Session, view: string, params: Record<string
    })
    .catch((e) => { if (!ac.signal.aborted) setState({ ck, error: e.message }) })
   return () => { ac.abort(); clearTimeout(timer) }
- }, [ck, key, enabled, session, version])
+ }, [ck, key, enabled, session.user, session.pass, version])
  if (!enabled) return { loading: false }
  const data = readPerfCache<T>(ck)
- if (data !== undefined) return { data, loading: false }
+ if (data !== undefined) return { data, loading: false, refreshing: perfCacheRemaining(ck) === 0 && !(state.ck === ck && state.error), error: state.ck === ck ? state.error : undefined }
  return state.ck === ck && state.error ? { error: state.error, loading: false } : { loading: true }
 }
 

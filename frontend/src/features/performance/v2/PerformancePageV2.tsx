@@ -1,13 +1,15 @@
 /** Performance tab v2 — instrument-cluster UI over the same read-only /api/performance endpoints. No sample data. */
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Session } from '@/lib/auth'
+import { currentTenant } from '@/lib/data'
 import type { ServerAttendance } from '@/lib/attendanceApi'
 import { parseJ, todayJ } from '@/lib/jalali'
-import { DEFAULT_SETTINGS, EMPTY_FILTER, processSheet, rules, type RowEdit, type Filter } from '@/lib/performance'
-import { yearDays } from '@/components/performance/PerformanceWorkspace'
+import { DEFAULT_SETTINGS, processSheet, rules, type RowEdit } from '@/lib/performanceDays'
+import type { Filter } from '@/lib/performance'
+import { yearDays } from './lib/yearDays'
 import type { ApiDaily, ApiDirectory, ApiSummary, DailyKey, Metric, PersonVM } from './data/types'
 import { callMetrics, gaugeMax, groupIssues, tasksMetric, toCalls, toDays, toMetric, toPeople, UNIT_LABEL } from './data/adapters'
-import { clearPerfCache, usePerf } from './data/hooks'
+import { usePerf } from './data/hooks'
 import { CLUSTER, WORKDAY_MIN } from './data/clusterConfig'
 import InstrumentCluster, { type ClusterGauge } from './cluster/InstrumentCluster'
 import { CommandBar, DriveModeSelector, periodLabel, type Mode, type PeriodState } from './sections/CommandBar'
@@ -25,6 +27,8 @@ import SalesTargetSettings from './sections/SalesTargetSettings'
 import AchievementBreakdown from './sections/AchievementBreakdown'
 import { LEVEL_LABEL } from './data/adapters'
 import './perf-v2.css'
+
+const EMPTY_FILTER: Filter = { from: '', to: '', person: '', team: '', status: '', att: '', task: '', q: '' }
 
 const MANAGERS = ['manager', 'salesmgr', 'accmgr']
 const off = (id: string, label: string, unit: string, definition: string): Metric => toMetric({ id, label, unit, definition, status: 'no_data', value: null, coverage: { records: 0, issues: 0 } })
@@ -48,7 +52,12 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const span = period.kind === 'year' ? dates : dates.filter((d) => period.kind === 'quarter' ? Math.floor((d.month - 1) / 3) === Math.floor((period.month - 1) / 3) : d.month === period.month)
 	const start = period.kind === 'custom' ? parseJ(period.from)?.j || '' : span[0]?.date || '', end = period.kind === 'custom' ? parseJ(period.to)?.j || '' : span.at(-1)?.date || ''
 	const params = { person, unit, start, end }
-	const summary = usePerf<ApiSummary>(session, 'summary', params, !!directory.data && !!start && !!end && start <= end)
+	const summaryRead = usePerf<ApiSummary>(session, 'summary', params, !!start && !!end && start <= end)
+    const tenant = currentTenant()
+    const previous = useRef<{ user: string; pass: string; tenant: string; data?: ApiSummary }>({ user: session.user, pass: session.pass, tenant })
+    if (previous.current.user !== session.user || previous.current.pass !== session.pass || previous.current.tenant !== tenant) previous.current = { user: session.user, pass: session.pass, tenant }
+    if (summaryRead.data) previous.current.data = summaryRead.data
+    const summary = { ...summaryRead, data: summaryRead.data ?? previous.current.data, loading: summaryRead.loading && !previous.current.data }
 	const team = useMemo(() => toPeople(summary.data?.people), [summary.data])
 	const current: PersonVM | undefined = person ? team.find((p) => p.id === person) : undefined
 	const group = !person && unit ? summary.data?.groups?.find((g) => g.unit === unit) : undefined
@@ -56,7 +65,6 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const calls = current ? callMetrics(current.calls) : group ? callMetrics(toCalls(group.calls)) : []
 	const metrics: Metric[] = current ? [...current.metrics, tasksMetric(current.tasks), ...calls] : group ? [...group.metrics.map(toMetric), ...calls] : []
 
- useEffect(() => { clearPerfCache() }, [pick, unit, start, end])
  const attendance = usePerf<ServerAttendance>(session, 'attendance', { person, start, end }, !!person && !!start && !!end)
  const chosen = people.find((p) => p.id === person)
  const rows = useMemo(() => serverAttendanceDays(attendance.data?.cards || [], person, start, end), [attendance.data, person, start, end])
@@ -67,7 +75,7 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 		: off('presence', 'حضور', '٪', 'حضور برای این شخص و دوره روی سرور نیست یا کارت تأیید نشده.')
 	// Targets only from /source; effort uses period call_logs and attendance_days.
 	type Src = { full?: { people?: { id: string | number; perfSet?: { taskTarget?: number; callTarget?: number } }[]; perfCfg?: { taskCapMin?: number; taskTarget?: number; callTarget?: number }; callHours?: Record<string, number> } }
-	const source = usePerf<Src>(session, 'source', {}, !!directory.data)
+	const source = usePerf<Src>(session, 'source', {})
 	const srcPerson = source.data?.full?.people?.find((p) => String(p.id) === person)
 	const cfgP = source.data?.full?.perfCfg || {}
 	const effort = serverEffort(current?.calls, inSpan.length, 0, current?.tasks ?? 0)
@@ -102,8 +110,8 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 	const units = [...new Set(people.map((p) => p.unit))]
 	const scopeNote = `دامنه: ${directory.data?.scope === 'organization' ? 'کل سازمان' : directory.data?.scope === 'unit' ? 'واحد شما' : 'فقط خودتان'} · سال مالیِ اسناد مستقل است · Asia/Tehran`
 
-	const cabin = directory.error ? <p role="alert" className="pv-alert">{directory.error}</p>
-		: summary.error ? <p role="alert" className="pv-alert">{summary.error}</p>
+	const cabin = directory.error && !directory.data ? <p role="alert" className="pv-alert">{directory.error}</p>
+		: summary.error && !summary.data ? <p role="alert" className="pv-alert">{summary.error}</p>
 			: directory.loading || summary.loading ? <div className="pv-cabin pv-cabin-load"><AromLoader /></div>
 				: <InstrumentCluster main={main} side={person ? <EffortPanel effort={effort} callActual={effUnit === 'sales' ? metrics.find(m => m.id === 'efficiency')?.parts?.activity?.actual ?? null : undefined} callTarget={callTarget} taskTarget={taskTarget} sales={metrics.find(m => m.id === 'efficiency')?.parts?.count?.actual ?? avg?.denominator ?? null} salesTarget={metrics.find(m => m.id === 'efficiency')?.parts?.count?.target ?? null} peakHourShare={current?.calls?.peakHourShare} callHours={source.data?.full?.callHours || {}} onImport={connect} /> : <p className="pv-cabin-hint">ساعت تلاش: یک شخص انتخاب کنید</p>} minis={minis} title={title} period={periodLabel(period)}
 					contracts={avg?.denominator ?? null} avgContract={avg?.value ?? null} workdays={inSpan.length || null}
@@ -117,7 +125,7 @@ export default function PerformancePageV2({ session, go, renderReview, renderSet
 
 	const callTiles = calls.length > 0 && <CallTiles metrics={calls} activeId={activeMetric.id} onSelect={(m) => { setActive(m.id); if (m.dailyMetric) setHeatMetric(m.dailyMetric) }} onConnect={connect} />
 	const tracker = <TaskTracker session={session} person={person} year={heatYear} monthlyTarget={taskTarget} holidays={holidays} onDay={(d) => open(tasksMetric(current?.tasks), d, d)} />
-	return <div dir="rtl" className="pv-root" data-performance-v2>
+	return <div aria-busy={summaryRead.loading || summaryRead.refreshing} dir="rtl" className="pv-root" data-performance-v2>
 		<CommandBar period={period} setPeriod={setPeriod} people={people} stats={team} person={person} setPerson={setPick} unit={unit} setUnit={(u) => { setUnit(u); setPick('') }} units={units} manager={manager} scopeNote={scopeNote} />
 		<DriveModeSelector mode={mode} setMode={setMode} classic={session.role === 'manager'} />
 		{mode === 'cabin' && <>
