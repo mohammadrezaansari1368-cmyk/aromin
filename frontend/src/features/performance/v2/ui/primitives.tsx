@@ -40,11 +40,12 @@ export function ScrambleText({ text, className }: { text: string; className?: st
 
 /** Soft counter for TFT figures; null stays «—» */
 export function CountUp({ value, format = (n: number) => fa(n) }: { value: number | null; format?: (n: number) => string }) {
-	const [shown, setShown] = useState(value), from = useRef(value)
+	const [shown, setShown] = useState(value === null ? null : 0), from = useRef(0)
 	useEffect(() => {
-		if (value === null || from.current === null || reducedMotion()) { from.current = value; setShown(value); return }
+		if (value === null) { from.current = 0; setShown(null); return }
+		if (reducedMotion()) { from.current = value; setShown(value); return }
 		let raf = 0; const a = from.current, t0 = performance.now()
-		const step = (now: number) => { const p = Math.min(1, (now - t0) / 500), e = 1 - (1 - p) ** 3; setShown(a + (value - a) * e); if (p < 1) raf = requestAnimationFrame(step); else from.current = value }
+		const step = (now: number) => { const p = Math.min(1, (now - t0) / 500), e = 1 - (1 - p) ** 3; const next = a + (value - a) * e; from.current = next; setShown(next); if (p < 1) raf = requestAnimationFrame(step); else from.current = value }
 		raf = requestAnimationFrame(step)
 		return () => cancelAnimationFrame(raf)
 	}, [value])

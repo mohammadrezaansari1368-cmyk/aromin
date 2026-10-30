@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { authHeaders, isAdmin, type Session } from '@/lib/auth'
+import SecretField, { messengersApi, type SecretMeta } from '@/components/settings/SecretField'
 import { currentTenant } from '@/lib/data'
 import { BTN, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, INPUT } from '@/components/ui/tokens'
 
@@ -17,8 +18,12 @@ type Check = { name: string; ok: boolean; note: string }
 const inCls = INPUT
 const btn = BTN
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+// 3.9.74: DNSِ دامنهٔ داشبورد برای بازدیدکنندهٔ تازه کُند است (نِیم‌سرورهای ابرآروان) → dns-prefetch/preconnect از همان ابتدای صفحه،
+// و اگر بارگذاری خطا داد تا ۳ بار دوباره (۳، ۶، ۹ ثانیه بعد) — بدونِ این، ابزارک و پاپ‌آپِ لید برای اولین بازدید نمی‌آمد.
 const installCode = (id: string) =>
-	`<script>(function(d){var s=d.createElement("script");s.async=1;s.src="${location.origin}/widget.js";s.setAttribute("data-site-id","${id}");(d.head||d.documentElement).appendChild(s)})(document);</script>`
+	`<link rel="dns-prefetch" href="${location.origin}"><link rel="preconnect" href="${location.origin}" crossorigin>` +
+	`<script>(function(d,n){function l(){var s=d.createElement("script");s.async=1;s.src="${location.origin}/widget.js";s.setAttribute("data-site-id","${id}");` +
+	`s.onerror=function(){s.parentNode&&s.parentNode.removeChild(s);if(++n<4)setTimeout(l,3e3*n)};(d.head||d.documentElement).appendChild(s)}l()})(document,0);</script>`
 
 export default function WidgetInstallCard({ session }: { session: Session }) {
 	const admin = isAdmin(session.role)
@@ -147,6 +152,16 @@ export default function WidgetInstallCard({ session }: { session: Session }) {
 					)}
 				</>
 			)}
+			{admin && <UpdateTokenField session={session} />}
 		</section>
 	)
+}
+
+/** توکنِ به‌روزرسانی (UPDATE_TOKEN: OTA، spa-deploy، purge-cache) — همان قفل/۴ رقمِ آخر/جایگزینی با رمزِ فعلی؛ مقدارِ تازه فقط یک‌بار. */
+function UpdateTokenField({ session }: { session: Session }) {
+	const [d, setD] = useState<{ keyConfigured: boolean; secrets: Record<string, SecretMeta> } | null>(null)
+	const load = useCallback(() => { messengersApi<{ keyConfigured: boolean; secrets: Record<string, SecretMeta> }>(session, 'GET', '').then(setD, () => setD(null)) }, [session])
+	useEffect(() => { load() }, [load])
+	if (!d) return null
+	return <div className="mt-3"><SecretField session={session} name="update_token" meta={d.secrets.update_token} keyConfigured={d.keyConfigured} canGenerate onChange={load} /></div>
 }

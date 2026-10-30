@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import fs from 'node:fs'
 import * as XLSX from 'xlsx'
 import {
 	DEFAULT_SETTINGS, EMPTY_FILTER, lateRows, mergedTasks, parseTaskRows, parseTaskWorkbook, personSummary, processSheet, resolveLink, rules, taskStats, ownerKey,
 	type RawTask, type ResolvedLink, type RowEdit,
+	buildDataset, saveEdit,
 } from './performance'
+import { attendanceCache, resetAttendanceCache, type ServerAttendance, type ServerCard } from './attendanceApi'
+import type { Session } from './auth'
 
 const R = rules(DEFAULT_SETTINGS)
 const LINK: ResolvedLink = { person: 'تست', personHow: 'strong', owner: 'id:1', ownerName: 'تست', ownerHow: 'strong' }
@@ -135,5 +138,59 @@ describe('نگاشتِ یاسمن امیری (فاطمه امیری ← خانم
 		expect(st.outside).toBe(16)
 		expect(st.owners[0].key).toBe('id:25')
 		void XLSX
+	})
+})
+
+describe('اضافه‌کار از خروجِ دیرتر (overtimeByLateExit)', () => {
+	const RL = rules({ ...DEFAULT_SETTINGS, overtimeByLateExit: true })
+	const at = (rows: ReturnType<typeof day>[], R2 = RL, edits: Record<string, RowEdit> = {}) => processSheet(rows, 'شیت', R2, LINK, null, null, edits, 'فروش')!
+	it('پیش‌فرض خاموش؛ ۱۸:۰۰ پایانِ موظفی؛ اضافه‌کار بدونِ وظایفِ خام همان null', () => {
+		expect(DEFAULT_SETTINGS).toMatchObject({ overtimeByLateExit: false, workEnd: '18:00' })
+		expect(R.otLateExit).toBe(false)
+		expect(run([day('1405/06/01', '10:00', '19:30')]).rows[0].overtime).toBeNull()
+	})
+	it('روشن: خروجِ ۱۹:۳۰ = ۹۰ دقیقه؛ ویرایشِ دستی برنده است؛ تعطیل شمرده نمی‌شود', () => {
+		expect(at([day('1405/06/01', '10:00', '19:30')]).rows[0].overtime).toBe(90)
+		expect(at([day('1405/06/01', '10:00', '17:30')]).rows[0].overtime).toBeNull()
+		expect(at([day('1405/06/01', '10:00', '19:30')], RL, { 'شیت|1405/06/01': { overtime: '00:20' } }).rows[0].overtime).toBe(20)
+		expect(at([day('1405/06/01', '10:00', '19:30')], RL, { 'شیت|1405/06/01': { code: 'official_holiday' } }).rows[0].overtime).toBeNull()
+	})
+	it('با جلسه جمع می‌شود (جلسه فقط بیرون از ورود/خروج)', () => {
+		const p = processSheet([day('1405/06/01', '10:00', '19:00')], 'شیت', RL, LINK, null, [task('1', '1405/06/01', '19:00', '20:00')], {}, 'فروش')!
+		expect(p.rows[0].overtime).toBe(60 + 60)
+	})
+})
+
+describe('دیتاست از کارت‌های سرور', () => {
+	const ADMIN: Session = { name: 'مدیر', role: 'manager', user: 'مدیر', pass: 'x' }
+	const EMP: Session = { name: 'زهرا کریمی', role: 'sales', user: 'زهرا', pass: '1' }
+	const card = (cardNo: string, mapping: ServerCard['mapping'], personId: string | null, personName: string | null): ServerCard => ({
+		cardNo, sheetName: 'کریمی', rawName: 'زهرا كريمي', personId, personName, mapping, rows: [day('1405/06/01', '10:00', '18:00')], overrides: {},
+	})
+	const put = (cards: ServerCard[]) => {
+		const d: ServerAttendance = { ok: true, scope: 'organization', settings: {}, settingsStored: false, cards, period: { from: null, to: null }, updatedAt: null }
+		Object.assign(attendanceCache, { tenant: 'team', identity: '', data: d })
+	}
+	const full = { people: [{ id: '2', name: 'زهرا کریمی', role: 'sales' }, { id: '3', name: 'سارا کریمی', role: 'sales' }], performanceScoped: true }
+	afterEach(() => { resetAttendanceCache(); vi.unstubAllGlobals() })
+	it('کارتِ تأییدشده ← manual و برای خودِ کارمند دیده می‌شود؛ پیشنهادی ← بدونِ شخص و بیرون از نمای محدود', () => {
+		put([card('9', 'confirmed', '2', 'زهرا کریمی'), card('7', 'suggested', '3', 'سارا کریمی')])
+		const admin = buildDataset(ADMIN, { people: full.people })
+		expect(admin.people.map((p) => [p.sheetName, p.person, p.personHow])).toEqual([['کریمی · کارت 9', 'زهرا کریمی', 'manual'], ['کریمی · کارت 7', null, 'none']])
+		expect(admin.unmatched).toBe(1)
+		const emp = buildDataset(EMP, full)
+		expect(emp.people.map((p) => p.sheetName)).toEqual(['کریمی · کارت 9'])
+		put([card('7', 'suggested', '2', 'زهرا کریمی')])
+		expect(buildDataset(EMP, full).people).toHaveLength(0)   // تطبیقِ نام شخص را تعیین نمی‌کند
+	})
+	it('saveEdit کلیدِ شیت را به شماره کارت نگاشت می‌کند', async () => {
+		put([card('9', 'confirmed', '2', 'زهرا کریمی')])
+		const f = vi.fn(async (_u: RequestInfo | URL, init?: RequestInit) => new Response(JSON.stringify({ ok: true, override: JSON.parse(String(init!.body)).fields }), { status: 200 }))
+		vi.stubGlobal('fetch', f)
+		await saveEdit(ADMIN, 'کریمی · کارت 9', '1405/06/01', { note: 'جلسه' })
+		expect(String(f.mock.calls[0][0])).toBe('/api/performance/attendance/overrides')
+		expect(JSON.parse(String(f.mock.calls[0][1]!.body))).toMatchObject({ cardNo: '9', date: '1405/06/01', fields: { note: 'جلسه' } })
+		expect(attendanceCache.data!.cards[0].overrides['1405/06/01']).toEqual({ note: 'جلسه' })
+		await expect(saveEdit(ADMIN, 'ناشناخته', '1405/06/01', null)).rejects.toThrow(/کارت/)
 	})
 })

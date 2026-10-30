@@ -13,7 +13,11 @@
 	var API = BASE + '/api/widget/public/' + encodeURIComponent(siteId)
 	var TEST = W.ArominWidgetTest || null // فقط صفحهٔ «تست ابزارک» داخلِ داشبورد
 	var STORE = 'aromin-widget:' + siteId
-	var BOT_V = '3.9.25' // با هر تغییرِ رباتِ سه‌بعدی بالا برود: نشانیِ تازه = بدونِ کشِ کهنهٔ CDN
+	// نسخهٔ همهٔ فایل‌های ابزارک از یک منبع: APP_VERSION (legacy.html) — tools/package_release.py این نشانه را هنگامِ بسته‌سازی می‌نشاند
+	var APP_V = '__AROMIN_APP_VERSION__'
+	if (APP_V.charAt(0) === '_') APP_V = 'dev'
+	var BOT_V = APP_V, AGENT_V = APP_V
+	var URL_PREVIEW = /[?&]aromin_preview=1(?:&|$)/.test(location.search) // پیش‌نمایشِ تریگر از تنظیمات: بدونِ رویداد و لید
 
 	function rid() {
 		var a = new Uint8Array(12); (W.crypto || W.msCrypto).getRandomValues(a)
@@ -51,31 +55,55 @@
 		function pos(p, sel) {
 			var side = p.side === 'left' ? 'left' : 'right', other = side === 'left' ? 'right' : 'left'
 			return sel + ' .btn{bottom:' + p.bottom + 'px;' + side + ':' + p.offset + 'px;' + other + ':auto}' +
-				sel + ' .panel{bottom:' + (p.bottom + 84) + 'px;' + side + ':' + p.offset + 'px;' + other + ':auto;transform-origin:bottom ' + side + '}'
+				sel + ' .tease{bottom:' + (p.bottom + 92) + 'px;' + side + ':' + p.offset + 'px;' + other + ':auto}' +
+				sel + ' .panel{bottom:' + (p.bottom + 92) + 'px;' + side + ':' + p.offset + 'px;' + other + ':auto;transform-origin:bottom ' + side + '}'
 		}
-		var col = c.color
+		var col = c.color || '#910D6A', blue = '#004991', gold = '#FCBF00', ink = '#1f1e1d', mute = '#7a776c', line = '#e8e6dc'
 		return ':host{all:initial}*{box-sizing:border-box;margin:0;padding:0;font-family:ArominWidget,Tahoma,sans-serif;letter-spacing:0;line-height:1.7;text-transform:none}' +
-			'.btn{position:fixed;z-index:2147483000;width:72px;height:72px;border-radius:50%;border:0;padding:0;cursor:pointer;background:transparent;transition:transform .15s cubic-bezier(.4,0,.2,1)}.btn:active{transform:scale(.95)}' +
-			'.btn:focus-visible,button:focus-visible,textarea:focus-visible{outline:3px solid ' + col + '55;outline-offset:2px}' +
-			'.halo{position:absolute;inset:4px;border-radius:50%;background:' + col + '40;filter:blur(12px);opacity:0;transition:opacity .3s}.busy .halo{opacity:1;animation:awp 2s cubic-bezier(.4,0,.6,1) infinite}@keyframes awp{50%{opacity:.5}}' +
-			'.bot,.ph{position:absolute;inset:0}.ph{inset:8px;border-radius:50%;background:' + col + ';box-shadow:0 10px 15px -3px rgba(0,0,0,.1),0 4px 6px -4px rgba(0,0,0,.1)}' +
-			'.panel{position:fixed;z-index:2147483001;width:370px;max-width:calc(100vw - 24px);height:min(600px,calc(100vh - 120px));background:#fff;color:#1f1a1e;border-radius:18px;box-shadow:0 18px 50px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;direction:rtl;text-align:right;opacity:0;transform:translateY(16px) scale(.97);pointer-events:none;transition:opacity .24s cubic-bezier(.16,1,.3,1),transform .24s cubic-bezier(.16,1,.3,1)}' +
+			// launcher: the 3D assistant hops (squash & stretch) until the visitor opens the chat once
+			'.btn{position:fixed;z-index:2147483000;width:78px;height:78px;border:0;padding:0;cursor:pointer;background:transparent;transform-origin:50% 100%}' +
+			'.hop .btn{animation:aw-hop 2.4s cubic-bezier(.3,.7,.4,1) infinite}.btn:hover{animation-play-state:paused}.btn:active{transform:scale(.94)}' +
+			'@keyframes aw-hop{0%,46%,100%{transform:translateY(0) scale(1,1)}7%{transform:translateY(0) scale(1.1,.88)}17%{transform:translateY(-26px) scale(.94,1.07)}27%{transform:translateY(0) scale(1.08,.9)}33%{transform:translateY(-8px) scale(1)}39%{transform:translateY(0)}}' +
+			'.btn:focus-visible,button:focus-visible,textarea:focus-visible,input:focus-visible{outline:3px solid ' + col + '55;outline-offset:2px}' +
+			'.halo{position:absolute;inset:6px;border-radius:50%;background:' + col + '40;filter:blur(12px);opacity:0;transition:opacity .3s}.busy .halo{opacity:1;animation:awp 2s cubic-bezier(.4,0,.6,1) infinite}@keyframes awp{50%{opacity:.5}}' +
+			'.bot,.ph{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}' +
+			'.tease{position:fixed;z-index:2147483000;max-width:240px;background:#fff;color:' + ink + ';border:1px solid ' + line + ';border-radius:16px;padding:10px 30px 10px 14px;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.14);cursor:pointer;opacity:0;transform:translateY(8px) scale(.96);transition:opacity .25s,transform .25s;pointer-events:none;direction:rtl}' +
+			'.tease.on{opacity:1;transform:none;pointer-events:auto}.tease .tx{position:absolute;top:4px;right:6px;border:0;background:none;color:' + mute + ';font-size:16px;cursor:pointer;width:22px;height:22px}' +
+			'.open .tease{display:none}' +
+			// the chat page (Claude-like): warm paper, no coloured header, assistant text without a bubble, grey user bubble, round composer with ↑
+			'.panel{position:fixed;z-index:2147483001;width:400px;max-width:calc(100vw - 24px);height:min(660px,calc(100vh - 120px));background:#faf9f5;color:' + ink + ';border:1px solid ' + line + ';border-radius:22px;box-shadow:0 24px 64px rgba(0,0,0,.2);display:flex;flex-direction:column;overflow:hidden;direction:rtl;text-align:right;opacity:0;transform:translateY(14px) scale(.98);pointer-events:none;transition:opacity .18s cubic-bezier(.16,1,.3,1),transform .18s cubic-bezier(.16,1,.3,1)}' +
 			'.open .panel{opacity:1;transform:none;pointer-events:auto}' +
-			'.head{background:' + col + ';color:#fff;padding:14px 16px;display:flex;align-items:center;gap:8px}.head b{flex:1;font-size:15px;font-weight:700}' +
-			'.head button{background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:10px;min-width:32px;height:32px;padding:0 8px;cursor:pointer;font-size:12px}' +
-			'.log{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:8px;background:#f7f5f7}' +
-			'.m{max-width:85%;padding:9px 12px;border-radius:14px;font-size:14px;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}' +
-			'.m.a{align-self:flex-start;background:#fff;border:1px solid #eee;border-bottom-right-radius:4px}.m.u{align-self:flex-end;background:' + col + ';color:#fff;border-bottom-left-radius:4px}' +
-			'.m.e{align-self:center;background:#fff4e5;color:#8a4b00;font-size:12.5px}.m.t{color:#888}' +
-			'form{display:flex;gap:8px;padding:10px;border-top:1px solid #eee;background:#fff}' +
-			'textarea{flex:1;resize:none;border:1px solid #ddd;border-radius:12px;padding:8px 10px;font-size:14px;max-height:110px;min-height:42px;background:#fff;color:#1f1a1e;direction:rtl}' +
-			'form button{border:0;border-radius:12px;background:' + col + ';color:#fff;min-width:64px;font-size:14px;font-weight:700;cursor:pointer}form button:disabled{opacity:.5;cursor:default}' +
+			'.panel:before{content:"";display:block;height:4px;flex:none;background:linear-gradient(90deg,' + blue + ' 0 33.3%,' + col + ' 33.3% 66.6%,' + gold + ' 66.6%)}' +
+			'.hav{width:38px!important;height:38px!important;max-width:38px;flex:none;object-fit:contain}.ht b{color:' + blue + '}' +
+			'.mdl{font:inherit;font-size:12px;color:' + blue + ';background:#eef3f9;border:1px solid #d5e1ee;border-radius:10px;padding:5px 6px;max-width:122px;cursor:pointer;flex:none}' +
+			'.cart{display:inline-block;margin-top:8px;background:' + gold + ';color:#1f1e1d;font-weight:700;text-decoration:none;border-radius:12px;padding:9px 16px}' +
+			'.head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #eeece5}.hav{width:38px;height:38px;flex:none;object-fit:contain}' +
+			'.ht{flex:1;min-width:0}.ht b{display:block;font-size:15px;font-weight:700;line-height:1.4}.ht small{display:block;font-size:11.5px;color:' + mute + ';line-height:1.4}' +
+			'.head button{background:transparent;color:#5e5d59;border:0;border-radius:10px;width:36px;height:36px;display:grid;place-items:center;cursor:pointer;flex:none}.head button:hover{background:#efede6}.head svg{width:18px;height:18px}' +
+			'.log{flex:1;overflow-y:auto;padding:18px 16px 8px;display:flex;flex-direction:column;gap:14px;overscroll-behavior:contain}' +
+			'.m{font-size:15px;line-height:1.85;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}' +
+			'.m.a{align-self:stretch;color:' + ink + '}.m.u{align-self:flex-end;max-width:85%;background:#eaf1f8;color:#0b2a4a;border-radius:18px;padding:8px 14px}' +
+			'.m.e{align-self:stretch;color:#8a4b00;background:#fdf3e4;border-radius:12px;padding:8px 12px;font-size:13.5px}' +
+			'.row{display:flex;gap:10px;align-items:flex-start}.row>img{width:40px;height:40px;flex:none;object-fit:contain}.row .m{flex:1;min-width:0}' +
+			'.dots{display:inline-flex;gap:5px;padding:8px 0}.dots i{width:7px;height:7px;border-radius:50%;background:' + gold + ';opacity:.35;animation:aw-dot 1.1s infinite}.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}@keyframes aw-dot{40%{opacity:1;transform:translateY(-3px)}}' +
+			'.lf{display:grid;gap:8px;background:#fff;border:1px solid ' + line + ';border-radius:16px;padding:12px}.lf input{font:inherit;font-size:15px;border:1px solid #e3e1d8;border-radius:12px;padding:10px 12px;outline:none;background:#fff;color:' + ink + ';direction:rtl}' +
+			'.lf input:focus{border-color:' + col + ';box-shadow:0 0 0 3px ' + col + '22}.lf button{font:inherit;font-size:15px;font-weight:700;border:0;border-radius:12px;padding:11px;background:' + col + ';color:#fff;cursor:pointer}.lf button:disabled{opacity:.55}.lf .er{color:#b42318;font-size:12.5px}' +
+			'form.c{margin:6px 12px 6px;display:flex;align-items:flex-end;gap:8px;background:#fff;border:1px solid #e3e1d8;border-radius:22px;padding:8px;box-shadow:0 1px 4px rgba(0,0,0,.05)}form.c:focus-within{border-color:#c9c6ba}' +
+			'form.c textarea{flex:1;resize:none;border:0;outline:none;background:transparent;font-size:15px;padding:6px;max-height:140px;min-height:36px;color:' + ink + ';direction:rtl}' +
+			'form.c button{width:36px;height:36px;border-radius:12px;border:0;background:' + col + ';color:#fff;display:grid;place-items:center;cursor:pointer;flex:none}form.c button:disabled{opacity:.35;cursor:default}form.c button svg{width:18px;height:18px}' +
+			'.foot{text-align:center;font-size:11px;color:#9a978c;padding:0 0 8px}' +
 			pos(c.desktop, '') +
 			'@media (max-width:520px){' + pos(c.mobile, '') +
-			'.panel{inset:0!important;width:100%;max-width:none;height:100%;height:100dvh;border-radius:0}.open .btn{display:none}}' +
-			'@media (prefers-reduced-motion:reduce){.panel,.btn{transition:none}.busy .halo{animation:none}}'
+			'.panel{inset:0!important;width:100%;max-width:none;height:100%;height:100dvh;border-radius:0;border:0}.head{padding-top:max(12px,env(safe-area-inset-top))}.foot{padding-bottom:max(8px,env(safe-area-inset-bottom))}.open .btn{display:none}}' +
+			'@media (prefers-reduced-motion:reduce){.panel,.btn,.tease{transition:none}.hop .btn,.busy .halo,.dots i{animation:none}}'
 	}
 
+	var UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg>'
+	var NEW = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>'
+	// 3.9.81: the assistant's 3D reactions (rendered from the dashboard's 3D model) — no emoji anywhere
+	function FACE(k) { return BASE + '/agent/' + k + '.webp' }
+	// 3.9.83: the visitor can pick one of four low-cost models (server allow-list WIDGET_MODELS)
+	var MODELS = [['GPT-4.1-Mini', 'GPT Mini'], ['DeepSeek-V4-Flash', 'DeepSeek Flash'], ['Claude-Haiku-4.5', 'Claude Haiku'], ['Gemini-2.5-Flash', 'Gemini Flash']]
 	var CLOSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>'
 
 	function mount(c) {
@@ -84,16 +112,23 @@
 		host.setAttribute('style', 'all:initial!important;position:static!important;display:block!important')
 		var root = host.attachShadow ? host.attachShadow({ mode: 'open' }) : host
 		root.innerHTML = '<style>' + css(c) + '</style><div class="w" dir="rtl">' +
-			'<div class="panel" role="dialog" aria-modal="false" aria-label=""><div class="head"><b></b><button type="button" class="new" title="گفت‌وگوی تازه">تازه</button><button type="button" class="x" aria-label="بستن">' + CLOSE + '</button></div>' +
-			'<div class="log" aria-live="polite"></div><form><textarea rows="1" placeholder="پیامتان را بنویسید…" aria-label="پیام"></textarea><button type="submit">ارسال</button></form></div>' +
-			'<button type="button" class="btn" aria-expanded="false" aria-label=""><span class="halo" aria-hidden="true"></span><span class="ph" aria-hidden="true"></span><span class="bot" aria-hidden="true"></span></button></div>'
+			'<div class="panel" role="dialog" aria-modal="false" aria-label=""><div class="head"><img class="hav" alt="" aria-hidden="true" src="' + FACE('listening') + '"><div class="ht"><b></b><small>معمولاً در چند ثانیه پاسخ می‌دهد</small></div>' +
+			'<button type="button" class="new" title="گفت‌وگوی تازه" aria-label="گفت‌وگوی تازه">' + NEW + '</button><button type="button" class="x" aria-label="بستن">' + CLOSE + '</button></div>' +
+			'<div class="log" aria-live="polite"></div><form class="c"><textarea rows="1" placeholder="پیامتان را بنویسید…" aria-label="پیام"></textarea><select class="mdl" aria-label="مدلِ هوش مصنوعی">' + MODELS.map(function (m) { return '<option value="' + m[0] + '">' + m[1] + '</option>' }).join('') + '</select><button type="submit" aria-label="ارسال">' + UP + '</button></form><div class="foot">Agent هوشمندِ آرومین</div></div>' +
+			'<div class="tease" role="status"><span class="tt"></span><button type="button" class="tx" aria-label="بستن">×</button></div>' +
+			'<button type="button" class="btn" aria-expanded="false" aria-label=""><span class="halo" aria-hidden="true"></span><img class="ph" alt="" aria-hidden="true" src="' + FACE('joy') + '"><span class="bot" aria-hidden="true"></span></button></div>'
 		;(D.body || D.documentElement).appendChild(host)
 		var $ = function (s) { return root.querySelector(s) }
-		var w = $('.w'), btn = $('.btn'), log = $('.log'), ta = $('textarea'), send = $('form button')
-		$('.head b').textContent = c.title
+		var w = $('.w'), btn = $('.btn'), log = $('.log'), ta = $('textarea'), send = $('form button'), chatForm = $('form')   // captured before the lead form (3.9.80) is added to the log
+		c.title = String(c.title || 'Agent آرومین').replace(/دستیار/g, 'Agent')   // 3.9.83: «agent», not «دستیار»
+		$('.ht b').textContent = c.title
+		var mdl = $('.mdl'); if (st.model) mdl.value = st.model
+		mdl.onchange = function () { st.model = mdl.value; if (!preview) save() }
 		$('.panel').setAttribute('aria-label', c.title)
 		btn.setAttribute('aria-label', 'گفت‌وگو با ' + c.title)
-		var busy = false, bot = null
+		var busy = false, bot = null, ag = null
+		function emit(ev, t) { if (ag) try { ag.emit(ev, t) } catch { /* دستیار نباید ابزارک را خراب کند */ } }
+		function track(ev, props) { if (!preview && !URL_PREVIEW && c.agent) req('POST', '/event', { event: ev, props: props || {} }).catch(function () { /* بی‌صدا */ }) }
 		function status(v) { w.classList.toggle('busy', v !== 'idle'); if (bot) bot.setStatus(v) }
 		function loadBot() {
 			var still = W.matchMedia && W.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -102,28 +137,70 @@
 			var s = D.createElement('script'); s.src = BASE + '/widget-bot.js?v=' + BOT_V; s.async = true; s.onload = go
 			;(D.head || D.documentElement).appendChild(s)
 		}
-		loadBot()
+		// ربات سه‌بعدی (~۳۰۸KB gzip) هنگامِ بارِ صفحه بار نمی‌شود: فقط با باز شدنِ ابزارک یا اولین تعامل با خودِ ابزارک
+		// (اشاره‌گر، لمس، فوکوس یا کلید روی دکمه/پنل). اسکرول یا کلیک در جای دیگرِ صفحه آن را بار نمی‌کند؛ تا آن موقع جانگه‌دار.
+		var botWanted = false
+		function needBot() { if (botWanted) return; botWanted = true; loadBot() }
+		// فقط دکمه و پنل؛ حبابِ پاپ‌آپ (داخلِ .w) ربات را بار نمی‌کند — با «باز شدنِ پنل» بار می‌شود
+		;[btn, $('.panel')].forEach(function (el) { ['pointerenter', 'pointerdown', 'touchstart', 'focusin', 'keydown'].forEach(function (ev) { el.addEventListener(ev, needBot, { once: true, passive: true }) }) })
 
-		function bubble(role, text) {
-			var d = D.createElement('div'); d.className = 'm ' + role; d.textContent = text; log.appendChild(d); log.scrollTop = log.scrollHeight; return d
+		function bubble(role, text, face) {
+			var d = D.createElement('div'); d.className = 'm ' + role; d.textContent = text
+			var el = d
+			if (face) { el = D.createElement('div'); el.className = 'row'; var im = D.createElement('img'); im.src = FACE(face); im.alt = ''; im.setAttribute('aria-hidden', 'true'); el.appendChild(im); el.appendChild(d) }
+			log.appendChild(el); log.scrollTop = log.scrollHeight; return el
+		}
+		// 3.9.80: first goal = business name + mobile → straight to a sales rep (/lead); the chat stays open for questions
+		var OPENER = 'سلام! خوش آمدید. برای اینکه کارشناسِ آرومین دقیق و رایگان راهنمایی‌تان کند، اسمِ مجموعه و شمارهٔ موبایل‌تان را بنویسید.'
+		function leadForm() {
+			var f = D.createElement('form'); f.className = 'lf'
+			f.innerHTML = '<input name="b" autocomplete="organization" placeholder="اسمِ مجموعه (کافه، رستوران، فروشگاه…)" maxlength="120" required>' +
+				'<input name="p" type="tel" inputmode="tel" autocomplete="tel" dir="ltr" placeholder="شمارهٔ موبایل ۰۹…" maxlength="16" required>' +
+				'<button type="submit">ثبت و تماسِ کارشناس</button><span class="er" role="alert"></span>'
+			f.addEventListener('submit', function (e) {
+				e.preventDefault()
+				var b = f.querySelector('[name=b]').value.trim(), p = f.querySelector('[name=p]').value.trim(), bt = f.querySelector('button'), er = f.querySelector('.er')
+				if (!b || !p) return
+				if (preview) { f.remove(); bubble('a', 'پیش‌نمایش: لید ثبت نمی‌شود.'); return }
+				bt.disabled = true; er.textContent = ''
+				req('POST', '/lead', { business: b, phone: p, conversationId: st.conversationId, page: { url: location.href.slice(0, 500) } })
+					.then(function (d) {
+						if (d && d.ok) { st.lead = true; save(); f.remove(); bubble('a', 'ممنون! کارشناسانِ آرومین به‌زودی با شما تماس می‌گیرند. اگر سؤالی دارید همین‌جا بپرسید.', 'joy'); emit('lead'); track('lead_form') }
+						else { er.textContent = (d && d.error) || 'ثبت نشد؛ دوباره امتحان کنید.'; bt.disabled = false }
+					})
+					.catch(function () { er.textContent = 'اتصال برقرار نشد؛ دوباره امتحان کنید.'; bt.disabled = false })
+			})
+			log.appendChild(f)
 		}
 		function render() {
 			log.textContent = ''
-			bubble('a', c.welcome)
+			bubble('a', st.lead ? c.welcome : OPENER, st.lead ? 'listening' : 'joy')
+			if (!st.lead && !st.messages.length) leadForm()
 			st.messages.forEach(function (m) { bubble(m.role === 'user' ? 'u' : 'a', m.content) })
 		}
 		function toggle(v) {
 			var o = v === undefined ? !w.classList.contains('open') : v
 			w.classList.toggle('open', o); btn.setAttribute('aria-expanded', String(o))
-			st.open = o; if (!preview) save()
-			if (o) setTimeout(function () { ta.focus() }, 60)
+			st.open = o; if (o) { st.seen = 1; w.classList.remove('hop'); tease.classList.remove('on') } if (!preview) save()
+			if (o) needBot()
+			emit(o ? 'open' : 'close'); if (o) track('widget_opened')
+			if (o) setTimeout(function () { var i = root.querySelector('.lf input'); (i || ta).focus() }, 60)
 		}
 		btn.onclick = function () { toggle() }
+		var tease = $('.tease')
+		if (!st.seen) w.classList.add('hop')
+		var teaseOff = false
+		try { teaseOff = sessionStorage.getItem(STORE + ':tease') === '0' } catch (e) { /* حالتِ خصوصی */ }
+		if (!st.seen && !teaseOff) setTimeout(function () {
+			if (w.classList.contains('open') || root.querySelector('.ag-pop.on')) return
+			$('.tt').textContent = 'سلام! برای مشاورهٔ رایگان اینجا بزنید.'; tease.classList.add('on')
+		}, 2500)
+		tease.onclick = function (e) { if (e.target.className === 'tx') { tease.classList.remove('on'); try { sessionStorage.setItem(STORE + ':tease', '0') } catch (x) { /* */ } return } toggle(true) }
 		$('.x').onclick = function () { toggle(false); btn.focus() }
-		$('.new').onclick = function () { st.messages = []; st.conversationId = rid(); if (!preview) save(); render() }
+		$('.new').onclick = function () { st.messages = []; st.conversationId = rid(); st.agent = ''; if (!preview) save(); render() }
 		root.addEventListener('keydown', function (e) { if (e.key === 'Escape') { toggle(false); btn.focus() } })
-		ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('form').requestSubmit ? $('form').requestSubmit() : submit(e) } })
-		ta.addEventListener('input', function () { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 110) + 'px' })
+		ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatForm.requestSubmit ? chatForm.requestSubmit() : submit(e) } })
+		ta.addEventListener('input', function () { emit('typing'); ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 110) + 'px' })
 		function submit(e) {
 			e.preventDefault()
 			var text = ta.value.trim()
@@ -132,23 +209,71 @@
 			st.messages.push({ role: 'user', content: text.slice(0, 1000) }); st.messages = st.messages.slice(-40)
 			bubble('u', text)
 			if (preview) { bubble('a', 'این پیش‌نمایش است؛ پاسخِ واقعی بعد از نصب روی سایت نمایش داده می‌شود.'); return }
-			save(); busy = true; send.disabled = true; status('thinking')
-			var wait = bubble('a t', '…')
-			req('POST', '/chat', { conversationId: st.conversationId, visitorId: st.visitorId, messages: st.messages.slice(-12), page: { url: location.href.slice(0, 500), title: D.title.slice(0, 200), landing: st.landing } })
+			save(); busy = true; send.disabled = true; status('thinking'); emit('send')
+			var wait = bubble('a t', ''); wait.innerHTML = '<span class="dots" aria-label="در حالِ نوشتن"><i></i><i></i><i></i></span>'
+			req('POST', '/chat', { conversationId: st.conversationId, visitorId: st.visitorId, messages: st.messages.slice(-12), consent: !!st.consent, preview: URL_PREVIEW || undefined, agent: st.agent || undefined, model: mdl.value, page: { url: location.href.slice(0, 500), title: D.title.slice(0, 200), landing: st.landing } })
 				.then(function (d) {
 					wait.remove()
-					if (d.ok && d.text) { st.messages.push({ role: 'assistant', content: String(d.text) }); save(); bubble('a', String(d.text)) }
-					else bubble('e', d.error || 'ارسال نشد؛ دوباره امتحان کنید.')
+					if (d.ok && d.text) { st.messages.push({ role: 'assistant', content: String(d.text) }); if (d.agent && /^[a-z_]{2,20}$/.test(d.agent.key)) st.agent = d.agent.key; save(); bubble('a', String(d.text)); emit(d.lead && d.lead.ok ? 'lead' : 'reply', String(d.text)); if (d.action && d.action.cart) addToCart(d.action) }
+					else { bubble('e', d.error || 'ارسال نشد؛ دوباره امتحان کنید.', 'sadness'); emit(d.status === 429 ? 'rateLimit' : 'error') }
 				})
-				.catch(function () { wait.remove(); bubble('e', 'اتصال برقرار نشد؛ دوباره امتحان کنید.') })
+				.catch(function () { wait.remove(); bubble('e', 'اتصال برقرار نشد؛ دوباره امتحان کنید.', 'sadness'); emit('offline') })
 				.then(function () { busy = false; send.disabled = false; status('idle'); ta.focus() })
 		}
-		$('form').addEventListener('submit', submit)
+		chatForm.addEventListener('submit', submit)
+		// 3.9.83: «I want the software» → the agent puts the starter bundle into the shop's own cart (same origin: the product page's
+		// .product-basket form is posted to /cart exactly like its «add to cart» button) and sends the visitor to pay
+		function addToCart(a) {
+			var shop = /(^|\.)arominco\.com$/.test(location.hostname), done = 0, msg = bubble('a', 'سپیدز لایت و یک فیش‌پرینتر را برایتان در سبدِ خرید می‌گذارم…', 'joy')
+			function finish() {
+				var t = msg.querySelector('.m') || msg
+				t.textContent = done ? 'سپیدز وب لایت و فیش‌پرینتر در سبدِ خریدِ شماست. برای تکمیل و پرداخت بزنید:' : 'برای خرید، سبدِ فروشگاه را باز کنید:'
+				var l = D.createElement('a'); l.className = 'cart'; l.href = a.checkout || 'https://arominco.com/cart'; l.textContent = 'رفتن به سبد و پرداخت'; l.target = '_top'; t.appendChild(D.createElement('br')); t.appendChild(l)
+				log.scrollTop = log.scrollHeight; track('cart_added', { n: String(done) })
+			}
+			if (!shop || preview) return finish()
+			var jobs = a.cart.map(function (slug) {
+				return fetch('/product/' + encodeURIComponent(slug), { credentials: 'include' }).then(function (r) { return r.text() }).then(function (h) {
+					var f = new DOMParser().parseFromString(h, 'text/html').querySelector('form.product-basket')
+					if (!f) return
+					return fetch('/cart', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest' },
+						body: new URLSearchParams(new FormData(f)).toString() }).then(function (r) { if (r.ok) done++ })
+				}).catch(function () { /* the link below still works */ })
+			})
+			Promise.all(jobs).then(finish)
+		}
 		render()
 		if (st.open || me.getAttribute('data-open') === '1') toggle(true)
+		function loadAgent() { // تنبل، پس از بارِ صفحه (بدونِ اثر بر LCP/INP)؛ خطا → همان ابزارکِ قبلی
+			var go = function () {
+				try {
+					ag = W.ArominAgent.start({ root: root, cfg: c.agent, key: siteId, pos: (W.innerWidth < 640 ? c.mobile : c.desktop) || {},
+						open: function () { toggle(true) }, isOpen: function () { return w.classList.contains('open') },
+						setWelcome: function (t) { c.welcome = t; render() }, consent: !!st.consent,
+						setConsent: function (v) { st.consent = !!v; if (!preview) save() }, track: track })
+					W.ArominAgentWidget = ag
+				} catch { ag = null }
+			}
+			if (W.ArominAgent) return go()
+			var s = D.createElement('script'); s.src = BASE + '/widget-agent.js?v=' + AGENT_V; s.async = true; s.onload = go
+			;(D.head || D.documentElement).appendChild(s)
+		}
+		if (c.agent) (W.requestIdleCallback || function (f) { setTimeout(f, 1200) })(loadAgent)
+		return host
 	}
 
 	if (preview) { try { mount(JSON.parse(preview)) } catch (e) { /* تنظیماتِ نامعتبر */ } return }
-	var go = function () { req('GET', '/config').then(function (c) { if (c && c.ok && c.enabled) mount(c) }).catch(function () { /* بی‌صدا: سایت نباید خراب شود */ }) }
+	var go = function () {
+		var mounted = st.cfg && st.cfg.enabled ? mount(st.cfg) : null, tries = 0
+		var fetchCfg = function () {
+			req('GET', '/config').then(function (c) {
+				if (!c || !c.ok) return
+				st.cfg = c; save()
+				if (c.enabled && !mounted) mounted = mount(c)
+				else if (!c.enabled && mounted) { mounted.remove(); mounted = null }
+			}).catch(function () { if (++tries < 3) setTimeout(fetchCfg, 1500 * tries) }) // بی‌صدا: سایت نباید خراب شود
+		}
+		fetchCfg()
+	}
 	if (D.readyState === 'loading') D.addEventListener('DOMContentLoaded', go); else go()
 })()

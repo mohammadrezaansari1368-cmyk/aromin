@@ -6,13 +6,24 @@
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
+import { sanitizeForecastHtml } from '@/lib/sanitizeForecastHtml'
 import { isAdmin, type Session } from '@/lib/auth'
 import { runPreset, setPageActions, setPageContext } from '@/lib/agent'
 import { fetchFull, saveState } from '@/lib/forecastStore'
 import Sortable from '@/components/ui/sortable'
-import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, FOCUS } from '@/components/ui/tokens'
+import { GaugeTile } from '@/components/dashboard/gauges/GaugeTiles'
+import { CountUp } from '@/components/ui/count-up'
+import { type Plan } from '@/components/ui/radio-group-with-plan-cards'
+import CurrencyInput from 'react-currency-input-field'
+import { HeartHandshake, Rocket, ShieldCheck } from 'lucide-react'
+import { Field, FieldDescription, FieldLabel, InfoTip, InputGroup, InputGroupAddon, Markdown } from '@/components/ui/shadcn-kit'
+import MagicBento, { type MagicBentoItem } from '@/components/ui/reactbits/MagicBento'
+import SpotlightCard from '@/components/ui/reactbits/SpotlightCard'
+import { useTheme } from '@/lib/theme'
+import { stripHtml, toBullets } from '@/lib/stripHtml'
+import { BTN, BTN_GHOST, BTN_PRIMARY, FOCUS } from '@/components/ui/tokens'
 import {
 	DEFAULTS, FC_IDS, GRP, FC_INDUSTRY, INDUSTRY_OPTS, M4TYPES, M4TYPE_OPTS, M4REAL_MSG, MARGIN_STD, STRAT_FA, FC_USD_HIST, LEVELW, MN,
 	GUIDE, IND_FA, guideEx, industryDefaults, industryNote, normalize, fillAnnual, suggestBase, compute,
@@ -64,15 +75,25 @@ const TierMark = ({ tier, className = 'h-4 w-5' }: { tier: Tier; className?: str
 )
 
 /* ---------------- بلوک‌های طراحی ---------------- */
+const ForecastBento = lazy(() => import('./ForecastBento'))
+
+// 3.9.87: «استراتژی امسال» plans (lucide icons; «price» = marketing budget share of target sales, same rule as the auto-suggestion)
+const STRAT_PLANS: Plan[] = [
+	{ id: 'survive', title: 'بقا', desc: 'فقط بمانم؛ نقدینگی و هزینه‌ها اولویت دارند.', price: 'بودجه ۴٪', icon: ShieldCheck, color: 'text-sky-600', background: 'bg-sky-500/10' },
+	{ id: 'hold', title: 'حفظ', desc: 'سهم بازار را نگه دارم و مشتری را حفظ کنم.', price: 'بودجه ۶٪', icon: HeartHandshake, color: 'text-amber-500', background: 'bg-amber-400/10' },
+	{ id: 'grow', title: 'رشد', desc: 'سهم بازار بگیرم؛ بودجهٔ بازاریابی بیشتر.', price: 'بودجه ۱۲٪', icon: Rocket, color: 'text-rose-500', background: 'bg-rose-500/10' },
+]
+const MONEY = 'min-h-[44px] w-full min-w-0 rounded-xl border border-current/20 bg-transparent px-3 text-left text-[15px] tabular-nums text-inherit outline-none focus:ring-2 focus:ring-[#FCBF00]/45'
 function Card({ title, sub, children, id, tone }: { title: ReactNode; sub?: ReactNode; children: ReactNode; id?: string; tone?: string }) {
+	const mode = useTheme().mode
 	return (
-		<section id={id} className={`@container ${CARD} ${CARD_PAD} ${tone || ''}`}>
+		<SpotlightCard id={id} theme={mode} spotlightColor="#FCBF00" className={`@container ${tone || ''}`}>
 			<header className="mb-4">
-				<h3 className={CARD_TITLE}>{title}</h3>
-				{sub && <p className={CARD_SUB}>{sub}</p>}
+				<h3 className="text-[15.5px] font-bold leading-7 tracking-tight sm:text-[17px]">{title}</h3>
+				{sub && <p className="mt-0.5 max-w-[75ch] text-[12.5px] leading-6 opacity-70">{sub}</p>}
 			</header>
 			{children}
-		</section>
+		</SpotlightCard>
 	)
 }
 function Band({ tier, title, desc, children }: { tier: Tier; title: string; desc: string; children: ReactNode }) {
@@ -82,9 +103,10 @@ function Band({ tier, title, desc, children }: { tier: Tier; title: string; desc
 				<header className="flex items-center gap-3 px-1 pt-4">
 					<TierMark tier={tier} className="h-5 w-7" />
 					<div className="min-w-0">
-						<h2 id={'fc-band-h-' + tier} className="text-[18px] font-extrabold leading-7" style={{ color: TIER[tier].ink }}>{title}</h2>
+						<h2 id={'fc-band-h-' + tier} className="text-[18px] font-extrabold leading-7 tracking-tight" style={{ color: TIER[tier].ink }}>{title}</h2>
 						<p className="text-[12.5px] leading-6 text-muted-foreground">{desc}</p>
 					</div>
+					<span aria-hidden className="hidden h-px flex-1 self-center sm:block" style={{ background: `linear-gradient(to left, ${TIER[tier].fill}38, transparent)` }} />
 				</header>
 				<Sortable id={'forecast.' + tier}>{children}</Sortable>
 			</section>
@@ -92,40 +114,53 @@ function Band({ tier, title, desc, children }: { tier: Tier; title: string; desc
 	)
 }
 function Html({ h, className = '' }: { h: string; className?: string }) {
-	return <p className={`max-w-[95ch] text-[12.5px] leading-7 text-muted-foreground ${className}`} dangerouslySetInnerHTML={{ __html: h }} />
+	return <p className={`max-w-[95ch] text-[12.5px] leading-7 text-muted-foreground ${className}`} dangerouslySetInnerHTML={{ __html: sanitizeForecastHtml(h) }} />
 }
 type FigKind = 'total' | 'gold' | 'warn' | undefined
 /** کاشیِ عدد — «total» رنگِ طبقهٔ همان بخش را می‌گیرد */
 function Fig({ k, v, u, kind, small }: { k: ReactNode; v: ReactNode; u?: ReactNode; kind?: FigKind; small?: boolean }) {
 	const t = TIER[useContext(TierCtx)]
 	const total = kind === 'total'
-	const cls = total ? t.on : kind === 'gold' ? 'bg-accent/15 ring-1 ring-accent/45' : kind === 'warn' ? 'bg-error/10 ring-1 ring-error/30' : 'bg-muted/45 ring-1 ring-border/80'
+	const cls = total ? t.on : kind === 'gold' ? 'bg-accent/10 ring-1 ring-accent/30' : kind === 'warn' ? 'bg-error/10 ring-1 ring-error/25' : 'bg-muted/40 ring-1 ring-border/70'
 	const sub = total ? t.onSub : 'text-muted-foreground'
 	return (
-		<div className={`flex min-w-0 flex-col gap-1 rounded-xl px-4 py-3.5 ${cls}`} style={total ? { background: t.fill } : undefined}>
-			<div className={`text-[11.5px] font-bold ${sub}`}>{k}</div>
-			<div className={`${small ? 'text-[14px] @lg:text-[15px]' : 'text-[16px] @lg:text-[21px]'} font-extrabold leading-tight tabular-nums [overflow-wrap:anywhere]`}>{v}</div>
-			{u && <div className={`text-[11px] leading-5 ${sub}`}>{u}</div>}
+		<div
+			className={`relative flex min-w-0 flex-col gap-1 overflow-hidden rounded-2xl px-4 py-3.5 transition-shadow motion-safe:duration-200 ${cls} ${total ? '' : 'hover:shadow-sm'}`}
+			style={total ? { background: `linear-gradient(135deg, ${t.fill}, ${t.fill}e6)` } : undefined}
+		>
+			{total && <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/10 via-transparent to-black/10" />}
+			<div className={`relative text-[11px] font-bold tracking-wide ${sub}`}>{k}</div>
+			<div className={`relative ${small ? 'text-[14px] @lg:text-[15px]' : 'text-[16px] @lg:text-[21px]'} font-extrabold leading-tight tabular-nums [overflow-wrap:anywhere]`}>{v}</div>
+			{u && <div className={`relative text-[11px] leading-5 ${sub}`}>{u}</div>}
 		</div>
 	)
 }
-const Figs = ({ children }: { children: ReactNode }) => <div className="mt-4 grid grid-cols-2 gap-2.5 @2xl:grid-cols-4">{children}</div>
+const Figs = ({ children }: { children: ReactNode }) => <div className="mt-4 grid grid-cols-2 gap-3 @2xl:grid-cols-4">{children}</div>
 function Btn({ children, onClick, kind = 'primary', sm, disabled, title }: { children: ReactNode; onClick?: () => void; kind?: 'primary' | 'ghost' | 'gold'; sm?: boolean; disabled?: boolean; title?: string }) {
 	const k =
-		kind === 'gold' ? `${BTN} bg-accent text-accent-foreground hover:brightness-105` : kind === 'ghost' ? BTN_GHOST : BTN_PRIMARY
+		kind === 'gold'
+			? `${BTN} bg-accent text-accent-foreground shadow-[0_6px_16px_-6px_rgba(252,191,0,.5)] hover:brightness-105 hover:shadow-[0_8px_20px_-6px_rgba(252,191,0,.6)]`
+			: kind === 'ghost'
+				? `${BTN_GHOST} ring-1 ring-inset ring-border/70 hover:ring-border`
+				: `${BTN_PRIMARY} shadow-[0_6px_16px_-6px_hsl(var(--primary)/.45)] hover:shadow-[0_8px_20px_-6px_hsl(var(--primary)/.55)]`
 	return (
-		<button type="button" title={title} disabled={disabled} onClick={onClick} className={`${k} ${sm ? 'min-h-8 px-3 text-[12px]' : 'min-h-10 text-[13px]'} max-w-full text-center leading-5 active:translate-y-px sm:shrink-0 sm:whitespace-nowrap`}>
+		<button type="button" title={title} disabled={disabled} onClick={onClick} className={`${k} ${sm ? 'min-h-8 px-3 text-[12px]' : 'min-h-10 text-[13px]'} max-w-full text-center leading-5 motion-safe:active:translate-y-px sm:shrink-0 sm:whitespace-nowrap`}>
 			{children}
 		</button>
 	)
 }
 const inCls = 'h-10 w-full rounded-xl border border-border bg-card px-3 text-[13px] text-foreground outline-none transition placeholder:text-muted-foreground/80 hover:border-primary/40 focus:border-primary focus:ring-4 focus:ring-primary/12'
 function Label({ children }: { children: ReactNode }) {
-	return <span className="mb-1.5 block text-[11.5px] font-bold text-muted-foreground">{children}</span>
+	return <span className="mb-1.5 block text-[11.5px] font-bold tracking-wide text-muted-foreground">{children}</span>
 }
 const Th = ({ children, className = '' }: { children?: ReactNode; className?: string }) => <th className={`whitespace-nowrap px-3 py-2.5 text-right text-[11.5px] font-bold ${className}`}>{children}</th>
-const Td = ({ children, className = '', style }: { children?: ReactNode; className?: string; style?: CSSProperties }) => <td style={style} className={`whitespace-nowrap border-t border-border/80 px-3 py-2 tabular-nums ${className}`}>{children}</td>
+const Td = ({ children, className = '', style }: { children?: ReactNode; className?: string; style?: CSSProperties }) => <td style={style} className={`whitespace-nowrap border-t border-border/70 px-3 py-2 tabular-nums ${className}`}>{children}</td>
 const Colored = ({ v, children }: { v: number; children: ReactNode }) => <span style={{ color: v >= 0 ? GREEN : ROSE }}>{children}</span>
+/** زبرا + هاوِر برای ردیف‌های <tbody> جدول‌ها (بدون نیاز به کلاسِ تکی روی هر tr) */
+const ROWS = '[&>tr]:transition-colors motion-safe:[&>tr]:duration-150 [&>tr:nth-child(even)]:bg-muted/[0.035] [&>tr:hover]:!bg-primary/[0.06]'
+const ROWS_HOVER = '[&>tr]:transition-colors motion-safe:[&>tr]:duration-150 [&>tr:hover]:!bg-primary/[0.05]'
+/** کانتینرِ اسکرولِ گوشه‌گرد برای جدول‌ها */
+const SCROLL = 'overflow-auto rounded-xl ring-1 ring-inset ring-border/70'
 
 /* ---------------- صفحه ---------------- */
 interface Ctx { people: any[]; churn: any; salesCrisis: boolean; fy: string; industry: string; business: string }
@@ -142,6 +177,12 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 	const [marginStd, setMarginStd] = useState('')
 	const [usdBusy, setUsdBusy] = useState(false)
 	const [confirmApply, setConfirmApply] = useState(false)
+	const mode = useTheme().mode
+	const reduceMotion = useReducedMotion()
+	const deck = {
+		theme: mode, glowColor: '#FCBF00', textAutoHide: false, enableStars: true, enableTilt: true, enableSpotlight: true, enableBorderGlow: true,
+		disableAnimations: !!reduceMotion, style: { gridAutoRows: 'auto' } as CSSProperties, className: '[&_.magic-bento__card]:!h-auto',
+	}
 
 	const fRef = useRef(f), xRef = useRef(x), ctxRef = useRef(ctx)
 	const dirtyX = useRef<Set<string>>(new Set())
@@ -364,7 +405,8 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 		}
 		next()
 	}
-	const doAutoSetup = () => {
+	// 3.9.86: the suggestion is computed live (shown in G3's panel) and applied only with «اعمال پیشنهاد»
+	const suggestSetup = () => {
 		const why: string[] = []
 		const ch = ctxRef.current.churn
 		const churnR = ch && ch.trans && ch.trans.length ? ch.trans[ch.trans.length - 1].rate : 0
@@ -379,6 +421,11 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 		else if (marginDrop || churnR > 30) { strat = 'hold'; why.push(marginDrop ? 'حاشیهٔ سود در حال افت است' : 'ریزشِ قابل‌توجه') }
 		else { strat = 'grow'; why.push('حاشیه و سود سالم است') }
 		const hMap: Record<string, number> = { survive: 3, hold: 4, grow: 6 }
+		return { strat, why: why.join('، '), horizon: hMap[strat], mkt: ({ survive: 4, hold: 6, grow: 12 } as Record<string, number>)[strat] }
+	}
+	const doAutoSetup = () => {
+		const { strat, why: w, horizon } = suggestSetup()
+		const why = [w], hMap: Record<string, number> = { [strat]: horizon }
 		update({ fcStrategy: strat, fcHorizon: String(hMap[strat]), fcHorizonUnit: '1' }, 'fcStrategy')
 		doUsdFetch()
 		setMsg('setup', '✓ استراتژی پیشنهادی: <b>' + STRAT_FA[strat] + '</b> (' + why.join('، ') + ') · افق: <b>' + fa(hMap[strat]) + ' ماه</b> · نرخ دلار به‌صورت آنلاین درخواست شد (اگر شبکه اجازه دهد). می‌توانی هرکدام را دستی تغییر بدهی.')
@@ -508,6 +555,8 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 			{label}
 		</label>
 	)
+	const sug = suggestSetup()
+	const applySuggestion = () => { doAutoSetup(); update({ fcMktPct: String(sug.mkt) }, 'fcMktPct') }
 	const ind = String(f.fcIndustry || '')
 	const indN = industryNote(ind, r.ty)
 	const usdCell = (t: number) => (r.usd > 0 && t > 0 ? '$' + sep(Math.round(t / r.usd)) : '—')
@@ -538,12 +587,32 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 		},
 	]
 
+	// 3.9.68: نمای بنتو — فقط نمایشِ همان خروجی‌های compute و معاملاتِ همین صفحه
+	const bento = (() => {
+		const ch: Record<string, number> = {}, st = { cash: 0, check: 0, hold: 0 }
+		for (const p of ctx.people || []) for (const d of (p as { inv?: Record<string, unknown>[] }).inv || []) {
+			if ((d.funnel || 'won') !== 'won') continue
+			const a = parseFloat(String(d.amount ?? '').replace(/[^\d.-]/g, '')) || 0
+			const c = d.channel === 'unofficial' ? 'غیررسمی' : 'رسمی'
+			ch[c] = (ch[c] || 0) + a
+			if (d.settle === 'hold') st.hold += a
+			else if (d.settle === 'check' || d.settle === 'cash_after_check') st.check += a
+			else st.cash += a
+		}
+		const today = new Intl.DateTimeFormat('en-US-u-ca-persian-nu-latn', { timeZone: 'Asia/Tehran', month: 'numeric' }).format(new Date())
+		return { channels: Object.entries(ch).map(([name, value]) => ({ name, value })), settle: st, month: Math.max(0, Math.min(11, (parseInt(today, 10) || 1) - 1)) }
+	})()
+
 	return (
 		<div dir="rtl" className="fc-root flex flex-col gap-6 pb-24 selection:bg-primary/15" style={VARS}>
+			<Suspense fallback={null}>
+				<ForecastBento year={r.ty} target={r.R} safeTarget={r.safeT} forecast={r.monthlyBlended && r.monthlyBlended.length ? r.monthlyBlended.slice(0, 12) : null}
+					actual={r.act} channels={bento.channels} settle={bento.settle} month={bento.month} readiness={r.ready} />
+			</Suspense>
 			<PyramidOverview tiers={pyramid} badge={saveBadge} />
 
 			{/* ۲) راهنما */}
-			<section className={`rounded-2xl bg-card ring-1 ring-border shadow-card`}>
+			<SpotlightCard theme={mode} spotlightColor="#004991">
 				<details className="group">
 					<summary className={`flex cursor-pointer list-none items-center gap-3 rounded-2xl px-5 py-4 sm:px-6 [&::-webkit-details-marker]:hidden ${FOCUS}`}>
 						<span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary-ink"><Icon n="book" className="size-[18px]" /></span>
@@ -555,10 +624,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 					</summary>
 					<div className="space-y-4 border-t border-border/70 px-5 pb-6 pt-4 text-[12.5px] leading-7 sm:px-6">
 						<p className="text-muted-foreground">پیش‌بینی فروش = <b>تخمین + انتظار + دورهٔ برنامه</b> با تولرانسِ ۱۰ تا ۲۰٪. لازم نیست همهٔ روش‌ها را پر کنی؛ هرچه روش‌های بیشتری به هم نزدیک باشند، تخمین معتبرتر است. خروجیِ نهایی = <b>میانگینِ روش‌های انتخاب‌شده</b>.</p>
-						<div className="overflow-auto rounded-xl ring-1 ring-border">
+						<div className={SCROLL}>
 							<table className="w-full min-w-[900px] border-collapse text-[12.5px]">
-								<thead><tr className="bg-primary text-primary-foreground"><Th className="text-center">#</Th><Th>روش</Th><Th>چه می‌کند</Th><Th>فرمول</Th><Th>کِی</Th><Th className="bg-[#1E8E3E]">مثال (بر اساس صنعت)</Th></tr></thead>
-								<tbody>
+								<thead className="sticky top-0 z-10"><tr className="bg-primary text-primary-foreground"><Th className="text-center">#</Th><Th>روش</Th><Th>چه می‌کند</Th><Th>فرمول</Th><Th>کِی</Th><Th className="bg-[#1E8E3E]">مثال (بر اساس صنعت)</Th></tr></thead>
+								<tbody className={ROWS_HOVER}>
 									{GUIDE.map((m, i) => (
 										<tr key={m[0]} className={i % 2 ? 'bg-[var(--fc-brass-soft)]' : ''}>
 											<td className="border-t border-border p-2.5 text-center"><span className="inline-grid size-[26px] place-items-center rounded-lg bg-accent font-extrabold text-[#3A2A00]">{m[0]}</span></td>
@@ -593,10 +662,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 							<b className="text-primary-ink">گامِ دومِ روش ۴ — تعدیلِ پتانسیلِ فروش (فصل ۱۸):</b>
 							<div className="mt-1.5 font-mono text-[12px] text-primary-ink">پتانسیلِ فروش = پتانسیلِ بازار × سهم٪ × (۱+برند٪) × (۱+اورنس٪) × (۱+کانال٪) × (۱+رقبا٪)</div>
 							<div className="mt-1.5 text-[12px] text-muted-foreground">مثالِ کافی‌شاپِ جزوه: عمقِ بازار ۵۰ میلیارد × سهمِ ۱۰٪ = ۵ میلیارد → ×۱٫۲ (برند) → ×۰٫۹ (کانالِ ضعیف) → ×۰٫۸۵ (رقبای قوی) = <b className="text-success">۴٫۵۹ میلیارد</b>. ضریبی اعمال می‌شوند، نه جمع‌وتفریقی.</div>
-							<div className="mt-2.5 overflow-auto rounded-lg bg-card ring-1 ring-border">
+							<div className={`mt-2.5 bg-card ${SCROLL}`}>
 								<table className="w-full min-w-[520px] text-[12px]">
-									<thead><tr className="bg-primary text-primary-foreground"><Th>المان</Th><Th>معنی</Th><Th>بازهٔ عادی</Th></tr></thead>
-									<tbody>
+									<thead className="sticky top-0 z-10"><tr className="bg-primary text-primary-foreground"><Th>المان</Th><Th>معنی</Th><Th>بازهٔ عادی</Th></tr></thead>
+									<tbody className={ROWS_HOVER}>
 										{[
 											['سهم بالقوه', 'Share', 'چند درصد از کلِ بازار را هدف گرفته‌ای؟ = فروشِ پارسال ÷ عمقِ بازار.', '۱–۱۰۰٪'],
 											['برند', 'Brand', 'قدرتِ برند روی قیمت و وفاداری. در ایران تا سقفِ ~۲۰٪ منطقی است.', '۰ تا +۲۰٪'],
@@ -627,70 +696,112 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 						</div>
 					</div>
 				</details>
-			</section>
+			</SpotlightCard>
 
 			<Band tier="gold" title="فعالیت‌های فروش" desc="پایهٔ پیش‌بینی: صنعت، افق و استراتژی، دادهٔ تاریخی و آمادگی">
-				{/* ۱) صنعت */}
-				<Card title="صنعتِ کسب‌وکارت چیست؟" sub="اول صنعت را انتخاب کن تا پیش‌فرض‌های تخصصی (حاشیهٔ سود، الگوی فصلی، نرخ خرید…) خودکار اعمال شود">
-					<div className="grid items-start gap-4 @3xl:grid-cols-[minmax(0,380px)_1fr]">
-						<label className="block"><Label>صنعتِ کسب‌وکار: پیش‌فرض‌های تخصصی</Label>{sel('fcIndustry', INDUSTRY_OPTS, doIndustry)}</label>
-						{indN && <div className="rounded-xl bg-[var(--fc-brass-soft)] px-4 py-3 text-[12.5px] leading-7 text-foreground ring-1 ring-accent/35" dangerouslySetInnerHTML={{ __html: indN }} />}
+				{/* G1) صنعت — React Bits MagicBento (same options, same doIndustry) */}
+				<SpotlightCard theme={mode} spotlightColor="#004991" data-testid="fc-industry">
+					<h3 className="flex items-center gap-2 text-xl font-bold leading-8">صنعت کسب‌وکار چیست؟</h3>
+					<p className="mt-2 text-sm leading-6 opacity-70">اول صنعت را انتخاب کن تا پیش‌فرض‌های تخصصی (حاشیه سود، الگوی فصلی، نرخ خرید...) خودکار اعمال شود.</p>
+					<p className="mb-3 mt-4 text-sm font-semibold">صنعت کسب‌وکار: پیش‌فرض‌های تخصصی</p>
+					<MagicBento {...deck} columns={3} items={INDUSTRY_OPTS.filter((o) => o[0]).map(([value, label]): MagicBentoItem => ({
+						id: value, title: label, label: v('fcIndustry') === value ? '✓' : '', onClick: () => doIndustry(value),
+					}))} />
+					<FieldDescription>تغییر صنعت، تمام مقادیر پیش‌فرض را بازنویسی می‌کند.</FieldDescription>
+					<div className="mt-4">
+						<div className="mb-2 font-semibold">جزئیات الگوها و پیش‌فرض‌ها</div>
+						<div className="prose prose-sm max-w-none text-inherit md:prose-base prose-li:my-1 prose-strong:text-inherit">
+							{indN ? <Markdown>{toBullets(stripHtml(indN))}</Markdown> : <p className="opacity-70">صنعت را انتخاب کن تا الگوها و پیش‌فرض‌هایش این‌جا بیاید.</p>}
+						</div>
 					</div>
-				</Card>
+				</SpotlightCard>
 
-				{/* ۳) افق، استراتژی، دلار */}
-				<Card title="پیش‌بینی فروش و بودجه‌بندی" sub="ابزار عملیِ برگرفته از جزوه‌ی «بودجه‌بندی و پیش‌بینی فروش»">
-					<p className="mb-3 text-[12.5px] leading-7 text-muted-foreground">پیش‌بینی فروش یعنی <b>تخمینِ</b> حجم فروشی که می‌توان «انتظار» داشت (نه آرزو)، در یک «افق زمانی» مشخص و با تولرانس ۱۰ تا ۲۰ درصد. این تب اعداد را از تو می‌گیرد و زنده محاسبه می‌کند؛ همه چیز روی سرور ذخیره می‌شود.</p>
-					<div className="grid items-end gap-4 @2xl:grid-cols-3">
-						<label className="block"><Label>افق دید برنامه (ماه / فصل / سال)</Label>
-							<div className="flex gap-1.5">{txt('fcHorizon')}{sel('fcHorizonUnit', [['1', 'ماه'], ['3', 'فصل'], ['12', 'سال']], undefined, '!w-24 shrink-0')}</div>
-						</label>
-						<label className="block"><Label>استراتژی امسال</Label>{sel('fcStrategy', [['survive', 'بقا (Survival) — فقط بمانم'], ['hold', 'حفظ (Hold) — سهم بازار را نگه دارم'], ['grow', 'رشد (Growth) — سهم بازار بگیرم']])}</label>
-						<p className="text-[12px] leading-6 text-muted-foreground">{r.stratNote}</p>
+				{/* G3) افق، استراتژی، دلار — MagicBento for horizon + strategy; gauge untouched */}
+				<SpotlightCard theme={mode} spotlightColor="#FCBF00" data-testid="fc-setup">
+					<h3 className="flex items-center gap-2 text-xl font-bold leading-8">پیش‌بینی فروش و بودجه‌بندی <InfoTip>پیش‌بینی فروش یعنی تخمینِ حجم فروشی که می‌توان «انتظار» داشت (نه آرزو)، در یک افق زمانیِ مشخص و با تولرانس ۱۰ تا ۲۰ درصد. اعداد زنده محاسبه و روی سرور ذخیره می‌شوند.</InfoTip></h3>
+					<p className="mt-2 text-sm leading-6 opacity-70">تخمین فروش قابل انتظار در افق مشخص، با تلورانس ±۱۰–۲۰٪</p>
+					<Field className="mt-5">
+						<FieldLabel>افق دید</FieldLabel>
+						<MagicBento {...deck} columns={3} items={[
+							{ id: '1', title: 'ماهانه', label: (v('fcHorizonUnit') || '1') === '1' ? '✓' : '', onClick: () => update({ fcHorizonUnit: '1' }, 'fcHorizonUnit') },
+							{ id: '3', title: 'فصلی', label: (v('fcHorizonUnit') || '1') === '3' ? '✓' : '', onClick: () => update({ fcHorizonUnit: '3' }, 'fcHorizonUnit') },
+							{ id: '12', title: 'سالانه', label: (v('fcHorizonUnit') || '1') === '12' ? '✓' : '', onClick: () => update({ fcHorizonUnit: '12' }, 'fcHorizonUnit') },
+						]} />
+						<div className="mt-3 flex items-center gap-2">
+							<span className="text-sm opacity-70">طولِ افق:</span>
+							<div className="w-24">{txt('fcHorizon', { w: '!h-11' })}</div>
+							<span className="text-sm opacity-70">{v('fcHorizonUnit') === '12' ? 'سال' : v('fcHorizonUnit') === '3' ? 'فصل' : 'ماه'}</span>
+						</div>
+					</Field>
+					<Field className="mt-5">
+						<FieldLabel>استراتژی امسال</FieldLabel>
+						<MagicBento {...deck} columns={3} items={STRAT_PLANS.map((p): MagicBentoItem => ({
+							id: p.id, title: p.title, description: p.desc, icon: <p.icon className="size-4" />,
+							label: ((v('fcStrategy') || 'hold') === p.id ? '✓ ' : '') + p.price,
+							onClick: () => update({ fcStrategy: p.id }, 'fcStrategy'),
+						}))} />
+						{r.stratNote && <FieldDescription>{r.stratNote}</FieldDescription>}
+					</Field>
+					<div className="mx-auto h-[360px] w-full max-w-[300px]" data-testid="fc-usd-gauge">
+						<GaugeTile id="speed" hero pinned={{ value: r.usd / 1000, max: 400, spec: { label: 'نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری', unit: 'هزار تومان', faceUnit: 'هزار تومان', code: '0–400', step: 100, minor: 2, decimals: 3, redFrom: undefined, redTo: undefined } }} />
 					</div>
-					<div className="mt-4"><Btn onClick={doAutoSetup}>پیشنهاد خودکار (افق، استراتژی و نرخ دلار)</Btn></div>
-					{msg.setup && <Html className="mt-1.5" h={msg.setup} />}
-					<div className="mt-5 grid items-end gap-4 border-t border-border/70 pt-4 @2xl:grid-cols-3">
-						<label className="block"><Label>نرخ دلار امروز (تومان): مبنای محاسبه‌ی دلاری</Label>
-							<div className="flex gap-1.5">{txt('fcUsd', { ph: 'مثلاً ۱۸۷٬۵۱۵' })}<Btn kind="ghost" onClick={doUsdFetch} disabled={usdBusy}>دریافت آنلاین</Btn></div>
-						</label>
-						<div className="@2xl:col-span-2"><Html h={msg.usd || 'اولویت با نگاه دلاری است: نرخ دلار را وارد کن (یا آنلاین بگیر) تا همه‌ی اعداد معادل دلاری هم نشان داده شوند و از تورم گول نخوری.'} /></div>
-					</div>
-				</Card>
+					<Field>
+						<FieldLabel htmlFor="fcUsdIn">نرخ دلار امروز (تومان)</FieldLabel>
+						<InputGroup>
+							<CurrencyInput id="fcUsdIn" dir="ltr" inputMode="numeric" allowDecimals={false} allowNegativeValue={false} groupSeparator="," decimalSeparator="."
+								value={toLat(v('fcUsd')).replace(/[^0-9]/g, '')} onValueChange={(val) => onText('fcUsd')(val || '')} placeholder="مثلاً 187,515"
+								className="min-h-[44px] w-full min-w-0 flex-1 bg-transparent px-3 text-left text-[15px] tabular-nums outline-none placeholder:text-muted-foreground/70" />
+							<span className="flex items-center px-2 text-xs opacity-70">تومان</span>
+							<InputGroupAddon>
+								<button type="button" onClick={doUsdFetch} disabled={usdBusy} className="min-h-[36px] whitespace-nowrap rounded-lg bg-primary/10 px-3 text-sm font-semibold text-primary transition hover:bg-primary/15 disabled:opacity-50">
+									{usdBusy ? 'در حال دریافت…' : 'دریافت آنلاین'}
+								</button>
+							</InputGroupAddon>
+						</InputGroup>
+						<FieldDescription>{msg.usd ? stripHtml(msg.usd).replace(/\*\*/g, '') : 'مبنای محاسبهٔ دلاری؛ همهٔ اعداد معادلِ دلاری هم نشان داده می‌شوند تا از تورم گول نخوری.'}</FieldDescription>
+					</Field>
+					<SpotlightCard theme={mode} shape="beam" spotlightColor="#910D6A" className="mt-4">
+						<div className="text-sm font-semibold">پیشنهاد خودکار</div>
+						<div className="mt-2 text-2xl font-extrabold">بودجه پیشنهادی: {fa(sug.mkt)}٪</div>
+						<p className="mt-2 text-xs leading-5 opacity-80">استراتژی <b>{STRAT_FA[sug.strat]}</b> · افق <b>{fa(sug.horizon)} ماه</b> — {sug.why}. بودجهٔ بازاریابی از فروشِ هدف؛ نرخ دلار هم آنلاین گرفته می‌شود.</p>
+						<button type="button" onClick={applySuggestion} className="mt-3 min-h-[44px] rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">اعمال پیشنهاد</button>
+						{msg.setup && <p className="mt-2 text-xs leading-5">{stripHtml(msg.setup).replace(/\*\*/g, '')}</p>}
+					</SpotlightCard>
+				</SpotlightCard>
 
-				{/* ۵) داده‌ی تاریخی */}
-				<Card title="پیش‌بینی از داده‌ی تاریخی" sub="قابل‌اعتمادترین داده؛ سه سال اخیر را وارد کن">
-					<div className="mb-3 flex flex-wrap items-center gap-3">
-						<Html h={'از فایل «صورت سود و زیان» (هر ماه یک شیت) خودکار استخراج می‌شود: <b>فروش خالص ماهانه</b> (→ داده‌ی تاریخی)، <b>حاشیه سود ناخالص</b> و <b>هزینهٔ ثابت (اداری/فروش)</b> (→ روش نقطه‌ی سربه‌سر). فایل نباید رمز داشته باشد.'} />
-						{importBtn}
-					</div>
-					<div className="overflow-auto rounded-xl ring-1 ring-border">
-						<table className="w-full min-w-[620px] text-[12.5px]">
-							<thead className="bg-muted/60"><tr><Th>سال</Th><Th>فروش ریالی (تومان)</Th><Th>میانگین نرخ دلار (تومان، اختیاری)</Th><Th>فروش دلاری</Th><Th>رشد ریالی</Th></tr></thead>
-							<tbody>
-								{[0, 1, 2].map((i) => {
-									const g = i === 1 ? r.g2 : i === 2 ? r.g3 : null
-									return (
-										<tr key={i}>
-											<Td><b>سال {fa(r.yrs[i])}</b>{i === 2 ? ' (جدیدترین)' : ''}</Td>
-											<Td>{txt('fcY' + (i + 1))}</Td>
-											<Td>{txt('fcD' + (i + 1))}</Td>
-											<Td>{r.dol[i] > 0 ? '$' + sep(Math.round(r.dol[i])) : '—'}</Td>
-											<Td>{i === 0 || g == null ? '—' : <Colored v={g}>{pct(g)}</Colored>}</Td>
-										</tr>
-									)
-								})}
-							</tbody>
-						</table>
-					</div>
-					<Figs>
-						<Fig k="میانگین رشد ریالی سالانه" v={r.grs.length ? pct(r.avgG) : '—'} u="دو گذار اخیر" />
-						<Fig k="میانگین متحرک ۳ ساله" v={sep(r.ma3)} u="تومان — کف فروش عادی" />
-						<Fig kind="gold" k="رشد دلاری کل دوره" v={r.dg == null ? '—' : <Colored v={r.dg}>{pct(r.dg)}</Colored>} u="تا از تورم گول نخوری" />
-						<Fig kind="total" k="پیش‌بینی سال بعد (خطی)" v={sep(r.next)} u="تومان — بر پایه‌ی روند" />
-					</Figs>
-					<Html className="mt-2" h={r.histNote} />
-				</Card>
+				{/* G5) دادهٔ تاریخی — MagicBento year rows + stat tiles; same fields and figures */}
+				<SpotlightCard theme={mode} spotlightColor="#FCBF00" data-testid="fc-history">
+					<h3 className="text-xl font-bold leading-8">پیش‌بینی از داده‌ی تاریخی</h3>
+					<p className="mt-1 text-sm opacity-70">سه سال اخیر را وارد کن</p>
+					<MagicBento {...deck} enableTilt={false} columns={1} className="mt-4 [&_.magic-bento__card]:!h-auto [&_.magic-bento__card]:select-text" items={[0, 1, 2].map((i): MagicBentoItem => {
+						const g = i === 1 ? r.g2 : i === 2 ? r.g3 : null
+						return {
+							id: 'hist-' + i,
+							content: (
+								<div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+									<div className="text-[15px] font-bold leading-7">سال {fa(r.yrs[i])}{i === 2 ? <span className="ms-1 text-[#FCBF00]">(جدیدترین)</span> : null}</div>
+									<label className="flex flex-col gap-1 text-xs font-semibold">فروش ریالی (تومان)
+										<CurrencyInput dir="ltr" inputMode="numeric" allowDecimals={false} allowNegativeValue={false} groupSeparator="," decimalSeparator="." aria-label="فروش ریالی (تومان)" placeholder="مثلاً 12,000,000,000"
+											value={toLat(v('fcY' + (i + 1))).replace(/[^0-9]/g, '')} onValueChange={(val) => onText('fcY' + (i + 1))(val || '')} className={MONEY} />
+									</label>
+									<label className="flex flex-col gap-1 text-xs font-semibold">میانگین نرخ دلار (تومان)
+										<CurrencyInput dir="ltr" inputMode="numeric" allowDecimals={false} allowNegativeValue={false} groupSeparator="," decimalSeparator="." aria-label="میانگین نرخ دلار (تومان)" placeholder="اختیاری"
+											value={toLat(v('fcD' + (i + 1))).replace(/[^0-9]/g, '')} onValueChange={(val) => onText('fcD' + (i + 1))(val || '')} className={MONEY} />
+									</label>
+									<div><div className="text-xs font-semibold">فروش دلاری</div><div className="mt-2 text-[15px] font-bold tabular-nums">{r.dol[i] > 0 ? '$' + sep(Math.round(r.dol[i])) : '—'}</div></div>
+									<div><div className="text-xs font-semibold">رشد ریالی</div><div className="mt-2 text-[15px] font-bold">{i === 0 || g == null ? '—' : <Colored v={g}>{pct(g)}</Colored>}</div></div>
+								</div>
+							),
+						}
+					})} />
+					<MagicBento {...deck} columns={4} className="mt-4 [&_.magic-bento__card]:!h-auto" items={[
+						{ id: 'next', content: <div><div className="text-xs font-semibold opacity-70">پیش‌بینی سال بعد</div><div className="mt-1 text-[26px] font-extrabold leading-9 tabular-nums">{r.next ? <CountUp to={Math.round(r.next)} duration={2} startWhen /> : '—'}</div><div className="text-[11.5px] opacity-70">بر پایه‌ی روند — تومان</div></div> },
+						{ id: 'dg', content: <div><div className="text-xs font-semibold opacity-70">رشد دلاری کل دوره</div><div className={`mt-1 text-[26px] font-extrabold leading-9 ${r.dg == null ? '' : r.dg >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{r.dg == null ? '—' : <><CountUp to={Math.round(r.dg * 10) / 10} decimals={1} duration={2} startWhen />٪</>}</div><div className="text-[11.5px] opacity-70">تا از تورم گول نخوری</div></div> },
+						{ id: 'ma3', content: <div><div className="text-xs font-semibold opacity-70">میانگین متحرک ۳ ساله</div><div className="mt-1 text-[26px] font-extrabold leading-9 tabular-nums">{r.ma3 ? <CountUp to={Math.round(r.ma3)} duration={2} startWhen /> : '—'}</div><div className="text-[11.5px] opacity-70">کف فروش عادی — تومان</div></div> },
+						{ id: 'avg', content: <div><div className="text-xs font-semibold opacity-70">میانگین رشد ریالی سالانه</div><div className={`mt-1 text-[26px] font-extrabold leading-9 ${!r.grs.length ? '' : r.avgG >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>{r.grs.length ? <><CountUp to={Math.round(r.avgG * 10) / 10} decimals={1} duration={2} startWhen />٪</> : '—'}</div><div className="text-[11.5px] opacity-70">دو گذار اخیر</div></div> },
+					]} />
+					<p className="mt-4 text-center text-xs leading-6 opacity-60">نرخ دلار هر سال را هم پر کن تا رشد واقعی (دلاری) را ببینی و از تورم گول نخوری.</p>
+				</SpotlightCard>
 
 				{/* ۱۱) آمادگی */}
 				<Card title="آمادگی پیش‌بینی: شش مؤلفه" sub="هرچه کامل‌تر، تخمین به تولرانس ۱۰–۲۰٪ نزدیک‌تر">
@@ -858,10 +969,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 					{mo && (
 						<>
 							<h4 className="mb-2 mt-5 text-[13.5px] font-extrabold">داده‌ی واردشده <span className="text-[11.5px] font-medium text-muted-foreground">سال‌های کامل + سالِ جاری (واقعی + پیش‌بینی)</span></h4>
-							<div className="overflow-auto rounded-xl ring-1 ring-border">
+							<div className={SCROLL}>
 								<table className="w-full min-w-[900px] text-[11px]">
-									<thead className="bg-muted/60"><tr><Th>سال</Th>{MN.map((m) => <Th key={m}>{m}</Th>)}<Th>کل (تومان)</Th><Th className="bg-secondary/10 text-secondary-ink">فروش دلاری</Th><Th className="bg-secondary/10 text-secondary-ink">میانگین نرخ دلار</Th><Th className="bg-[var(--fc-brass-soft)]">رشد نسبت به سال قبل</Th></tr></thead>
-									<tbody>
+									<thead className="sticky top-0 z-10 bg-muted"><tr><Th>سال</Th>{MN.map((m) => <Th key={m}>{m}</Th>)}<Th>کل (تومان)</Th><Th className="bg-secondary/10 text-secondary-ink">فروش دلاری</Th><Th className="bg-secondary/10 text-secondary-ink">میانگین نرخ دلار</Th><Th className="bg-[var(--fc-brass-soft)]">رشد نسبت به سال قبل</Th></tr></thead>
+									<tbody className={ROWS}>
 										{mo.histRows.map((yr) => (
 											<tr key={yr.year}>
 												<Td><b>{fa(yr.year)}</b></Td>
@@ -906,10 +1017,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 
 					{mo ? (
 						<>
-							<div className="mt-3 max-h-[520px] overflow-auto rounded-xl ring-1 ring-border">
+							<div className={`mt-3 max-h-[520px] ${SCROLL}`}>
 								<table className="w-full min-w-[760px] text-[11px]">
-									<thead className="sticky top-0 bg-muted"><tr><Th>ماه</Th>{mo.sel.map((k) => <Th key={k}>{LBL[k]}</Th>)}<Th className="bg-accent/15">{mo.nAct ? 'واقعی/پیش‌بینی' : 'پیش‌بینی'} (تومان)</Th><Th className="bg-[#E0EBF8] text-secondary-ink">$ لازم</Th></tr></thead>
-									<tbody>
+									<thead className="sticky top-0 z-10 bg-muted"><tr><Th>ماه</Th>{mo.sel.map((k) => <Th key={k}>{LBL[k]}</Th>)}<Th className="bg-accent/15">{mo.nAct ? 'واقعی/پیش‌بینی' : 'پیش‌بینی'} (تومان)</Th><Th className="bg-[#E0EBF8] text-secondary-ink">$ لازم</Th></tr></thead>
+									<tbody className={ROWS}>
 										{MN.map((mn, m) => {
 											const isAct = !!(mo.actualM && mo.actualM[m] > 0)
 											return (
@@ -929,7 +1040,7 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 							</div>
 							<Html className="mt-2" h={(mo.nAct ? "<b style='color:#1E8E3E'>✓ = عددِ واقعیِ ثبت‌شدهٔ " + fa(r.ty) + ' (' + fa(mo.nAct) + ' ماه)</b>؛ بقیهٔ ماه‌ها پیش‌بینیِ ۹ روش است. ' : '') + (r.usd > 0 && mo.blTot > 0 ? 'برای رشدِ واقعی (نه فقط تورمی)، فروشِ <b>دلاری</b> هر ماه باید از همان ماهِ سال قبل بیشتر باشد. مثال: در <b>' + MN[mo.peak[0]] + "</b> باید حدود <b style='direction:ltr;display:inline-block'>$" + sep(Math.round(mo.peak[1] / r.usd)) + '</b> بفروشی. (نرخ دلار: ' + faGroup(r.usd) + ' تومان)' : 'نرخ دلار را در گام «افق دید» وارد کن تا ستونِ «$ لازم» و هدفِ دلاریِ هر ماه نمایش داده شود.')} />
 							<div className="mt-4 grid grid-cols-1 gap-2.5 @xl:grid-cols-3">
-								<Fig kind="total" k="پیش‌بینی کل سال هدف" v={sep(mo.blTot)} u={<span dangerouslySetInnerHTML={{ __html: 'تومان — سال ' + fa(r.ty) + (mo.sel.length ? ' · ' + fa(mo.sel.length) + ' روش' : ' · روشی انتخاب نشده') + (r.usd > 0 && mo.blTot > 0 ? ' · ≈ <b>$' + sep(Math.round(mo.blTot / r.usd)) + '</b>' : '') }} />} />
+								<Fig kind="total" k="پیش‌بینی کل سال هدف" v={sep(mo.blTot)} u={<span dangerouslySetInnerHTML={{ __html: sanitizeForecastHtml('تومان — سال ' + fa(r.ty) + (mo.sel.length ? ' · ' + fa(mo.sel.length) + ' روش' : ' · روشی انتخاب نشده') + (r.usd > 0 && mo.blTot > 0 ? ' · ≈ <b>$' + sep(Math.round(mo.blTot / r.usd)) + '</b>' : '')) }} />} />
 								<Fig small k="بهترین ماه (اوج فصلی)" v={mo.blTot > 0 ? MN[mo.peak[0]] : '—'} u={mo.blTot > 0 ? sep(mo.peak[1]) : '—'} />
 								<Fig small k="ضعیف‌ترین ماه" v={mo.blTot > 0 ? MN[mo.low[0]] : '—'} u={mo.blTot > 0 ? sep(mo.low[1]) : '—'} />
 							</div>
@@ -980,10 +1091,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 									<Fig kind="gold" k="پیش‌بینیِ همان ماه‌ها" v={sep(Math.round(va.sumF))} u="تومان" />
 									<Fig k="عقب/جلو" v={r.monthlyForecast && va.nM ? <span style={{ color: gc }}>{gap >= 0 ? '▲ جلو ' : '▼ عقب '}{pct(Math.abs(gvr))}</span> : '—'} u={r.monthlyForecast && va.nM ? <span style={{ color: gc }}>{(gap >= 0 ? '+' : '−') + sep(Math.abs(Math.round(gap)))} تومان</span> : 'نسبت به پیش‌بینی'} />
 								</div>
-								<div className="mt-3 overflow-auto rounded-xl ring-1 ring-border">
+								<div className={`mt-3 ${SCROLL}`}>
 									<table className="w-full min-w-[620px] text-[12.5px]">
-										<thead className="bg-muted/60"><tr><Th>ماه</Th><Th>پیش‌بینی (ملاک)</Th><Th>واقعی</Th><Th>اختلاف</Th><Th>عقب/جلو</Th></tr></thead>
-										<tbody>
+										<thead className="sticky top-0 z-10 bg-muted"><tr><Th>ماه</Th><Th>پیش‌بینی (ملاک)</Th><Th>واقعی</Th><Th>اختلاف</Th><Th>عقب/جلو</Th></tr></thead>
+										<tbody className={ROWS}>
 											{!r.monthlyForecast ? (
 												<tr><td colSpan={5} className="py-4 text-center text-muted-foreground">اول در همین تب پیش‌بینی را بساز (روش‌ها را انتخاب کن) تا ملاک ساخته شود.</td></tr>
 											) : va.rows.length ? (
@@ -1039,10 +1150,10 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 				{/* ۷) سناریوهای تورمی */}
 				<Card title="سناریوهای تورمی" sub="تورم ۵۰٪، ۷۰٪ و ۱۲۰٪؛ هر سناریو تصمیم متفاوتی می‌طلبد">
 					<p className="mb-3 text-[12.5px] leading-7 text-muted-foreground">مبنا: همان «فروش ریالی هدف» بالا. جدول نشان می‌دهد برای <b>حفظ ارزش واقعی</b> در هر سناریوی تورم، فروش اسمی باید چقدر شود؛ و اگر فروش اسمی ثابت بماند، ارزش واقعی چقدر آب می‌رود.</p>
-					<div className="overflow-auto rounded-xl ring-1 ring-border">
+					<div className={SCROLL}>
 						<table className="w-full min-w-[520px] text-[12.5px]">
-							<thead className="bg-muted/60"><tr><Th>سناریوی تورم</Th><Th>فروش اسمی لازم برای حفظ ارزش</Th><Th>ارزش واقعی اگر فروش ثابت بماند</Th><Th>افت قدرت خرید</Th></tr></thead>
-							<tbody>
+							<thead className="sticky top-0 z-10 bg-muted"><tr><Th>سناریوی تورم</Th><Th>فروش اسمی لازم برای حفظ ارزش</Th><Th>ارزش واقعی اگر فروش ثابت بماند</Th><Th>افت قدرت خرید</Th></tr></thead>
+							<tbody className={ROWS}>
 								{r.scen.map((s) => (
 									<tr key={s.s}><Td><b>تورم {fa(s.s)}٪</b></Td><Td>{sep(s.need)}</Td><Td>{sep(s.real)}</Td><Td style={{ color: ROSE }}>{pct(s.loss)}</Td></tr>
 								))}
@@ -1057,15 +1168,28 @@ export default function ForecastPage({ session, goImport }: { session: Session; 
 }
 
 function Method({ n, t, h, out, children }: { n: string; t: string; h: ReactNode; out: number; children: ReactNode }) {
+	const tier = TIER[useContext(TierCtx)]
+	const filled = out > 0
 	return (
-		<div className="grid gap-3 rounded-xl p-4 ring-1 ring-border/80 transition hover:ring-border @3xl:grid-cols-[200px_1fr_170px]">
+		<div className={`group @container relative grid gap-3 overflow-hidden rounded-2xl bg-card/60 p-4 ring-1 ring-border/70 transition motion-safe:duration-200 hover:bg-card hover:shadow-sm hover:ring-border @3xl:grid-cols-[210px_1fr_170px] @3xl:items-center ${filled ? 'ring-border' : ''}`}>
+			<span aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-[3px] opacity-0 transition-opacity motion-safe:duration-200 group-hover:opacity-100" style={{ background: filled ? tier.fill : `${tier.fill}80` }} />
 			<div className="flex items-start gap-2.5">
-				<span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-[13px] font-extrabold text-primary-ink">{n}</span>
+				<span
+					className="grid size-8 shrink-0 place-items-center rounded-full text-[13px] font-extrabold tabular-nums ring-1 ring-inset"
+					style={filled ? { background: `linear-gradient(135deg, ${tier.fill}, ${tier.fill}cc)`, color: 'white', boxShadow: `0 4px 10px -4px ${tier.fill}99` } : { background: `${tier.fill}14`, color: tier.ink, boxShadow: 'none' }}
+				>
+					{n}
+				</span>
 				<div className="min-w-0"><b className="text-[13.5px] leading-7">{t}</b><div className="text-[11.5px] leading-5 text-muted-foreground">{h}</div></div>
 			</div>
 			<div className="min-w-0">{children}</div>
 			<div className="flex items-center @3xl:justify-end">
-				<span className={`rounded-xl px-3 py-2 text-[14px] tabular-nums ${out > 0 ? 'bg-primary/[.07] text-primary-ink' : 'bg-muted/60'}`}>{out > 0 ? <b>{sep(out)}</b> : <span className="text-muted-foreground">—</span>}</span>
+				<span
+					className={`rounded-xl px-3 py-2 text-[14px] tabular-nums ring-1 ring-inset transition-colors ${filled ? '' : 'bg-muted/60 ring-border/60'}`}
+					style={filled ? { background: `${tier.fill}14`, color: tier.ink, boxShadow: `inset 0 0 0 1px ${tier.fill}2e` } : undefined}
+				>
+					{filled ? <b>{sep(out)}</b> : <span className="text-muted-foreground">—</span>}
+				</span>
 			</div>
 		</div>
 	)
@@ -1085,8 +1209,9 @@ function PyramidOverview({ tiers, badge }: { tiers: PyTier[]; badge: string[] })
 		purple: { pts: poly(118, 176), lines: [['اهداف فروش', 153]], order: 1 },
 		gold: { pts: poly(186, 250), lines: [['فعالیت‌های فروش', 224]], order: 0 },
 	}
+	const mode = useTheme().mode
 	return (
-		<section aria-labelledby="fc-pyr-h" className={`@container rounded-2xl bg-card p-5 ring-1 ring-border sm:p-6 shadow-card`}>
+		<SpotlightCard theme={mode} spotlightColor="#910D6A" className="@container" aria-labelledby="fc-pyr-h">
 			<header className="mb-5 flex flex-wrap items-start justify-between gap-3">
 				<div className="min-w-0">
 					<h2 id="fc-pyr-h" className="text-[18px] font-extrabold leading-7">هرمِ پیش‌بینی و بودجه</h2>
@@ -1131,7 +1256,7 @@ function PyramidOverview({ tiers, badge }: { tiers: PyTier[]; badge: string[] })
 				</ul>
 			</div>
 			<p className="mt-4 border-t border-border/70 pt-3 text-[11.5px] text-muted-foreground">همان دادهٔ اپِ کامل؛ قبل از اولین ذخیره بک‌آپ روی سرور گرفته می‌شود.</p>
-		</section>
+		</SpotlightCard>
 	)
 }
 

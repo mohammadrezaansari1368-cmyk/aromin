@@ -1,3 +1,4 @@
+import { LEVEL_LABEL } from '../data/adapters'
 /** Person picker: chip trigger → searchable listbox; hover/focus shows 4 LED meters from summary.people (no faked numbers). */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PersonVM } from '../data/types'
@@ -37,7 +38,7 @@ export default function PersonPicker({ people, stats, value, onChange, allowAll 
 	}
 	return <div className="pv-picker" ref={box}>
 		<button type="button" className="pv-chip" aria-haspopup="listbox" aria-expanded={open} aria-label={'شخص: ' + (chosen?.name || 'همه')} onClick={() => setOpen((o) => !o)}>
-			<span className="pv-avatar">{chosen?.initial || '∗'}</span>{chosen?.name || 'همهٔ افراد'}<span aria-hidden className="pv-chev">▾</span>
+			<span className="pv-avatar">{chosen?.initial || '∗'}</span>{chosen?chosen.name+(chosen.level?' · '+(LEVEL_LABEL[chosen.level]||''):''):'همهٔ افراد'}<span aria-hidden className="pv-chev">▾</span>
 		</button>
 		{open && <div className="pv-pop" onKeyDown={key}>
 			<input ref={input} className="pv-search" placeholder="جستجو" aria-label="جستجوی شخص" value={q} onChange={(e) => { setQ(e.target.value); setCur(0) }}
@@ -46,7 +47,7 @@ export default function PersonPicker({ people, stats, value, onChange, allowAll 
 				<ul id="pv-people" role="listbox" aria-label="افراد">
 					{options.map((p, i) => <li key={p?.id || 'all'} id={'pv-opt-' + (p?.id || 'all')} role="option" aria-selected={(p?.id || '') === value} data-cur={i === cur} data-inactive={!!p?.inactive}
 						onMouseEnter={() => setCur(i)} onClick={() => pick(p)}>
-						<span className="pv-avatar">{p?.initial || '∗'}</span><span>{p?.name || 'همهٔ افراد'}<small>{p ? p.unitLabel + (p.inactive ? ' · قطع همکاری' : '') : 'دامنهٔ مجاز'}</small></span>
+						<span className="pv-avatar">{p?.initial || '∗'}</span><span>{p ? p.name + (p.level ? ' · ' + (LEVEL_LABEL[p.level] || '') : '') : 'همهٔ افراد'}<small>{p ? p.unitLabel + (p.inactive ? ' · قطع همکاری' : '') : 'دامنهٔ مجاز'}</small></span>
 					</li>)}
 				</ul>
 				{hover && <aside className="pv-pop-card" aria-label={'خلاصهٔ ' + hover.name}>

@@ -7,8 +7,8 @@ import { isActivePerson } from './people'
  *
  * منابعِ داده (به ترتیبِ اولویت):
  *  - وظایف: فروشگاهِ موجودِ اپ — people[].perf.dailyTasks / dayStatus / dayType (همان ایمپورتِ جولیو). فقط خواندنی.
- *  - حضور و غیاب: در سیستم ذخیره نشده است؛ تنها منبعِ واقعی اکسلِ دستگاهِ حضور است که در همین مرورگر
- *    بارگذاری می‌شود (localStorage، مثلِ ابزارِ اصلی) — هیچ تغییری در پایگاه‌داده یا بلابِ /api/state داده نمی‌شود.
+ *  - حضور و غیاب: روی سرور (/api/performance/attendance، lib/attendanceApi.ts) — اکسلِ دستگاه در مرورگر پارس و ردیف‌های خام
+ *    به سرور فرستاده می‌شود؛ ویرایش‌های دستی و قواعد هم روی سرور‌اند. شخصِ هر کارت فقط با نگاشتِ تأییدشده (نه تطبیقِ نام).
  *  - وظایفِ خامِ جولیو (اختیاری، fallback): فقط برای «اضافه‌کارِ جلسه» و «بخشودگیِ دیرکرد» که به ساعتِ وظیفه نیاز دارند.
  *
  * دسترسی: scope قبل از هر محاسبه اعمال می‌شود (کارمند فقط شیتِ خودش؛ مدیران/مالی همه) و همهٔ خروجی‌ها
@@ -18,159 +18,16 @@ import * as XLSX from 'xlsx'
 import { isAdmin, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
 import { memGet, memSet, perfReady } from '@/lib/perfStore'
+import {
+	ApiError, canSeeAll, canonicalJson, deleteAttendance, loadServerAttendance, notifyPerf, postAttendance, putOverride, putSettings, serverAttendance, sha256Hex,
+	type AttendanceBatch, type ServerCard, type Unmapped,
+} from '@/lib/attendanceApi'
+export { canSeeAll, PERF_EVENT } from '@/lib/attendanceApi'
 
-/* ---------------- کمکی‌ها (همان ابزار) ---------------- */
-export function norm(s: unknown): string {
-	if (s === null || s === undefined) return ''
-	return String(s).replace(/ي/g, 'ی').replace(/ى/g, 'ی').replace(/ك/g, 'ک').replace(/أ/g, 'ا').replace(/آ/g, 'ا')
-		.replace(/[ ‌‏‎]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
-}
-export function parseTimeToMinutes(v: unknown): number | null {
-	if (v === null || v === undefined || v === '') return null
-	if (typeof v === 'number') return v > 0 && v < 1 ? Math.round(v * 24 * 60) : null
-	if (v instanceof Date) return v.getUTCHours() * 60 + v.getUTCMinutes()
-	const s = String(v).trim().replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
-	const m = s.match(/^(\d{1,3}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i)
-	if (!m) return null
-	let h = parseInt(m[1])
-	const mm = parseInt(m[2])
-	if (h > 23 && !m[3]) return null
-	if (m[3]) { const pm = /pm/i.test(m[3]); if (pm && h < 12) h += 12; if (!pm && h === 12) h = 0 }
-	if (h === 0 && mm === 0) return null
-	return h * 60 + mm
-}
-function parseClock(v: unknown): number | null {
-	if (v === null || v === undefined || v === '') return null
-	if (typeof v === 'number') return v >= 0 && v < 1 ? Math.round(v * 1440) : null
-	const m = String(v).trim().match(/^(\d{1,2}):(\d{2})/)
-	return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : null
-}
-const isTimeValue = (v: unknown) => parseTimeToMinutes(v) !== null
-export function hhmm(m: number | null | undefined): string {
-	if (m === null || m === undefined || isNaN(m)) return '—'
-	const r = Math.round(m)
-	return String(Math.floor(r / 60)).padStart(2, '0') + ':' + String(r % 60).padStart(2, '0')
-}
-type Row = Record<string, unknown>
-const colMap = (columns: string[]) => { const map: Record<string, string> = {}; for (const c of columns) map[norm(c)] = c; return map }
-const cell = (row: Row, cmap: Record<string, string>, name: string) => { const k = cmap[norm(name)]; return k === undefined ? null : row[k] }
-function dayNum(d: string): number | null {
-	const m = String(d || '').match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/)
-	if (!m) return null
-	const y = +m[1], mo = +m[2], da = +m[3]
-	return y * 372 + (mo <= 6 ? (mo - 1) * 31 : 186 + (mo - 7) * 30) + da
-}
-export function normDate(d: unknown): string {
-	const m = String(d || '').trim().match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/)
-	return m ? m[1] + '/' + m[2].padStart(2, '0') + '/' + m[3].padStart(2, '0') : ''
-}
-function extractNote(row: Row, columns: string[]): string {
-	const cmap = colMap(columns)
-	const notes: string[] = []
-	const push = (v: unknown) => {
-		if (v === null || v === undefined || typeof v === 'number' || v instanceof Date) return
-		const s = String(v).replace(/ /g, ' ').replace(/\s+/g, ' ').trim()
-		if (!s || s === 'nan' || s === '-' || s === '—' || isTimeValue(s)) return
-		if (!notes.includes(s)) notes.push(s)
-	}
-	push(cell(row, cmap, 'حضور'))
-	for (const i of [1, 2, 3]) { push(cell(row, cmap, 'ورود ' + i)); push(cell(row, cmap, 'خروج ' + i)) }
-	for (const col of columns) if (String(col).startsWith('__EMPTY') || String(col).startsWith('Unnamed')) push(row[col])
-	return notes.join(' / ')
-}
-function getPunches(row: Row, columns: string[]): number[] {
-	const cmap = colMap(columns)
-	const out: number[] = []
-	for (const i of [1, 2, 3]) for (const c of ['ورود ' + i, 'خروج ' + i]) { const m = parseTimeToMinutes(cell(row, cmap, c)); if (m !== null) out.push(m) }
-	return out
-}
-function autoCategorize(note: string, presentMin: number | null, dayName: string): Code {
-	const n = norm(note)
-	const worked = !!(presentMin && presentMin > 0)
-	if (n.includes('استعلاجی') || n.includes('مریض')) return 'sick'
-	if (n.includes('مرخصی')) return 'leave'
-	if (n.includes('ماموریت')) return 'mission'
-	if (n.includes('جلسه')) return 'meeting'
-	if (n.includes('تعطیل رسمی') || n.includes('رسمی')) return worked ? 'official_worked' : 'official_holiday'
-	if (n.includes('تولد')) return worked ? 'birthday_worked' : 'birthday'
-	if (norm(dayName) === 'جمعه') return worked ? 'friday_worked' : 'friday'
-	if (!worked && !n) return 'absent'
-	return 'present'
-}
+export * from './performanceDays'
+import { MISSION_CODES, HOLIDAY_ALL_CODES, WORKDAY_CODES, REGULAR_CODES, HOLIDAY_WORKED_CODES, ownersFromTasks } from './performanceDays'
+import { norm, hhmm, normDate, type Code, type Settings, DEFAULT_SETTINGS, type Rules, rules, type RawTask, type TaskFile, type SessionStatus, SESSION_LABEL, stripTitle, parseTaskRows, mergedTasks, taskStats, ownerKey, type PersonLink, resolveLink, storeTasksOf, type RowEdit, type Recon, type DayRow, type PersonPerf, WORKED, processSheet, cell, colMap, type Row } from './performanceDays'
 
-/* ---------------- کدهای روز (همان ابزار) ---------------- */
-export type Code = 'present' | 'official_worked' | 'friday_worked' | 'birthday_worked' | 'official_holiday' | 'friday' | 'birthday' | 'leave' | 'sick' | 'mission' | 'meeting' | 'absent'
-export const CATEGORY_LABELS: Record<Code, string> = {
-	present: 'حضور', official_worked: 'کارکرد در تعطیل رسمی', friday_worked: 'کارکرد در جمعه', birthday_worked: 'کارکرد در تعطیل تولد',
-	official_holiday: 'تعطیل رسمی', friday: 'تعطیل (جمعه)', birthday: 'تعطیل تولد مدیر', leave: 'مرخصی', sick: 'مرخصی استعلاجی',
-	mission: 'ماموریت اداری', meeting: 'جلسه حضوری بیرون', absent: 'غیبت',
-}
-const HOLIDAY_CODES: Code[] = ['official_holiday', 'friday', 'birthday']
-const HOLIDAY_WORKED_CODES: Code[] = ['official_worked', 'friday_worked', 'birthday_worked']
-const HOLIDAY_ALL_CODES = HOLIDAY_CODES.concat(HOLIDAY_WORKED_CODES)
-const WORKDAY_CODES: Code[] = ['present', 'meeting', 'mission', ...HOLIDAY_WORKED_CODES]
-const MISSION_CODES: Code[] = ['mission', ...HOLIDAY_WORKED_CODES]
-const LATE_CODES: Code[] = ['present', 'meeting', 'mission']
-const REGULAR_CODES: Code[] = ['present', 'meeting', 'mission']
-
-/* ---------------- تنظیمات (همان پیش‌فرض‌های ابزار) ---------------- */
-export interface Settings { workStart: string; workEnd: string; dailyWork: string; restDuration: number | string; lateThreshold: number | string; lateDeduct: string; meetingDefault: number | string; taskKeywords: string }
-export const DEFAULT_SETTINGS: Settings = { workStart: '10:00', workEnd: '18:00', dailyWork: '07:30', restDuration: 30, lateThreshold: 15, lateDeduct: '08:00', meetingDefault: 60, taskKeywords: 'حضوری' }
-export interface Rules { workStart: number; workEnd: number; dailyWork: number; rest: number; lateThreshold: number; fullDay: number; lateDeduct: number; meetingDefault: number; keywords: string[] }
-export function rules(s: Settings): Rules {
-	const rest = String(s.restDuration).includes(':') ? (parseTimeToMinutes(s.restDuration) || 0) : Math.max(0, parseInt(String(s.restDuration)) || 0)
-	const dailyWork = parseTimeToMinutes(s.dailyWork) ?? 450
-	return {
-		workStart: parseTimeToMinutes(s.workStart) ?? 600, workEnd: parseTimeToMinutes(s.workEnd) ?? 1080, dailyWork, rest,
-		lateThreshold: Math.max(0, parseInt(String(s.lateThreshold)) || 0), fullDay: dailyWork + rest, lateDeduct: parseTimeToMinutes(s.lateDeduct) || 480,
-		meetingDefault: Math.max(0, parseInt(String(s.meetingDefault)) || 0), keywords: String(s.taskKeywords || '').split(/[,،]/).map(norm).filter(Boolean),
-	}
-}
-
-
-/* ---------------- وظایفِ جولیو ---------------- */
-/** یک وظیفه (فقط ستون‌های لازم). pid = «برای ID» جولیو — شناسهٔ معتبرِ کاربر در جولیو */
-export interface RawTask { id: string; person: string; pid: string; title: string; date: string; start: number | null; endDate: string; end: number | null; stage: string; desc: string; contact: string; hist: number; fileTo: string }
-/** هر فایلِ وظایف جدا نگه داشته می‌شود تا بشود حذفش کرد؛ فقط وظایفِ «بیرون از شرکت» (زیرمجموعهٔ گسترده) ذخیره می‌شوند */
-export interface TaskFile { name: string; loadedAt: number; total: number; missingIds?: number; ids: string[]; owners: { name: string; pid: string; n: number }[]; tasks: RawTask[]; source: 'import' | 'manual' | 'migrated' }
-const DONE_STAGES = ['انجام شده', 'ارجاع و انجام شده', 'اجرا شده'].map(norm)
-// وضعیتِ وظیفهٔ حضوری از روی توضیحات (متن قبلاً norm شده: آ ← ا)
-const CANCEL_RE = /کنسل|لغو/
-const REMIND_RE = /یاداوری|یادآوری|یاد اوری/
-const NOT_HELD_RE = /انجام نشد|برگزار نشد|هماهنگ نکردم|نیومد|نیامد|نرفتیم|نرفتم/
-export type SessionStatus = 'held' | 'cancelled' | 'reminder' | 'notheld'
-export const SESSION_LABEL: Record<SessionStatus, string> = { held: '✓ برگزار شده', cancelled: '✗ لغو', reminder: '✗ یادآوری', notheld: '✗ برگزار نشده' }
-/** زیرمجموعهٔ گسترده برای ذخیره؛ فیلترِ نهایی با «عنوان وظیفه بیرون از شرکت» در تنظیمات انجام می‌شود */
-const OUTSIDE_RE = /حضور|جلسه|ویزیت|ملاقات|بیرون/
-export const stripTitle = (name: string) => norm(name).replace(/^(اقای|خانم|آقای|جناب|سرکار|مهندس|دکتر)\s+/g, '').trim()
-
-export function parseTaskRows(rows: Row[], name: string, source: TaskFile['source'] = 'manual'): TaskFile | null {
-	if (!rows.length) return null
-	const cmap = colMap(Array.from(new Set(rows.flatMap((r) => Object.keys(r)))))
-	if (!cmap[norm('عنوان')] || !cmap[norm('برای')] || !cmap[norm('تاریخ برنامه‌ریزی')]) return null
-	const histKey = Object.keys(cmap).find((k) => k.includes('تاریخچه'))
-	const fileTo = rows.map((r) => normDate(cell(r, cmap, 'ثبت'))).filter(Boolean).sort().pop() || ''
-	const ids = new Set<string>(), owners = new Map<string, { name: string; pid: string; n: number }>(), tasks: RawTask[] = []
-	let missingIds = 0
-	for (const r of rows) {
-		const id = String(cell(r, cmap, 'وظیفه') ?? '').replace(/\.0$/, '').trim()
-		const person = String(cell(r, cmap, 'برای') || '').replace(/\s+/g, ' ').trim()
-		const pid = String(cell(r, cmap, 'برای ID') ?? '').replace(/\.0$/, '').trim()
-		if (id) { if (ids.has(id)) continue; ids.add(id) } else missingIds++
-		if (person) { const ok = pid || 'n:' + stripTitle(person); const o = owners.get(ok) || { name: person, pid, n: 0 }; o.n++; owners.set(ok, o) }
-		const date = normDate(cell(r, cmap, 'تاریخ برنامه‌ریزی'))
-		const title = String(cell(r, cmap, 'عنوان') || '').trim()
-		if (!date || !OUTSIDE_RE.test(norm(title))) continue
-		tasks.push({
-			id, person, pid, title, date,
-			start: parseClock(cell(r, cmap, 'ساعت برنامه‌ریزی')), endDate: normDate(cell(r, cmap, 'تاریخ سررسید')), end: parseClock(cell(r, cmap, 'ساعت سررسید')),
-			stage: String(cell(r, cmap, 'مرحله') || '').trim(), desc: String(cell(r, cmap, 'توضیحات') || '').replace(/\s+/g, ' ').trim().slice(0, 300),
-			contact: String(cell(r, cmap, 'مخاطب') || '').replace(/\.0$/, '').trim().slice(0, 60),
-			hist: typeof r.__histLen === 'number' ? r.__histLen : histKey ? String(r[cmap[histKey]] || '').length : 0, fileTo,
-		})
-	}
-	return { name, loadedAt: Date.now(), total: ids.size, missingIds, ids: [...ids], owners: [...owners.values()], tasks, source }
-}
 export function parseTaskWorkbook(buffer: ArrayBuffer, name: string): TaskFile | null {
 	const wb = XLSX.read(buffer, { type: 'array' })
 	for (const sn of wb.SheetNames) {
@@ -180,223 +37,54 @@ export function parseTaskWorkbook(buffer: ArrayBuffer, name: string): TaskFile |
 	return null
 }
 /** همهٔ فایل‌ها با هم؛ «شناسهٔ وظیفه» کلیدِ یکتاست (کاملِ‌ترین نسخه = تاریخچهٔ بلندتر) */
-export function mergedTasks(files: TaskFile[]): RawTask[] {
-	const byId = new Map<string, RawTask>()
-	for (const f of files) for (const t of f.tasks) {
-		const key = t.id || t.person + '|' + t.date + '|' + t.start + '|' + t.title
-		const p = byId.get(key)
-		if (!p || t.hist >= p.hist) byId.set(key, { ...t, fileTo: [t.fileTo, p && p.fileTo].filter(Boolean).sort().pop() || '' })
-	}
-	return [...byId.values()]
-}
-export function taskStats(files: TaskFile[], R: Rules) {
-	const ids = new Set<string>(); let noId = 0   // ردیفِ بدونِ «شناسهٔ وظیفه» در شمارِ یکتا حساب نمی‌شود (فقط هشدار)
-	const owners = new Map<string, { key: string; name: string; pid: string; n: number }>()
-	for (const f of files) {
-		f.ids.forEach((i) => ids.add(i)); f.tasks.forEach((t) => { if (t.id) ids.add(t.id) }); noId += f.missingIds || 0
-		for (const o of f.owners.length ? f.owners : ownersFromTasks(f.tasks)) { const key = ownerKey(o); const e = owners.get(key) || { key, name: o.name, pid: o.pid, n: 0 }; e.n = Math.max(e.n, o.n); owners.set(key, e) }
-	}
-	// مالکِ بدونِ «برای ID» (دادهٔ قدیمی) با همنامِ دارای ID یکی می‌شود — هر نفر یک‌بار شمرده شود
-	for (const [key, o] of [...owners]) {
-		if (!key.startsWith('name:')) continue
-		const twin = [...owners.values()].find((x) => x.pid && stripTitle(x.name) === key.slice(5))
-		if (twin) { twin.n = Math.max(twin.n, o.n); owners.delete(key) }
-	}
-	const outside = mergedTasks(files).filter((t) => R.keywords.some((k) => norm(t.title).includes(k)))
-	return { missingIds: noId, tasks: ids.size, employees: owners.size, outside: outside.length, owners: [...owners.values()].sort((a, b) => b.n - a.n) }
-}
-export const ownerKey = (o: { name: string; pid: string }) => (o.pid ? 'id:' + o.pid : 'name:' + stripTitle(o.name))
-const overlap = (a1: number, a2: number, b1: number, b2: number) => Math.max(0, Math.min(a2, b2) - Math.max(a1, b1))
-
-/* ---------------- نگاشتِ اشخاص (قابلِ مدیریت؛ هیچ نامی در داده عوض نمی‌شود) ---------------- */
-/** امتیاز: نام‌خانوادگی ۲ + نامِ کوچک ۱ + نامِ شیت (نامِ شناخته‌شده) ۱ — حداقل ۲؛ «قوی» = ۳ به بالا */
-export function matchName(firstName: string, lastName: string, sheetName: string, names: string[]): { name: string; score: number; firstMatches: boolean } | null {
-	const lastTokens = norm(lastName).split(' ').filter((w) => w.length >= 3)
-	const sheetTokens = norm(sheetName).split(' ').filter((w) => w.length >= 3)
-	const first = norm(firstName)
-	let best: string | null = null, bestScore = 0
-	for (const p of names) {
-		const pn = stripTitle(p), tokens = pn.split(' ')
-		let score = 0
-		if (lastTokens.some((lt) => pn.includes(lt))) score += 2
-		if (first && tokens[0] === first) score += 1
-		if (sheetTokens.some((st) => tokens.includes(st))) score += 1
-		if (score > bestScore) { bestScore = score; best = p }
-	}
-	if (!best || bestScore < 2) return null
-	return { name: best, score: bestScore, firstMatches: !!first && stripTitle(best).split(' ')[0] === first }
-}
-export interface PersonLink { person?: string; owner?: string }
-export type LinkHow = 'manual' | 'strong' | 'weak' | 'none'
-export interface ResolvedLink { person: string | null; personHow: LinkHow; owner: string | null; ownerName: string; ownerHow: LinkHow }
-export function resolveLink(first: string, last: string, sheet: string, peopleNames: string[], owners: { key: string; name: string; pid: string }[], manual: PersonLink | undefined): ResolvedLink {
-	let person: string | null = null, personHow: LinkHow = 'none'
-	if (manual?.person && peopleNames.includes(manual.person)) { person = manual.person; personHow = 'manual' }
-	else { const m = matchName(first, last, sheet, peopleNames); if (m) { person = m.name; personHow = m.score >= 3 ? 'strong' : 'weak' } }
-	let owner: string | null = null, ownerName = '', ownerHow: LinkHow = 'none'
-	const mo = manual?.owner ? owners.find((o) => o.key === manual.owner) : undefined
-	if (mo) { owner = mo.key; ownerName = mo.name; ownerHow = 'manual' }
-	else if (owners.length) {
-		// ۱) نامِ کاملِ شخصِ سیستم = نامِ کاربرِ جولیو (بدونِ عنوان) → قطعی
-		const exact = person ? owners.find((o) => stripTitle(o.name) === norm(person)) : undefined
-		if (exact) { owner = exact.key; ownerName = exact.name; ownerHow = 'strong' }
-		else {
-			const m = matchName(first, last, sheet + (person ? ' ' + person : ''), owners.map((o) => o.name))
-			const o = m && owners.find((x) => x.name === m.name)
-			if (o && m) { owner = o.key; ownerName = o.name; ownerHow = m.score >= 3 ? 'strong' : 'weak' }
-		}
-	}
-	return { person, personHow, owner, ownerName, ownerHow }
-}
-
-/* ---------------- دادهٔ وظایف از فروشگاهِ موجود ---------------- */
-export interface StoreTasks { daily: Record<string, number>; status: Record<string, Record<string, number>>; types: Record<string, Record<string, number>>; firstDate: string; lastDate: string }
-export function storeTasksOf(person: { perf?: Record<string, unknown> } | undefined): StoreTasks | null {
-	const pf = person?.perf as Record<string, unknown> | undefined
-	const src = (pf?.dailyTasks && typeof pf.dailyTasks === 'object' ? pf.dailyTasks : null) as Record<string, number> | null
-	if (!src || !Object.keys(src).length) return null
-	// کلیدِ تاریخ یکدست (۱۴۰۵/۵/۳ ← ۱۴۰۵/۰۵/۰۳) — فقط در حافظه، دادهٔ فروشگاه دست نمی‌خورد
-	const byDate = <T,>(o: Record<string, T> | undefined) => { const m: Record<string, T> = {}; for (const [d, v] of Object.entries(o || {})) { const n = normDate(d); if (n) m[n] = v } return m }
-	const daily = byDate(src), status = byDate(pf?.dayStatus as Record<string, Record<string, number>>)
-	const days = Object.keys(daily).concat(Object.keys(status)).sort()
-	return { daily, status, types: byDate(pf?.dayType as Record<string, Record<string, number>>), firstDate: days[0] || '', lastDate: days[days.length - 1] || '' }
-}
-
-/* ---------------- ویرایشِ دستیِ ردیف (همان ساختارِ ابزارِ حضورغیاب) ---------------- */
-export interface RowEdit { code?: Code; entry?: string; exit?: string; present?: string; overtime?: string; excuse?: boolean; note?: string }
-
-/* ---------------- تحلیلِ یک شیت ---------------- */
-export type Recon = 'Matched' | 'Missing' | 'Mismatch' | null
-export interface Meeting extends RawTask { held: boolean; status: SessionStatus; dur: number; durSource: 'task' | 'default'; overtime: number; inClock: number; reason: string }
-export interface DayRow {
-	date: string; day: string; entry: string; lastExit: string; presentMin: number | null; inMin: number | null; outMin: number | null; note: string
-	code: Code; label: string; isLate: boolean; lateMinutes: number; lateExcused: boolean; forgivenBy: '' | 'meeting' | 'mission' | 'edit'; deductibleLate: number; deficitMin: number
-	meetings: Meeting[]; hasMeeting: boolean; overtime: number | null; incomplete: boolean; edited: boolean; editNote: string
-	tasks: number | null; taskDone: number | null; recon: Recon; reconWhy: string
-}
-export interface PersonPerf {
-	inactive?: boolean
-	sheetName: string; displayName: string; person: string | null; personHow: LinkHow; ownerName: string; ownerHow: LinkHow; team: string
-	rows: DayRow[]; monthFrom: string; monthTo: string; hasStoreTasks: boolean; storeFirst: string; storeLast: string; hasRaw: boolean
-}
-export const WORKED = (r: DayRow) => WORKDAY_CODES.includes(r.code) && ((r.presentMin || 0) > 0 || r.code === 'meeting' || r.code === 'mission')
-
-export function processSheet(rawRows: Row[], sheetName: string, R: Rules, link: ResolvedLink, store: StoreTasks | null, ownerTasks: RawTask[] | null, edits: Record<string, RowEdit>, team: string): PersonPerf | null {
-	if (!rawRows || !rawRows.length) return null
-	const columns = Array.from(new Set(rawRows.flatMap((r) => Object.keys(r))))
-	const cmap = colMap(columns)
-	const firstName = String(cell(rawRows[0], cmap, 'نام') || '').trim()
-	const lastName = String(cell(rawRows[0], cmap, 'نام خانوادگی') || '').trim()
-	// نامِ رسمیِ فایل (برای گزارشِ وکیل) با حروفِ فارسیِ یکدست (ي/ك عربیِ دستگاه ← ی/ک)
-	const displayName = ((firstName + ' ' + lastName).trim() || sheetName).replace(/ي/g, 'ی').replace(/ك/g, 'ک').replace(/\s+/g, ' ')
-	const haveRaw = ownerTasks !== null
-	const tasksByDate: Record<string, RawTask[]> = {}
-	for (const t of ownerTasks || []) if (R.keywords.some((k) => norm(t.title).includes(k))) (tasksByDate[t.date] = tasksByDate[t.date] || []).push(t)
-	const dates = rawRows.map((r) => normDate(cell(r, cmap, 'تاریخ'))).filter(Boolean).sort()
-
-	const rows: DayRow[] = []
-	for (const r of rawRows) {
-		const date = normDate(cell(r, cmap, 'تاریخ'))
-		if (!date) continue // ردیفِ جمعِ ماه
-		const day = String(cell(r, cmap, 'روز') || '').replace(/ /g, ' ').trim()
-		const punches = getPunches(r, columns)
-		const rawNote = extractNote(r, columns)
-		let rawPresent = parseTimeToMinutes(cell(r, cmap, 'حضور'))
-		const incomplete = punches.length % 2 === 1
-		if (rawPresent === null && punches.length >= 2) {
-			if (!incomplete) { rawPresent = 0; for (let i = 0; i < punches.length; i += 2) rawPresent += Math.max(0, punches[i + 1] - punches[i]) }
-			else rawPresent = Math.max(...punches) - punches[0]
-		}
-		const ed = edits[sheetName + '|' + date]
-		const has = (v: unknown) => v !== undefined && v !== null && v !== ''
-		const entryMin = ed && has(ed.entry) ? parseTimeToMinutes(ed.entry) : punches.length ? punches[0] : null
-		const exitMin = ed && has(ed.exit) ? parseTimeToMinutes(ed.exit) : punches.length >= 2 ? Math.max(...punches) : null
-		const presentMin = ed && has(ed.present) ? parseTimeToMinutes(ed.present) : rawPresent
-		const meetings: Meeting[] = (tasksByDate[date] || []).map((t) => {
-			const done = DONE_STAGES.includes(norm(t.stage)), dn = norm(t.desc)
-			const status: SessionStatus = !done ? 'notheld' : CANCEL_RE.test(dn) ? 'cancelled' : REMIND_RE.test(dn) ? 'reminder' : NOT_HELD_RE.test(dn) ? 'notheld' : 'held'
-			const held = status === 'held'
-			let dur: number | null = null, durSource: Meeting['durSource'] = 'default'
-			if (t.start !== null && t.end !== null && t.endDate) {
-				const d = ((dayNum(t.endDate) || 0) - (dayNum(t.date) || 0)) * 1440 + t.end - t.start
-				if (d >= 15 && d <= 240) { dur = d; durSource = 'task' } // ۱۵ دقیقه تا ۴ ساعت = مدتِ واقعی
-			}
-			if (dur === null) dur = R.meetingDefault
-			const start = t.start !== null ? t.start : R.workStart
-			const inClock = entryMin !== null && exitMin !== null ? overlap(start, start + dur, entryMin, exitMin) : 0
-			const overtime = held ? Math.max(0, dur - inClock) : 0
-			return { ...t, held, status, dur, durSource, overtime, inClock, reason: held ? 'برگزار شده' : !done ? 'مرحله: ' + (t.stage || '—') : SESSION_LABEL[status].slice(2) + ' (طبق توضیحات)' }
-		})
-		const hasMeeting = meetings.some((m) => m.held)
-		let code = autoCategorize(rawNote, rawPresent, day)
-		if (code === 'absent' && hasMeeting) code = 'meeting'
-		if (ed?.code && CATEGORY_LABELS[ed.code]) code = ed.code
-		let isLate = false, lateMinutes = 0
-		if (LATE_CODES.includes(code) && entryMin !== null && entryMin > R.workStart + R.lateThreshold) { isLate = true; lateMinutes = entryMin - R.workStart }
-		let forgivenBy: DayRow['forgivenBy'] = ''
-		if (isLate) {
-			if (ed && ed.excuse !== undefined) forgivenBy = ed.excuse ? 'edit' : ''
-			else if (hasMeeting) forgivenBy = 'meeting'
-			else if (code === 'meeting' || code === 'mission') forgivenBy = 'mission'
-		}
-		const lateExcused = !!forgivenBy
-		const deficitMin = REGULAR_CODES.includes(code) && presentMin && presentMin > 0 ? Math.max(0, R.fullDay - presentMin) : 0
-		const autoOvertime = haveRaw ? meetings.filter((m) => m.held).reduce((a, m) => a + m.overtime, 0) : null
-		const overtime = ed && has(ed.overtime) ? parseTimeToMinutes(ed.overtime) || 0 : autoOvertime
-		// تطبیقِ وظیفه ↔ حضور (کلید: شخص + تاریخ؛ وظایف از فروشگاهِ موجود؛ بیرون از بازهٔ دادهٔ وظایف = N/A)
-		let tasks: number | null = null, taskDone: number | null = null, recon: Recon = null, reconWhy = 'دادهٔ وظایف برای این شخص در سیستم نیست'
-		const faD = (s: string) => s.replace(/\d/g, (c) => '۰۱۲۳۴۵۶۷۸۹'[+c])
-		if (store) {
-			if (date > store.lastDate || date < store.firstDate) reconWhy = 'بیرون از بازهٔ دادهٔ وظایف (' + faD(store.firstDate) + ' تا ' + faD(store.lastDate) + ')'
-			else {
-				tasks = Number(store.daily[date] || 0)
-				taskDone = store.status[date] ? Number(store.status[date].done || 0) : null
-				const row = { code, presentMin } as DayRow
-				const worked = WORKED(row)
-				if (worked && tasks > 0) { recon = 'Matched'; reconWhy = 'حضور + ' + tasks.toLocaleString('fa-IR') + ' وظیفه' }
-				else if (worked && tasks === 0) { recon = 'Missing'; reconWhy = 'حضور دارد ولی وظیفه‌ای ثبت نشده' }
-				else if (!worked && tasks > 0) { recon = 'Mismatch'; reconWhy = tasks.toLocaleString('fa-IR') + ' وظیفه در روزِ ' + CATEGORY_LABELS[code] }
-				else reconWhy = 'نه حضور، نه وظیفه (ارزیابی نمی‌شود)'
-			}
-		}
-		rows.push({
-			date, day, entry: hhmm(entryMin), lastExit: hhmm(exitMin), presentMin, inMin: entryMin, outMin: exitMin, note: rawNote,
-			code, label: CATEGORY_LABELS[code], isLate, lateMinutes, lateExcused, forgivenBy, deductibleLate: isLate && !lateExcused ? lateMinutes : 0, deficitMin,
-			meetings, hasMeeting, overtime, incomplete: incomplete && !(ed && has(ed.present)), edited: !!ed, editNote: ed?.note || '',
-			tasks, taskDone, recon, reconWhy,
-		})
-	}
-	return {
-		sheetName, displayName, person: link.person, personHow: link.personHow, ownerName: link.ownerName, ownerHow: link.ownerHow, team,
-		rows, monthFrom: dates[0] || '', monthTo: dates[dates.length - 1] || '', hasStoreTasks: !!store, storeFirst: store?.firstDate || '', storeLast: store?.lastDate || '', hasRaw: haveRaw,
-	}
-}
-
-/* ---------------- ذخیره در همین مرورگر (IndexedDB؛ بدونِ تغییرِ پایگاه‌داده) ---------------- */
-/** فایلِ حضورِ ادغام‌شده: هر شیت = یک نفر؛ ردیف‌ها با کلیدِ پایدارِ «شیت|تاریخ» ادغام می‌شوند */
+/* ---------------- حضور روی سرور (کشِ attendanceApi)؛ وظایف و نگاشتِ جولیو هنوز در همین مرورگر ---------------- */
+/** دیدِ حضور: هر کارت = یک «شیت» با کلیدِ یکتای «نامِ شیت · کارت N»؛ ردیف‌ها خامِ دستگاه‌اند */
 export interface AttendanceFile {
 	fileName: string; loadedAt: number; sheets: Record<string, Row[]>
 	/** آخرین فایلِ واردشده (برای «فعلی: …») */
-	last?: { fileName: string; loadedAt: number; people: number; skipped: string[]; source: 'card' | 'import-center' }
+	last?: { fileName: string; loadedAt: number; people: number; skipped: string[]; source: 'card' | 'import-center' | 'migration' }
+	/** دستهٔ ایمپورت‌های سرور (فقط مدیران/مالی) */
+	batches?: AttendanceBatch[]
 	/** نسخهٔ قدیمی: ویرایش‌ها درونِ همین شیء بودند — فقط برای مهاجرت خوانده می‌شود */
 	edits?: Record<string, RowEdit>
 }
 const k = (s: string) => 'aromin.perf.' + s + '.' + currentTenant()
 const read = <T,>(key: string, fb: T): T => { try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : fb } catch { return fb } }
 const write = (key: string, v: unknown) => { try { localStorage.setItem(key, JSON.stringify(v)); return true } catch { return false } }
-export const loadAttendance = () => memGet<AttendanceFile | null>('attendance', null)
-/** ویرایش‌های دستی (Override) جدا از دادهٔ خام؛ کلید = «شیت|تاریخ» */
-export const loadOverrides = (): Record<string, RowEdit> => ({ ...(loadAttendance()?.edits || {}), ...memGet<Record<string, RowEdit>>('overrides', {}) })
+export const sheetKeyOf = (c: Pick<ServerCard, 'sheetName' | 'cardNo'>) => `${c.sheetName} · کارت ${c.cardNo}`
+const serverCards = () => serverAttendance()?.cards || []
+/** کارتِ سرورِ یک کلیدِ شیت (برای ویرایش و نگاشت) */
+export const cardOfSheet = (key: string): ServerCard | undefined => serverCards().find((c) => sheetKeyOf(c) === key)
+const tsOf = (iso: string | null | undefined) => { const t = iso ? Date.parse(iso) : NaN; return isNaN(t) ? 0 : t }
+export function loadAttendance(): AttendanceFile | null {
+	const d = serverAttendance()
+	if (!d || (!d.cards.length && !d.batches?.length)) return null
+	const sheets: Record<string, Row[]> = {}
+	for (const c of d.cards) sheets[sheetKeyOf(c)] = c.rows
+	const b = d.batches?.[0]
+	const loadedAt = tsOf(b?.createdAt || d.updatedAt)
+	return {
+		fileName: b?.fileName || '', loadedAt, sheets, batches: d.batches,
+		last: b ? { fileName: b.fileName, loadedAt, people: b.sheets, skipped: (b.skipped || []).map((x) => x.sheet), source: b.source } : undefined,
+	}
+}
+/** ویرایش‌های دستی (Override) جدا از دادهٔ خام؛ کلید = «کلیدِ شیت|تاریخ» */
+export const loadOverrides = (): Record<string, RowEdit> => {
+	const out: Record<string, RowEdit> = {}
+	for (const c of serverCards()) for (const [date, e] of Object.entries(c.overrides || {})) out[sheetKeyOf(c) + '|' + date] = e as RowEdit
+	return out
+}
 export const loadTaskFiles = (): TaskFile[] => memGet<TaskFile[]>('taskfiles', [])
-export const loadSettings = (): Settings => ({ ...DEFAULT_SETTINGS, ...read<Partial<Settings>>(k('settings'), {}) })
+/** قواعد: سرور (همهٔ مرورگرها یکسان) ← نسخهٔ محلیِ قدیمی ← پیش‌فرض */
+export const loadSettings = (): Settings => {
+	const st = serverAttendance()?.settings as Partial<Settings> | undefined
+	return { ...DEFAULT_SETTINGS, ...(st || read<Partial<Settings>>(k('settings'), {})) }
+}
 export const loadLinks = () => read<Record<string, PersonLink>>(k('links'), {})
-export const PERF_EVENT = 'aromin-perf'
-const notify = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event(PERF_EVENT)) }
+const notify = notifyPerf
 /** هر نوشتن اول منتظرِ بارگذاریِ کش از IndexedDB می‌ماند تا روی دادهٔ موجود ننویسد */
 const ready = () => perfReady(currentTenant())
 
-/** مجوزِ دیدنِ همه (همان نقش‌های مدیریتی + مالی که دسترسیِ کاملِ فعلی را دارند) */
-export const canSeeAll = (s: Session) => isAdmin(s.role) || s.role === 'finance'
 const guard = (s: Session, what: string) => { if (!canSeeAll(s)) throw new Error('فقط مدیران و مالی ' + what + '.') }
 
 /** پارسِ خروجیِ دستگاهِ حضور: شیت‌های بدونِ ستونِ «تاریخ» نادیده گرفته و گزارش می‌شوند */
@@ -433,40 +121,54 @@ export function mergeAttendance(prev: AttendanceFile | null, next: AttendanceFil
 	void _drop
 	return { ...rest, fileName: next.fileName, loadedAt: next.loadedAt, sheets, last: next.last }
 }
-/** آداپتورِ مشترکِ ورودِ فایلِ حضور — هم کارتِ «فایل حضور و غیاب» و هم کادرِ «ورودِ فایل» مرکز ایمپورت از همین استفاده می‌کنند */
+/** آداپتورِ مشترکِ ورودِ فایلِ حضور: پارس در مرورگر ← sha256 فایل ← سرور (تکراری = بدونِ نوشتن) ← بارگذاریِ دوباره */
 export async function ingestAttendanceFile(s: Session, buffer: ArrayBuffer, fileName: string, source: 'card' | 'import-center' = 'card') {
 	guard(s, 'فایلِ حضور را بارگذاری می‌کنند')
-	await ready()
-	const parsed = parseAttendanceWorkbook(buffer, fileName, source)   // خطا ← هیچ ذخیرهٔ ناقصی انجام نمی‌شود
-	const prev = loadAttendance()
-	const merged = mergeAttendance(prev, parsed)
-	await memSet('attendance', merged)
-	notify()
-	return { people: parsed.last!.people, skipped: parsed.last!.skipped, total: Object.keys(merged.sheets).length, merged: !!prev }
+	const parsed = parseAttendanceWorkbook(buffer, fileName, source)   // خطا ← هیچ چیزی فرستاده نمی‌شود
+	return postParsed(s, parsed, await sha256Hex(buffer), source)
 }
-/** حذف از این مرورگر: دادهٔ خام و مشتق؛ Overrideها فقط با تأییدِ صریح (withOverrides) */
+async function postParsed(s: Session, parsed: AttendanceFile, sha256: string, source: AttendanceBatch['source']) {
+	const prev = loadAttendance()
+	let r
+	try { r = await postAttendance(s, { fileName: parsed.fileName, sha256, source, sheets: parsed.sheets }) } catch (e) {
+		const sk = e instanceof ApiError && Array.isArray(e.body.skipped) ? (e.body.skipped as { sheet: string; reason: string }[]) : []
+		throw sk.length ? new Error((e as Error).message + ' (' + sk.map((x) => x.sheet + ': ' + x.reason).join('، ') + ')') : e
+	}
+	const data = await loadServerAttendance(s)
+	const serverSkipped = (r.skipped || []).map((x) => x.sheet)
+	return {
+		people: Object.keys(r.sheetCards || {}).length || parsed.last?.people || 0, skipped: [...(parsed.last?.skipped || []), ...serverSkipped],
+		total: data.cards.length, merged: !!prev, duplicate: r.duplicate, unmapped: (r.unmapped || []) as Unmapped[],
+	}
+}
+/** حذف از سرور: همهٔ روزها و دسته‌ها؛ Overrideها فقط با تأییدِ صریح (withOverrides). نگاشتِ هویت دست نمی‌خورد */
 export async function clearAttendance(s: Session, withOverrides = false) {
 	guard(s, 'فایلِ حضور را حذف می‌کنند')
-	await ready()
-	await memSet('attendance', undefined)
-	if (withOverrides) await memSet('overrides', undefined)
-	notify()
+	await deleteAttendance(s, { all: true, overrides: withOverrides })
+	await loadServerAttendance(s)
 }
-/** سازگاری با کدِ قبلی */
+/** حذفِ یک دستهٔ ایمپورت (روزهایی که دستهٔ بعدی بازنویسی کرده می‌مانند) */
+export async function removeAttendanceBatch(s: Session, batch: number) {
+	guard(s, 'فایلِ حضور را حذف می‌کنند')
+	const r = await deleteAttendance(s, { batch })
+	await loadServerAttendance(s)
+	return r
+}
+/** سازگاری با کدِ قبلی: همان مسیرِ سرور (sha از محتوای قطعیِ شیت‌ها) */
 export async function saveAttendance(s: Session, f: AttendanceFile | null) {
 	if (!f) return clearAttendance(s)
 	guard(s, 'فایلِ حضور را بارگذاری می‌کنند')
-	await ready()
-	await memSet('attendance', mergeAttendance(loadAttendance(), f))
-	notify()
+	const source = f.last?.source || 'card'
+	await postParsed(s, f, await sha256Hex(canonicalJson(f.sheets)), source)
 }
-/** ویرایشِ دستی ← استورِ Override (جدا از دادهٔ خام)؛ null = حذفِ ویرایش */
+/** ویرایشِ دستی ← Override روی سرور (جدا از دادهٔ خام)؛ null = حذفِ ویرایش */
 export async function saveEdit(s: Session, sheet: string, date: string, e: RowEdit | null) {
 	guard(s, 'ردیفِ حضور را ویرایش می‌کنند')
-	await ready()
-	const ov = loadOverrides()
-	if (e) ov[sheet + '|' + date] = e; else delete ov[sheet + '|' + date]
-	await memSet('overrides', ov)
+	const card = cardOfSheet(sheet)
+	if (!card) throw new Error('کارتِ این شیت روی سرور پیدا نشد؛ صفحه را دوباره بارگذاری کنید.')
+	const r = await putOverride(s, card.cardNo, date, (e as Record<string, unknown> | null) || null)
+	if (r.override) card.overrides = { ...card.overrides, [date]: r.override }
+	else { const { [date]: _gone, ...rest } = card.overrides || {}; void _gone; card.overrides = rest }
 	notify()
 }
 export async function addTaskFile(s: Session | null, f: TaskFile) {
@@ -483,9 +185,11 @@ export async function removeTaskFile(s: Session, name: string, loadedAt: number)
 	await memSet('taskfiles', loadTaskFiles().filter((x) => !(x.name === name && x.loadedAt === loadedAt)))
 	notify()
 }
-export function saveSettings(s: Session, st: Settings) {
+export async function saveSettings(s: Session, st: Settings) {
 	guard(s, 'قواعد را تغییر می‌دهند')
-	write(k('settings'), st)
+	const r = await putSettings(s, st as unknown as Record<string, unknown>)
+	const d = serverAttendance()
+	if (d) { d.settings = r.settings; d.settingsStored = true }
 	notify()
 }
 export function saveLink(s: Session, sheet: string, link: PersonLink | null) {
@@ -499,18 +203,7 @@ export function saveLink(s: Session, sheet: string, link: PersonLink | null) {
 /* ---------------- مهاجرتِ کاشیِ قدیمیِ «وظایفِ بارگذاری‌شدهٔ قبلی» ---------------- */
 export const LEGACY_TASKS_NAME = 'وظایفِ بارگذاری‌شدهٔ قبلی'
 const LEGACY_KEY = () => k('tasks')
-/** مالکانِ وظایف از خودِ ردیف‌ها (کاشیِ قدیمی مالک نداشت → «۰ نفر») */
-export function ownersFromTasks(tasks: RawTask[]) {
-	const m = new Map<string, { name: string; pid: string; n: number }>()
-	for (const t of tasks) {
-		if (!t.person) continue
-		const key = ownerKey({ name: t.person, pid: t.pid || '' })
-		const o = m.get(key) || { name: t.person, pid: t.pid || '', n: 0 }
-		o.n++
-		m.set(key, o)
-	}
-	return [...m.values()]
-}
+
 /**
  * وظایفِ آپلودِ دستیِ نسخهٔ قبلی را با دادهٔ موتورِ ایمپورت تطبیق می‌دهد (کلید = شناسهٔ وظیفه):
  * تکراری‌ها کنار گذاشته می‌شوند، باقی‌مانده به‌عنوانِ منبعِ «منتقل‌شده» در فهرستِ ایمپورت ثبت می‌شود،
@@ -568,7 +261,7 @@ export interface Dataset {
 	people: PersonPerf[]; unmatched: number; file: AttendanceFile | null; R: Rules; settings: Settings; scopeAll: boolean; self: string
 	taskFiles: TaskFile[]; stats: ReturnType<typeof taskStats>; peopleNames: string[]; teams: string[]
 }
-type StorePerson = { name: string; role?: string; perf?: Record<string, unknown>; inactive?: boolean }
+type StorePerson = { id?: string | number; name: string; role?: string; perf?: Record<string, unknown>; inactive?: boolean }
 /**
  * همهٔ نماها از همین تابع می‌خوانند. محدودیتِ دسترسی **قبل از تحلیل** اعمال می‌شود:
  * برای کارمند فقط شیت(های)ی که به شخصِ خودش نگاشت شده پردازش می‌شود و بقیه اصلاً وارد محاسبه نمی‌شوند.
@@ -593,10 +286,16 @@ export function buildDataset(session: Session, full: { people?: StorePerson[]; p
 		for (const [name, raw] of Object.entries(file.sheets)) {
 			const cm = colMap(Array.from(new Set(raw.flatMap((r) => Object.keys(r)))))
 			const f0 = raw[0] || {}
-			const link = resolveLink(String(cell(f0, cm, 'نام') || ''), String(cell(f0, cm, 'نام خانوادگی') || ''), name, peopleNames, stats.owners, links[name])
+			const card = cardOfSheet(name)
+			const sheet = card?.sheetName || name
+			// کاربرِ جولیو هنوز از نام/نگاشتِ محلی؛ شخصِ حضور فقط از نگاشتِ تأییدشدهٔ کارت روی سرور
+			const link = resolveLink(String(cell(f0, cm, 'نام') || ''), String(cell(f0, cm, 'نام خانوادگی') || ''), sheet, peopleNames, stats.owners, links[name] || links[sheet])
+			const confirmed = card?.mapping === 'confirmed' && !!card.personName
+			link.person = confirmed ? card!.personName : null
+			link.personHow = confirmed ? 'manual' : 'none'
 			// scope قبل از پردازش
 			if (!scopeAll && link.person !== self) continue
-			const sp = link.person ? byName.get(link.person) : undefined
+			const sp = confirmed ? allPeople.find((p) => p.id != null && String(p.id) === card!.personId) || byName.get(card!.personName!) : undefined
             if (full?.performanceScoped && (!sp || !['manual', 'strong'].includes(link.personHow))) continue
 			const store = sp && (scopeAll || sp.name === self) ? storeTasksOf(sp) : null
 			const ownerTasks = link.owner && (!full?.performanceScoped || ['manual', 'strong'].includes(link.ownerHow)) ? allTasks.filter((t) => ownerKey({ name: t.person, pid: t.pid }) === link.owner || (!t.pid && !!link.ownerName && stripTitle(t.person) === stripTitle(link.ownerName))) : null
@@ -869,7 +568,8 @@ export function lawyerBasis(R: Rules, haveRaw: boolean): string[] {
 		`تأخیر: ورود بعد از ${hhmm(R.workStart + R.lateThreshold)}؛ مقدار از ${hhmm(R.workStart)} شمرده می‌شود.`,
 		`تأخیرِ قابلِ کسر = مجموع تأخیر − تأخیرِ بخشوده (جلسهٔ حضوریِ برگزارشده، مأموریت، یا ویرایشِ مجاز). هر ${hhmm(R.lateDeduct)} تأخیرِ قابلِ کسر = ۱ روز کسر؛ مانده حفظ می‌شود.`,
 		`کسرکار = کمبودِ ساعتِ حضور نسبت به ${hhmm(R.fullDay)} در روزهای عادیِ دارای حضور.`,
-		haveRaw ? `اضافه‌کار = بخشی از جلسه‌های حضوریِ برگزارشده (وظایف جولیو) که خارج از ورود/خروجِ ثبت‌شده بوده؛ اگر زمانِ سررسید معتبر نبود، مدت ${R.meetingDefault} دقیقه فرض شده است.` : 'اضافه‌کار: فایلِ وظایفِ جولیو بارگذاری نشده، پس اضافه‌کار محاسبه‌شدنی نیست (N/A).',
+		haveRaw ? `اضافه‌کار = بخشی از جلسه‌های حضوریِ برگزارشده (وظایف جولیو) که خارج از ورود/خروجِ ثبت‌شده بوده؛ اگر زمانِ سررسید معتبر نبود، مدت ${R.meetingDefault} دقیقه فرض شده است.` : R.otLateExit ? 'اضافه‌کارِ جلسه: فایلِ وظایفِ جولیو بارگذاری نشده (N/A).' : 'اضافه‌کار: فایلِ وظایفِ جولیو بارگذاری نشده، پس اضافه‌کار محاسبه‌شدنی نیست (N/A).',
+		...(R.otLateExit ? [`اضافه‌کار از خروجِ دیرتر = خروج بعد از ${hhmm(R.workEnd)} (پایانِ موظفی) در روزهای کارکرد؛ با اضافه‌کارِ جلسه جمع می‌شود و دوبار شمرده نمی‌شود.`] : []),
 		'همهٔ اعداد از خروجیِ دستگاهِ حضور و داده‌های ثبت‌شدهٔ سیستم است؛ هر موردِ فاقدِ داده N/A درج شده است.',
 	]
 }

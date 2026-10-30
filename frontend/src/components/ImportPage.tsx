@@ -6,18 +6,20 @@
  * می‌فرستد که پیش از ورود بک‌آپِ سرور می‌گیرد، uniImport را اجرا و فوراً در MariaDB ذخیره می‌کند.
  */
 
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactElement, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type ReactElement, type ReactNode } from 'react'
 import * as XLSX from 'xlsx'
 import { Shell, Big, faNum } from '@/components/ui/kit'
 import { useAromin, dataTag, ensureTenant, currentTenant, type ImportLogItem } from '@/lib/data'
 import { KINDS, kindOf, detectImportType, type ImportKind } from '@/lib/importTypes'
-import { authHeaders, isAdmin, type Session } from '@/lib/auth'
+import { authHeaders, isAdmin, storedToken, type Session } from '@/lib/auth'
 import KnowledgeTile from '@/components/KnowledgeTile'
-import { canSeeAll, ingestAttendanceFile } from '@/lib/performance'
+import { canSeeAll } from '@/lib/performance'
 import Sortable from '@/components/ui/sortable'
 import { CARD } from '@/components/ui/tokens'
 import DealImport, { importSummary } from '@/components/ledger/DealImport'
-const AttendanceStatus = lazy(() => import('@/components/performance/PerformancePage').then((m) => ({ default: m.AttendanceStatus })))
+import CallSummaryOptions from '@/components/import/CallSummaryOptions'
+import { callOptsError, ingestCallFile, resetCallsCache, type CallDetailItem, type CallOpts } from '@/lib/callsApi'
+import { ingestTicketFile } from '@/lib/ticketsApi'
 
 interface QItem {
 	id: string
@@ -27,6 +29,8 @@ interface QItem {
 	hash?: string
 	duplicateContent?: boolean
 	buf: ArrayBuffer
+	/** فقط «عملکردِ تماس»: جهت و دوره (بدونِ پیش‌فرض) */
+	callOpts?: CallOpts
 	type: ImportKind
 	rows: number
 	hdr: string[]
@@ -40,6 +44,8 @@ interface Result {
 	dup: boolean
 	routed: boolean
 	err: string
+	note?: string
+	conflicts?: CallDetailItem[]
 }
 type Bridge = 'connecting' | 'ready' | 'failed'
 
@@ -162,21 +168,48 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		if (ok) reload()
 	}
 
-	/** فایلِ حضور و غیاب مستقیم به «عملکرد» می‌رود (موتورِ قبلی آن را نمی‌شناسد)؛ فقط مدیران و مالی */
-	const importAttendance = async (items: QItem[]): Promise<Result[]> => {
+	/** 3.9.68: حضور و غیاب فقط از اپِ هاریکان می‌آید (MCP)؛ فایلِ حضور دیگر وارد نمی‌شود */
+	const importAttendance = async (items: QItem[]): Promise<Result[]> =>
+		items.map((q) => ({ name: q.name, type: 'attendance' as const, rows: q.rows, dup: false, routed: false, err: 'حضور و غیاب از اپِ هاریکان می‌آید؛ فایلِ حضور دیگر وارد نمی‌شود.' }))
+	/** ریز/عملکردِ تماس برای مدیران و مالی علاوه بر موتورِ قبلی به سرور هم می‌رود (WP-C)؛ داشبوردهای فعلی همچنان از موتورِ قبلی‌اند */
+	const importCalls = async (items: QItem[]): Promise<Result[]> => {
 		const out: Result[] = []
+		if (!session || !canSeeAll(session)) return out
+		for (const q of items) {
+			const kind = q.type as 'calllog' | 'calls'
+			try {
+				const r = await ingestCallFile(session, kind, q.buf, q.name, q.callOpts)
+				const b = r.batch, warn = r.warnings ? [...r.warnings.sums, ...r.warnings.overlaps.map((o) => `دورهٔ هم‌پوشان ${o.from}–${o.to}`)] : []
+				const note = r.duplicate ? 'سرور: این فایل قبلاً ثبت شده است (تکراری)'
+					: [`سرور: ${faNum(b.inserted)} جدید · ${faNum(b.updated)} به‌روز · ${faNum(b.conflicts)} تعارض`, r.unmapped?.length ? `${faNum(r.unmapped.length)} شناسه نیازمند تأیید نگاشت` : '', ...warn].filter(Boolean).join(' · ')
+				out.push({ name: q.name, type: kind, rows: q.rows, dup: r.duplicate, routed: true, err: '', note, conflicts: b.details?.conflicts?.length ? b.details.conflicts : undefined })
+			} catch (e) {
+				out.push({ name: q.name, type: kind, rows: q.rows, dup: false, routed: false, err: 'سرور: ' + (e as Error).message })
+			}
+		}
+		if (out.some((r) => r.routed)) resetCallsCache()
+		return out
+	}
+	/** تیکتِ جولیو برای مدیران و مالی علاوه بر موتورِ قبلی به جدولِ سروری هم می‌رود (WP-4)؛ کارشناس فقط با نگاشتِ تأییدشده به شخص می‌رسد */
+	const importTickets = async (items: QItem[]): Promise<Result[]> => {
+		const out: Result[] = []
+		if (!session || !canSeeAll(session)) return out
 		for (const q of items) {
 			try {
-				if (!session || !canSeeAll(session)) throw new Error('فقط مدیران و مالی فایلِ حضور را وارد می‌کنند')
-				await ingestAttendanceFile(session, q.buf, q.name, 'import-center')   // آداپتورِ واحدِ حضور در lib/performance.ts
-				out.push({ name: q.name, type: 'attendance', rows: q.rows, dup: false, routed: true, err: '' })
+				const r = await ingestTicketFile(session, q.buf, q.name)
+				const b = r.batch
+				const note = r.duplicate ? 'سرور: این فایل قبلاً ثبت شده است (تکراری)'
+					: [`سرور: ${faNum(b.inserted)} جدید · ${faNum(b.updated)} به‌روز · ${faNum(b.conflicts)} تعارض`, r.unmapped?.length ? `${faNum(r.unmapped.length)} کارشناس نیازمند تأیید نگاشت` : ''].filter(Boolean).join(' · ')
+				out.push({ name: q.name, type: 'ticket', rows: q.rows, dup: r.duplicate, routed: true, err: '', note, conflicts: b.details?.conflicts?.length ? b.details.conflicts : undefined })
 			} catch (e) {
-				out.push({ name: q.name, type: 'attendance', rows: q.rows, dup: false, routed: false, err: (e as Error).message })
+				out.push({ name: q.name, type: 'ticket', rows: q.rows, dup: false, routed: false, err: 'سرور: ' + (e as Error).message })
 			}
 		}
 		return out
 	}
+	const callsBlocked = !!session && canSeeAll(session) && valid.some((q) => q.type === 'calls' && callOptsError(q.callOpts))
 	const run = async () => {
+		if (callsBlocked) return
 		const att = valid.filter((q) => q.type === 'attendance')
 		const deals = valid.filter((q) => q.type === 'deal')
 		const eng = valid.filter((q) => q.type !== 'attendance' && q.type !== 'deal')
@@ -186,19 +219,22 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 		if (!eng.length) {
 			const r = await importAttendance(att)
 			setResults(r)
-			setStatus(r.every((x) => x.routed) ? { tone: 'ok', text: `${faNum(r.length)} فایلِ حضور و غیاب برای «عملکرد» ثبت شد .` } : { tone: 'err', text: 'انجام نشد: ' + r.filter((x) => !x.routed).map((x) => x.err).join('، ') })
+			setStatus(r.every((x) => x.routed) ? { tone: 'ok', text: `${faNum(r.length)} فایلِ حضور و غیاب روی سرور ثبت شد.` } : { tone: 'err', text: 'انجام نشد: ' + r.filter((x) => !x.routed).map((x) => x.err).join('، ') })
 			setQueue((q) => q.filter((x) => !att.includes(x) || !r.find((y) => y.name === x.name && y.routed)))
 			return
 		}
 		if (bridge !== 'ready' || !frame.current?.contentWindow) return
 		const attRes = await importAttendance(att)
+		const callRes = await importCalls(eng.filter((q) => q.type === 'calllog' || q.type === 'calls'))
+		const ticketRes = await importTickets(eng.filter((q) => q.type === 'ticket'))
 		setBusy(true)
 		setStatus({ tone: 'info', text: 'بک‌آپ روی سرور، ورودِ داده و ذخیره…' })
 		const id = uid()
 		const res = (await new Promise<unknown>((resolve) => {
 			pending.current = { id, resolve }
 			frame.current!.contentWindow!.postMessage(
-				{ aromin: 'import', id, files: eng.map((q) => ({ name: q.name, buf: q.buf })) },
+				// 3.9.94: the dashboard's current (renewed) token travels with the files — the hidden import engine's own session may be missing or expired
+				{ aromin: 'import', id, token: storedToken() || session?.token || '', files: eng.map((q) => ({ name: q.name, buf: q.buf })) },
 				location.origin,
 			)
 			window.setTimeout(() => {
@@ -209,10 +245,13 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 			}, 120000)
 		})) as { ok: boolean; saved?: boolean; error?: string; results?: Result[] }
 		setBusy(false)
-		setResults([...(res.results || []), ...attRes])
+		setResults([...(res.results || []), ...attRes, ...callRes, ...ticketRes])
+		// a failed server upload keeps its file in the queue for retry, even when the legacy engine succeeded
+		const serverFailed = [...attRes, ...callRes, ...ticketRes].filter((x) => !x.routed)
 		if (res.ok) {
-			setStatus({ tone: 'ok', text: `${faNum((res.results || []).length)} فایل وارد و ذخیره شد.` + (attRes.length ? ` ${faNum(attRes.filter((x) => x.routed).length)} فایلِ حضور برای «عملکرد» ثبت شد.` : '') })
-			setQueue((q) => q.filter((x) => !valid.includes(x)))
+			setStatus({ tone: serverFailed.length ? 'err' : 'ok', text: `${faNum((res.results || []).length)} فایل وارد و ذخیره شد.` + (attRes.length ? ` ${faNum(attRes.filter((x) => x.routed).length)} فایلِ حضور روی سرور ثبت شد.` : '')
+				+ (serverFailed.length ? ` ارسال به سرور برای ${faNum(serverFailed.length)} فایل انجام نشد و در صف ماند: ` + serverFailed.map((x) => x.err).join('، ') : '') })
+			setQueue((q) => q.filter((x) => !valid.includes(x) || serverFailed.some((y) => y.name === x.name)))
 			reload()
 		} else setStatus({ tone: 'err', text: 'انجام نشد: ' + (res.error || 'نامشخص') })
 	}
@@ -260,10 +299,9 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 							className={`flex min-h-[150px] w-full flex-1 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-6 text-center transition ${over ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/40'}`}>
 							<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-9 text-primary-ink"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M17 8l-5-5-5 5" /><path d="M12 3v12" /></svg>
 							<span className="text-[14px] font-bold text-foreground">اکسل‌ها را این‌جا بکش یا کلیک کن</span>
-							<span className="text-[12px] text-muted-foreground">چند فایل با هم · نوعِ هر فایل خودکار تشخیص داده و رنگی می‌شود · خروجیِ دستگاهِ حضور (هر نفر یک شیت) هم همین‌جا</span>
+							<span className="text-[12px] text-muted-foreground">چند فایل با هم · نوعِ هر فایل خودکار تشخیص داده و رنگی می‌شود · حضور و غیاب از اپِ هاریکان می‌آید (فایلِ حضور لازم نیست)</span>
 						</button>
 						<input ref={input} type="file" multiple accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
-						{session && canSeeAll(session) && <Suspense fallback={null}><AttendanceStatus session={session} /></Suspense>}
 					</Shell>
 				</Card>
 
@@ -299,6 +337,9 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 											<div className="mt-1 text-[11.5px] text-muted-foreground">
 												{q.error ? <span className="text-error">{q.error}</span> : <>{faNum(q.rows)} ردیف · {kb(q.size)} · مقصد: {k.dest}</>}
 											</div>
+											{q.type === 'calls' && !q.error && session && canSeeAll(session) && (
+												<CallSummaryOptions value={q.callOpts} onChange={(callOpts) => setQueue((x) => x.map((y) => (y.id === q.id ? { ...y, callOpts } : y)))} />
+											)}
 										</div>
 										<button type="button" onClick={() => setQueue((x) => x.filter((y) => y.id !== q.id))} className="grid size-8 place-items-center rounded-lg text-muted-foreground transition hover:bg-card hover:text-foreground" aria-label="حذف از صف">✕</button>
 									</li>
@@ -308,13 +349,13 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 						<div className="mt-3 flex flex-wrap items-center gap-3">
 							<button
 								type="button"
-								disabled={!valid.length || (bridge !== 'ready' && valid.some((q) => q.type !== 'attendance' && q.type !== 'deal')) || busy || dealQ.length > 0}
+								disabled={!valid.length || (bridge !== 'ready' && valid.some((q) => q.type !== 'attendance' && q.type !== 'deal')) || busy || dealQ.length > 0 || callsBlocked}
 								onClick={run}
 								className="h-11 rounded-xl bg-gradient-to-l from-primary to-active px-6 text-[14px] font-extrabold text-primary-foreground shadow-lg shadow-primary/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
 								{busy ? 'در حال ورود…' : `ورودِ ${faNum(valid.length)} فایل به سیستم`}
 							</button>
 							<button type="button" disabled={busy} onClick={() => setQueue([])} className="h-11 rounded-xl px-4 text-[13px] font-bold text-muted-foreground ring-1 ring-border transition hover:bg-muted">پاک‌کردنِ صف</button>
-							<span className="text-[11.5px] text-muted-foreground">پیش از ورود، خودکار بک‌آپِ سرور گرفته می‌شود.</span>
+							<span className="text-[11.5px] text-muted-foreground">{callsBlocked ? 'جهت و دورهٔ فایلِ عملکردِ تماس را انتخاب کنید' : 'پیش از ورود، خودکار بک‌آپِ سرور گرفته می‌شود.'}</span>
 						</div>
 					</Shell>
 				</Card>
@@ -336,7 +377,13 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 									<span dir="ltr">{r.name}</span>
 									<span>{faNum(r.rows)} ردیف</span>
 									{r.dup && <span className="text-error">🔁 تکراری</span>}
+									{r.note && <span className={r.dup ? 'text-error' : 'text-warning'}>{r.note}</span>}
 									{!r.routed && <span className="text-error">⚠ {r.err || 'فرستاده نشد'}</span>}
+									{r.conflicts && (
+										<details className="w-full text-warning"><summary className="cursor-pointer">{faNum(r.conflicts.length)} تعارض (ردیفِ موجود دست‌نخورده ماند)</summary>
+											<ul className="mt-1 space-y-0.5" dir="ltr">{r.conflicts.map((c) => <li key={c.key + c.reason}>{c.key} · {c.reason}{c.fields?.length ? ' · ' + c.fields.join(', ') : ''}</li>)}</ul>
+										</details>
+									)}
 								</li>
 							))}
 						</ul>
@@ -391,13 +438,32 @@ export default function ImportPage({ session }: { session?: Session } = {}) {
 					</Shell>
 				</Card>
 				{/* Dynamic Knowledge Base — فقط مدیر (سرور هم نقش را بررسی می‌کند) */}
-				{session && isAdmin(session.role) && <Card className="lg:col-span-3"><KnowledgeTile session={session} /></Card>}
+				{session && isAdmin(session.role) && <Card className="lg:col-span-3">
+					<KbToggle session={session} />
+				</Card>}
 			</Sortable>
 
 
 			<p className="px-1 text-[11.5px] leading-6 text-muted-foreground">
 				⚠ اگر اپِ کامل (/legacy) در تبِ دیگری باز است، قبل از ایمپورت آن را ببند؛ وگرنه ذخیرهٔ بعدیِ آن تب ممکن است روی این ایمپورت بنویسد.
 			</p>
+		</div>
+	)
+}
+
+/** 3.9.95: «پایگاه دانشِ پویا» پشتِ یک دکمه (پیش‌فرض بسته، تا باز نشود اصلاً بار نمی‌شود) — صفحهٔ داده کوتاه می‌ماند */
+function KbToggle({ session }: { session: Session }) {
+	const [open, setOpen] = useState(false)
+	return (
+		<div>
+			<button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)}
+				className="flex min-h-[44px] w-full items-center justify-between gap-3 rounded-lg px-1 text-[15px] font-bold transition-colors hover:text-primary-ink">
+				<span>پایگاه دانشِ پویا</span>
+				<span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-[12.5px] font-semibold text-muted-foreground">{open ? 'پنهان کردن' : 'نمایش'}
+					<svg viewBox="0 0 24 24" className={`size-4 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+				</span>
+			</button>
+			{open && <div className="mt-3"><KnowledgeTile session={session} /></div>}
 		</div>
 	)
 }

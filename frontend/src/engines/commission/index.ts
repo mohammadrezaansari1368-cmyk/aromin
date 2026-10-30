@@ -233,7 +233,7 @@ export function period(inv: Deal[], S: CommS, opts: { GM?: 'all' | number; W?: W
 		byClose: {} as Record<string, { v: string; t: string; n: number; gross: number; basis: number; max: number }>,
 		leadBonus: {} as Record<string, { id: string; n: number; base: number; basis: number }>,
 		supportBonus: {} as Record<string, { id: string; n: number; base: number; basis: number }>,
-		financeBonus: {} as Record<string, { id: string; n: number; base: number; basis: number; cash: number; check: number; pending: number }>,
+		financeBonus: {} as Record<string, { id: string; n: number; base: number; basis: number; cash: number; check: number; pending: number; held?: number }>,
 		funnel, activeMonths: [] as any[], nMonths: 0, payout: 0, baseTotal: 0, total: 0, eff: 0, indRatio: 0, repRatio: 0, holdRatio: 0, offPayout: 0, unoPayout: 0,
 	}
 	const months: any[] = []
@@ -290,23 +290,18 @@ export function period(inv: Deal[], S: CommS, opts: { GM?: 'all' | number; W?: W
 			const cfg = cfgOf(S, k).cfg, elig = months[k].eligible + (d.settle === 'hold' ? months[k].hold : 0)
 			const rate = elig > cfg.threshold * 1e6 ? (cfg.tiers.find(t => elig <= t.cap * 1e6) || cfg.tiers.at(-1))?.rate || 0 : 0
 			const basis = ca * ((wts.fin || 0) / 100), credit = basis * rate / 100
-			const f = T.financeBonus[financialOwner] ||= { id: financialOwner, n: 0, base: 0, basis: 0, cash: 0, check: 0, pending: 0 }
-			f.n++; f.basis += basis
-			if (d.settle === 'hold') f.pending += credit
-			else { f.base += credit; if (d.settle === 'check') f.check += credit; else f.cash += credit }
-		}
-		if (d.settle === 'hold') continue
-		b.basis += ca * w
-		if (full) T.indep += ca * w
-		if (d.kind === 'repeat') T.rep += ca * w
-		for (const sk of stagesOf(d)) {
-			let sw = wts[sk] || 0
-			if (sk === 'close' && d.mgrShare) sw = sw / 2
-			T.byStage[sk].n++; T.byStage[sk].basis += ca * (sw / 100)
+			const f = T.financeBonus[financialOwner] ||= { id: financialOwner, n: 0, base: 0, basis: 0, cash: 0, check: 0, pending: 0, held: 0 }
+			f.n++; f.basis += basis; f.base += credit
+			// owner decision 2026-10-22: the finance share of a held (pending-cheque) invoice is earned at approval and paid now;
+			// `held` only shows how much of it came from held invoices (the seller still waits for the cheque).
+			if (d.settle === 'hold') { f.cash += credit; f.held = (f.held || 0) + credit }
+			else if (d.settle === 'check') f.check += credit
+			else f.cash += credit
 		}
 		// نرخِ مرزی (پله‌ای که مبنای ماه در آن است) — همان mRate
 		const mRate = (() => {
-			const cfgm = cfgOf(S, k).cfg, elig = months[k].eligible
+			// held invoices: same base as the finance share (eligible + held), so a month of only cheques still pays lead-gen
+			const cfgm = cfgOf(S, k).cfg, elig = months[k].eligible + (d.settle === 'hold' ? months[k].hold : 0)
 			if (!(elig > 0)) return 0
 			let prev = cfgm.threshold * 1e6
 			if (elig <= prev) return 0
@@ -317,7 +312,17 @@ export function period(inv: Deal[], S: CommS, opts: { GM?: 'all' | number; W?: W
 			}
 			return months[k].commission / elig
 		})()
+		// owner decision 2026-10-22: the lead-gen share is also earned for held invoices (only the seller waits for the cheque)
 		if (d.leadGen) bonus(T.leadBonus, d.leadGen, ca * ((wts.lead || 0) / 100), mRate)
+		if (d.settle === 'hold') continue
+		b.basis += ca * w
+		if (full) T.indep += ca * w
+		if (d.kind === 'repeat') T.rep += ca * w
+		for (const sk of stagesOf(d)) {
+			let sw = wts[sk] || 0
+			if (sk === 'close' && d.mgrShare) sw = sw / 2
+			T.byStage[sk].n++; T.byStage[sk].basis += ca * (sw / 100)
+		}
 		if (d.supportGen && d.supportSla) bonus(T.supportBonus, d.supportGen, ca * ((wts.post || 0) / 100), mRate)
 	}
 	T.months = months

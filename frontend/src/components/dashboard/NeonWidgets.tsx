@@ -55,12 +55,12 @@ const NeonNum = ({ children, className = '', color }: { children: ReactNode; cla
 )
 
 /* ---------- ۵) نوارِ سرعت‌سنجِ قطعه‌قطعه (۰ تا ۱۰۰ ← ۰ تا ۱۲) ---------- */
-export function NeonSpeed({ value, k }: { value: number; k: NC }) {
+export function NeonSpeed({ value, k, live }: { value: number; k: NC; live?: boolean }) {
 	const N = 48, filled = Math.round((value / 100) * N), reading = (value / 100) * 12
 	const arc = (t: number) => -(1 - Math.pow(2 * t - 1, 2)) * 14
 	const segColor = (t: number) => (t < 0.5 ? mix(k.b, k.a, t * 2) : mix(k.a, k.c, (t - 0.5) * 2))
 	return (
-		<NeonShell title="تحقق تارگت درآمد" meta={<span className="text-[11px] text-muted-foreground"><NeonNum className="text-[26px]" color={k.ta}>{fa(reading, 1)}</NeonNum> / ۱۲ · {fa(value)}٪ تارگت</span>}>
+		<NeonShell sample={!live} title="تحقق تارگت درآمد" meta={<span className="text-[11px] text-muted-foreground"><NeonNum className="text-[26px]" color={k.ta}>{fa(reading, 1)}</NeonNum> / ۱۲ · {fa(value)}٪ تارگت</span>}>
 			<div className="my-auto" dir="ltr" role="img" aria-label={`تحقق تارگت ${fa(value)} درصد`}>
 				<div className="flex items-end gap-[3px] pt-4" style={{ height: 52 }}>
 					{Array.from({ length: N }, (_, i) => {
@@ -78,10 +78,10 @@ export function NeonSpeed({ value, k }: { value: number; k: NC }) {
 }
 
 /* ---------- ۱) سه حلقهٔ هم‌مرکز: درآمد / ذخیرهٔ نقد / سهم بازار ---------- */
-export function NeonRings({ d, k }: { d: NeonData; k: NC }) {
-	const rings: [string, number, string, number][] = [['درآمد', d.revenue, k.a, 44], ['ذخیرهٔ نقد', d.cashReserve, k.b, 35], ['سهم بازار', d.marketShare, k.c, 26]]
+export function NeonRings({ d, k, live, labels = ['درآمد', 'ذخیرهٔ نقد', 'سهم بازار'] }: { d: NeonData; k: NC; live?: boolean; labels?: string[] }) {
+	const rings: [string, number, string, number][] = [[labels[0], d.revenue, k.a, 44], [labels[1], d.cashReserve, k.b, 35], [labels[2], d.marketShare, k.c, 26]]
 	return (
-		<NeonShell title="درآمد و نقدینگی">
+		<NeonShell sample={!live} title="درآمد و نقدینگی">
 			<div className="flex min-h-0 flex-1 items-center justify-center">
 				<svg viewBox="0 0 100 100" className="h-full max-h-[170px] w-auto" role="img" aria-label={rings.map((r) => `${r[0]} ${fa(r[1])}٪`).join('، ')}>
 					<circle cx="50" cy="50" r="49" fill="none" stroke={k.a} strokeOpacity=".3" strokeWidth=".4" />
@@ -106,14 +106,14 @@ export function NeonRings({ d, k }: { d: NeonData; k: NC }) {
 }
 
 /* ---------- ۴) کارتِ سود / حاشیه ---------- */
-export function NeonKpi({ d, k }: { d: NeonData; k: NC }) {
+export function NeonKpi({ d, k, live, title = 'سود / جریان نقدی', labels = ['سود', 'حاشیه'] }: { d: NeonData; k: NC; live?: boolean; title?: string; labels?: string[] }) {
 	const money = d.profit >= 1e6 ? fa(d.profit / 1e6, 1) + 'M' : d.profit >= 1e3 ? fa(Math.round(d.profit / 1e3)) + 'K' : fa(d.profit)
 	return (
-		<NeonShell title="سود / جریان نقدی">
+		<NeonShell sample={!live} title={title}>
 			<div className="flex flex-1 items-center justify-center gap-3 @[260px]:gap-5">
-				<div className="flex flex-col items-center gap-1.5"><NeonNum className="text-[26px] @[200px]:text-[36px] @[260px]:text-[48px]" color={k.ta}><bdi>{money}</bdi></NeonNum><span className="text-[11px] tracking-[0.2em] text-muted-foreground">سود</span></div>
+				<div className="flex flex-col items-center gap-1.5"><NeonNum className="text-[26px] @[200px]:text-[36px] @[260px]:text-[48px]" color={k.ta}><bdi>{money}</bdi></NeonNum><span className="text-[11px] tracking-[0.2em] text-muted-foreground">{labels[0]}</span></div>
 				<span aria-hidden className="h-16 w-px" style={{ background: `linear-gradient(transparent, ${k.b}, transparent)`, boxShadow: `0 0 8px ${k.b}` }} />
-				<div className="flex flex-col items-center gap-1.5"><NeonNum className="text-[19px] @[200px]:text-[26px] @[260px]:text-[34px]" color={k.tb}>{fa(d.margin)}٪</NeonNum><span className="text-[11px] tracking-[0.2em] text-muted-foreground">حاشیه</span></div>
+				<div className="flex flex-col items-center gap-1.5"><NeonNum className="text-[19px] @[200px]:text-[26px] @[260px]:text-[34px]" color={k.tb}>{fa(d.margin)}٪</NeonNum><span className="text-[11px] tracking-[0.2em] text-muted-foreground">{labels[1]}</span></div>
 			</div>
 			<span aria-hidden className="h-[3px] rounded" style={{ background: `linear-gradient(90deg, transparent, ${k.b} 20%, ${k.a} 50%, ${k.c} 80%, transparent)`, boxShadow: `0 0 10px ${k.a}` }} />
 		</NeonShell>
@@ -121,12 +121,12 @@ export function NeonKpi({ d, k }: { d: NeonData; k: NC }) {
 }
 
 /* ---------- ۲) رادار ---------- */
-export function NeonRadar({ d, k }: { d: NeonData; k: NC }) {
+export function NeonRadar({ d, k, live, title = 'سهم بازار و نفوذ' }: { d: NeonData; k: NC; live?: boolean; title?: string }) {
 	const axes = Object.keys(d.radar), n = axes.length, R = 34
 	const pt = (i: number, v: number) => { const a = -Math.PI / 2 + (i / n) * Math.PI * 2; return [50 + Math.cos(a) * R * v, 50 + Math.sin(a) * R * v] }
 	const poly = axes.map((a, i) => pt(i, (d.radar[a] || 0) / 100).join(',')).join(' ')
 	return (
-		<NeonShell title="سهم بازار و نفوذ" meta={<NeonNum className="text-[16px]" color={k.ta}>{fa(d.marketShare)}٪</NeonNum>}>
+		<NeonShell sample={!live} title={title} meta={<NeonNum className="text-[16px]" color={k.ta}>{fa(d.marketShare)}٪</NeonNum>}>
 			<div className="flex min-h-0 flex-1 items-center justify-center">
 				<svg viewBox="0 0 100 100" className="h-full max-h-[200px] w-auto overflow-visible" role="img" aria-label={axes.map((a) => `${a} ${fa(d.radar[a])}`).join('، ')}>
 					{[0.25, 0.5, 0.75, 1].map((s) => <circle key={s} cx="50" cy="50" r={R * s} fill="none" stroke={k.a} strokeOpacity=".2" strokeWidth=".4" />)}
@@ -141,7 +141,7 @@ export function NeonRadar({ d, k }: { d: NeonData; k: NC }) {
 }
 
 /* ---------- ۳) موجِ فعالیتِ فروش ---------- */
-export function NeonWave({ d, k }: { d: NeonData; k: NC }) {
+export function NeonWave({ d, k, live, title = 'فعالیت فروش و حجم تماس' }: { d: NeonData; k: NC; live?: boolean; title?: string }) {
 	const gid = useId().replace(/:/g, '')
 	const v = d.salesVolume, W = 300, H = 90
 	const max = Math.max(1, ...v), last = v[v.length - 1] ?? 0, delta = last - (v[v.length - 2] ?? last)
@@ -153,7 +153,7 @@ export function NeonWave({ d, k }: { d: NeonData; k: NC }) {
 		return `C${p1[0] + (p[0] - p0[0]) / 6},${p1[1] + (p[1] - p0[1]) / 6} ${p[0] - (p3[0] - p1[0]) / 6},${p[1] - (p3[1] - p1[1]) / 6} ${p[0]},${p[1]}`
 	}).join(' ')
 	return (
-		<NeonShell title="فعالیت فروش و حجم تماس" meta={<span className="flex items-baseline gap-2"><NeonNum className="text-[22px]" color={k.ta}>{fa(last)}</NeonNum><span className={`text-[11px] font-bold ${delta >= 0 ? 'text-success' : 'text-error'}`}>{delta >= 0 ? '▲' : '▼'} {fa(Math.abs(delta))} نسبت به قبل</span></span>}>
+		<NeonShell sample={!live} title={title} meta={<span className="flex items-baseline gap-2"><NeonNum className="text-[22px]" color={k.ta}>{fa(last)}</NeonNum><span className={`text-[11px] font-bold ${delta >= 0 ? 'text-success' : 'text-error'}`}>{delta >= 0 ? '▲' : '▼'} {fa(Math.abs(delta))} نسبت به قبل</span></span>}>
 			<svg viewBox={`0 0 ${W} ${H + 14}`} preserveAspectRatio="none" className="mt-auto h-full max-h-[170px] w-full" direction="ltr" role="img" aria-label={'حجم فعالیت: ' + v.map((x) => fa(x)).join('، ')}>
 				<defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={k.a} stopOpacity=".45" /><stop offset="1" stopColor={k.a} stopOpacity="0" /></linearGradient></defs>
 				{[0.33, 0.66].map((s) => <line key={s} x1="0" x2={W} y1={H * s} y2={H * s} stroke={k.border} strokeDasharray="3 4" strokeWidth=".6" />)}

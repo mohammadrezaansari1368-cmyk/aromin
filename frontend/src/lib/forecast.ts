@@ -153,7 +153,7 @@ export const MARGIN_STD: [string, string][] = [
 ]
 export const STRAT_FA: Record<string, string> = { survive: 'بقا', hold: 'حفظ', grow: 'رشد' }
 export const FC_USD_HIST: Record<number, number> = { 1403: 80000, 1404: 93000 }
-export const LEVELW: Record<string, number> = { senior: 1.5, mid: 1.0, junior: 0.6 }
+export const LEVELW: Record<string, number> = { senior: 1.5, middle: 1.0, mid: 1.0, junior: 0.6 }
 
 /* ---------- رمضان/محرم (تقویمِ اسلامیِ مرورگر) ---------- */
 const _lunarCache: Record<number, { ramadan: number; muharram: number }> = {}
@@ -550,7 +550,7 @@ export function compute(f: Form, x: Extra, ctx: Ctx) {
 		usd, strat, stratNote: stratTxt[strat] || '', R, V, mp, Hm, mkt, avgP, perMonth, perHorizon, pyramidNote,
 		yrs, y, d, dol, g2, g3, grs, avgG, ma3, next, dg, histNote, scen, ready, tol,
 		mR, m4depth, m4adjNote, capNote, filled, consensus, median, spread, methodsNote,
-		ty, monthly, derived, monthlyForecast, monthlyBlended, safety, safeT, va,
+		ty, monthly, derived, monthlyForecast, monthlyBlended, safety, safeT, va, act,
 		alpha: n('fcAlpha') || 0.5,
 	}
 }

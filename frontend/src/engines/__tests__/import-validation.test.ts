@@ -86,9 +86,10 @@ describe('تعارض و name mismatch — هرگز تطبیقِ خودکار', (
 		const P = planDealImport([J('5001'), J('5001', { 'مرحله': 'پیشبرد', 'ارزش': 0 })], empty(), opts)
 		expect(P.rows.map((r) => r.st)).toEqual(['valid', 'duplicate'])
 	})
-	it('نامِ کارشناس/لیدسازِ ناشناخته علامت می‌خورد و به کارشناسِ مشابه وصل نمی‌شود', () => {
+	it('نامِ کارشناسِ ناشناخته علامت می‌خورد و به کارشناسِ مشابه وصل نمی‌شود؛ لیدساز (ثبت‌کننده) فقط روی فاکتور می‌نشیند (3.9.93)', () => {
 		const P = planDealImport([J('5001', { 'کارشناس': 'سارا احمدی', 'ثبت‌کننده': 'رضا' }), J('5002')], empty(), opts)
-		expect(P.newNames).toEqual({ 'سارا احمدی': 1, 'رضا': 1 })
+		expect(P.newNames).toEqual({ 'سارا احمدی': 1 })
+		expect(P.leadNames).toEqual({ 'رضا': 1 })
 		expect(P.order).toEqual(['سارا احمدی', 'سارا'])
 	})
 })

@@ -1,0 +1,2 @@
+-- Manual rollback only. Tools using API keys then fall back to the single MCP_TOKEN (/etc/aromin/mcp.env).
+DROP TABLE IF EXISTS api_keys;

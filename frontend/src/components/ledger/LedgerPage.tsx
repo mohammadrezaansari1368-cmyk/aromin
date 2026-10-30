@@ -15,7 +15,7 @@ import {
 import { classifyKinds, custNorm, ledgerOf } from '@/engines/customer/index.ts'
 import { cleanName } from '@/engines/deal-import/index.ts'
 import { fetchFull } from '@/lib/forecastStore'
-import { approveBatch, approveDoc, closeDeals, setFinanceBy, flushLedger, LEDGER_FY, ledgerStatus, loadLayout, onLedgerStatus, queueOp, reopenDeal, reopenMany, requestReopenCode, requestReopenCodeMany, saveLayout, submitDocs, withdrawDoc, type ApprovalInput, type Ref } from '@/lib/ledgerStore'
+import { approveBatch, approveDoc, closeDeals, setFinanceBy, flushLedger, LEDGER_FY, ledgerStatus, loadLayout, onLedgerStatus, queueOp, reassignFinance, reopenDeal, reopenMany, requestReopenCode, requestReopenCodeMany, saveLayout, submitDocs, withdrawDoc, type ApprovalInput, type Ref } from '@/lib/ledgerStore'
 import { canSeeAll } from '@/lib/performance'
 import { isActivePerson } from '@/lib/people'
 import { currentTenant } from '@/lib/data'
@@ -25,6 +25,7 @@ import { BTN, BTN_GHOST, BTN_PRIMARY, CARD, FOCUS, INPUT } from '@/components/ui
 import { parseJ, todayJ } from '@/lib/jalali'
 import BulkApprove from '@/components/ledger/BulkApprove'
 import BulkReopen from '@/components/ledger/BulkReopen'
+import FinanceReassign from '@/components/ledger/FinanceReassign'
 import { motion } from 'motion/react'
 import { RowOrderContext, RowGrip, useRowOrder } from '@/components/ui/use-row-order'
 import { orderRows } from '@/components/ui/row-order'
@@ -49,14 +50,13 @@ const NOF: Filters = { no: '', q: '', funnel: '', settle: '', kind: '', channel:
 
 const ALL = '__all__'
 const COLS: Col[] = [
-	{ k: 'no', t: 'شماره فاکتور', w: 124, sort: true, tier: 1 },
+	{ k: 'no', t: 'شماره فاکتور', w: 152, sort: true, tier: 1 },
 	{ k: 'name', t: 'مشتری', w: 200, edit: 'text', sort: true, tier: 1 },
 	{ k: 'amount', t: 'خالص فاکتور', w: 128, edit: 'money', sort: true, tier: 1 },
 	{ k: 'stage', t: 'مرحله و وزنِ ۷گانه', w: 262, tier: 1 },
 	{ k: 'settle', t: 'تسویه', w: 138, edit: 'select', tier: 1 },
-	{ k: 'next', t: 'اقدام بعدی', w: 138, tier: 1 },
-	{ k: 'owner', t: 'کارشناس', w: 118, tier: 2 },
-	{ k: 'leadGen', t: 'لیدساز', w: 124, edit: 'select', tier: 2 },
+	{ k: 'owner', t: 'کارشناس', w: 118, tier: 1 },
+	{ k: 'leadGen', t: 'لیدساز (ثبت‌کننده)', w: 150, edit: 'select', tier: 1 },
 	{ k: 'date', t: 'تاریخ', w: 122, edit: 'text', sort: true, tier: 1 },
 	{ k: 'change', t: 'تغییر مرحله', w: 135, edit: 'select', tier: 1 },
 	{ k: 'kind', t: 'نوع خرید', w: 118, edit: 'select', tier: 2 },
@@ -392,6 +392,13 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 		return out.filter(n => !people.some(p => p.name === n && !isActivePerson(p)))
 	}, [people, full])
 
+	// «انتقالِ سهمِ مالی»: «از» شاملِ هر نامی است که روی اسنادِ امسال آمده (حتی کارشناسِ غیرفعال)
+	const finFromNames = useMemo(() => {
+		const out = new Set(finNames)
+		people.forEach((p) => ledgerOf(p, full, LEDGER_FY).forEach((d: Deal) => { const n = financeOf(d).trim(); if (n) out.add(n) }))
+		return [...out]
+	}, [finNames, people, full])
+
 	/* ---- اعلانِ ایمپورتِ قبلی (ایمپورت از «مرکز ایمپورت») ---- */
 	const lastImp = useMemo(() => {
 		const L: any[] = Array.isArray(full?.importLog) ? full.importLog : []
@@ -418,7 +425,7 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 			setColMsg('ترتیب ستون‌ها ذخیره شد')
 		}).catch(() => { setColOrder(previous); setColMsg('ذخیره ناموفق بود؛ ترتیب ستون‌ها بازگردانده شد') }).finally(() => { columnSaving.current = false })
 	}, [session, colOrder])
-	const cols = useMemo(() => colOrder.map((k) => COLS.find((c) => c.k === k)!).filter((c) => c && (c.k !== 'owner' || scope === ALL) && (wide || c.tier === 1 || c.k === 'act')), [colOrder, scope, wide])
+	const cols = useMemo(() => colOrder.map((k) => COLS.find((c) => c.k === k)!).filter((c) => c && (wide || c.tier === 1 || c.k === 'act')), [colOrder, scope, wide])
 	const [cur, setCur] = useState<{ r: number; c: number }>({ r: 0, c: 0 })
 	const [edit, setEdit] = useState<{ key: string; col: ColK } | null>(null)
 	const [stageFor, setStageFor] = useState<string | null>(null)
@@ -572,7 +579,8 @@ export default function LedgerPage({ session }: { session: Session; go?: (id: st
 						<span className="text-[11.5px] text-muted-foreground">بروز شده با اپ جدید</span>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">{canApprove && <BulkApprove confirmationKey={JSON.stringify([approvable, approvalTotals, scopeLabel])} totals={approvalTotals} count={approvable.length} scope={scopeLabel} suggest={{ cash: T.payNow, pending: T.payCheck + T.payPend }} onApprove={bulkApprove} />}
-					{isAdmin(session.role) && <BulkReopen confirmationKey={JSON.stringify([reopenIds, reopenTotals, scopeLabel])} count={reopenIds.length} scope={scopeLabel} totals={reopenTotals} onCode={bulkReopenCode} onReopen={bulkReopen} />}</div>
+					{isAdmin(session.role) && <BulkReopen confirmationKey={JSON.stringify([reopenIds, reopenTotals, scopeLabel])} count={reopenIds.length} scope={scopeLabel} totals={reopenTotals} onCode={bulkReopenCode} onReopen={bulkReopen} />}
+					{isAdmin(session.role) && viewFy === LEDGER_FY && <FinanceReassign names={finNames} fromNames={finFromNames} month={gm === 'all' ? null : +gm} onRun={async (b) => { const r = await reassignFinance(session, b); if (!b.dry) await load(); return r }} />}</div>
 				</header>
 				<ControlStrip
 					full={full} people={people} years={years} viewFy={viewFy} setViewFy={(y) => { setViewFy(y); setCur({ r: 0, c: 0 }) }} gm={gm} setGm={setGm}
@@ -769,7 +777,9 @@ function CellView({ r, col, dup, kindFix, onNA, canEdit, onDel }: { r: Row; col:
 		}
         case 'stage': {
    const fk = funnelOf(d), progress = selectedProgress(d, r.S.weights || DEFAULT_WEIGHTS)
-   return <span data-sales-progress={progress.percent} role="button" tabIndex={0} aria-label="انتخاب مراحل هفت‌گانه" onMouseEnter={e => openStages(r, e.currentTarget)} onClick={e => { e.stopPropagation(); openStages(r, e.currentTarget) }} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openStages(r, e.currentTarget) } }} className="flex w-full min-w-0 cursor-pointer flex-col gap-1">
+   // 3.9.92: no hover-to-open — edit with the ✎ button (same as the other editable cells); Enter/Space on the cell still opens it
+   return <span data-sales-progress={progress.percent} tabIndex={0} aria-label="مراحل هفت‌گانه" onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openStages(r, e.currentTarget) } }} className="relative flex w-full min-w-0 flex-col gap-1 pl-7">
+    <button type="button" aria-label="ویرایشِ مراحل هفت‌گانه" title="ویرایشِ مراحل" onClick={e => { e.stopPropagation(); openStages(r, e.currentTarget.parentElement as HTMLElement) }} className="absolute left-0 top-0 grid size-6 place-items-center rounded text-[12px] text-muted-foreground hover:bg-primary/10 hover:text-primary-ink">✎</button>
     <span className="flex items-center gap-1.5"><span className={`${BADGE} ${FUN_TONE[fk] || FUN_TONE.advance}`}>{funLabel(fk)}</span><b className="text-primary-ink tabular-nums">{fa(progress.percent)}٪</b><span className="mr-auto text-xs">{fa(progress.stages.length)}/{fa(STAGES.length)}</span></span>
     <StageBar d={d} />
     <span className="text-xs text-muted-foreground">{d.finBy ? `تأیید مالی: ${d.finBy}` : 'بدون تأیید مالی'}</span>
@@ -931,7 +941,7 @@ function Grid(P: GridProps) {
 	return (
 		<div
 			ref={gridRef} tabIndex={0} role="grid" aria-label="دفترِ فاکتورهای ۱۴۰۵" aria-rowcount={rows.length + 1} aria-colcount={cols.length} aria-activedescendant={activeId}
-			onKeyDown={P.onKey} onScroll={onScroll}
+			onKeyDown={P.onKey} onScroll={onScroll} data-lenis-prevent=""
 			className={`relative mt-2 max-h-[min(74vh,860px)] min-h-[320px] overflow-auto overscroll-contain outline-none [contain:strict] [transform:translateZ(0)] focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-ring/25`}
 			style={{ height: Math.min(rows.length * rh + hh + 2, 860) }}>
 			<div style={{ width, height: rows.length * rh + hh, position: 'relative' }}>
@@ -981,7 +991,7 @@ const GridRow = memo(function GridRow({ r, ri, y, h, tpl, cols, curC, editCol, d
 						onDoubleClick={() => P.startEdit(ri, ci)}
 						className={`relative flex min-w-0 items-center overflow-hidden px-2.5 ${s !== null ? 'sticky z-10 bg-card group-hover/row:bg-muted' : ''} ${ci === 0 && att ? 'border-r-[3px] ' + (att === 'check' ? 'border-r-warning' : att === 'fin' ? 'border-r-primary' : 'border-r-error') : ''} ${ci === 1 ? 'border-l border-border' : ''} ${active ? 'outline outline-2 -outline-offset-2 outline-primary/60' : ''} ${c.edit && canEdit ? 'cursor-text' : ''}`}
 						style={s !== null ? { right: s, ...(rowSel(sel, editCol, staging)) } : undefined}>
-						{c.k === 'no' && <RowGrip rowKey={rowOrderKey(r)} />}{editing ? (
+						{c.k === 'no' && <><span className="me-1 w-7 shrink-0 text-center text-[11px] font-bold tabular-nums text-muted-foreground" aria-label={'ردیف ' + (ri + 1)}>{fa(ri + 1)}</span><RowGrip rowKey={rowOrderKey(r)} /></>}{editing ? (
 							<CellEditor r={r} col={c.k} leadNames={P.leadNames} onCommit={(v) => { P.commit(r, c.k, v); P.endEdit() }} onCancel={P.endEdit} onStep={(v, dir) => { P.commit(r, c.k, v); P.step(ri, ci, dir) }} />
 						) : (
 							<>

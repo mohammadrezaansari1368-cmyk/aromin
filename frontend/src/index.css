@@ -1,5 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800;900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400&display=swap');
+/* 3.9.82: no foreign CDN (works when Iran's international internet is cut) — Vazirmatn from our own server; Outfit falls back to Peyda */
+@font-face { font-family: 'Vazirmatn'; font-weight: 400; font-display: swap; src: url('/widget/fonts/vazirmatn-arabic-400.woff2') format('woff2'); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: 'Vazirmatn'; font-weight: 400; font-display: swap; src: url('/widget/fonts/vazirmatn-latin-400.woff2') format('woff2'); unicode-range: U+0000-00FF, U+2000-206F, U+20AC, U+2122; }
+@font-face { font-family: 'Vazirmatn'; font-weight: 700; font-display: swap; src: url('/widget/fonts/vazirmatn-arabic-700.woff2') format('woff2'); unicode-range: U+0600-06FF, U+0750-077F, U+200C-200E, U+2010-2011, U+FB50-FDFF, U+FE70-FEFC; }
+@font-face { font-family: 'Vazirmatn'; font-weight: 700; font-display: swap; src: url('/widget/fonts/vazirmatn-latin-700.woff2') format('woff2'); unicode-range: U+0000-00FF, U+2000-206F, U+20AC, U+2122; }
+/* فونتِ برندِ آرومین: پیدا (Peyda) — همان فایل‌های legacy.html، محلی (3.9.74) */
+@font-face { font-family: 'PeydaWeb'; font-weight: 400; font-style: normal; font-display: swap; src: url('/fonts/PeydaWeb-400.woff2') format('woff2'); }
+@font-face { font-family: 'PeydaWeb'; font-weight: 500; font-style: normal; font-display: swap; src: url('/fonts/PeydaWeb-500.woff2') format('woff2'); }
+@font-face { font-family: 'PeydaWeb'; font-weight: 600; font-style: normal; font-display: swap; src: url('/fonts/PeydaWeb-600.woff2') format('woff2'); }
+@font-face { font-family: 'PeydaWeb'; font-weight: 700; font-style: normal; font-display: swap; src: url('/fonts/PeydaWeb-700.woff2') format('woff2'); }
+@font-face { font-family: 'PeydaWeb'; font-weight: 800; font-style: normal; font-display: swap; src: url('/fonts/PeydaWeb-800.woff2') format('woff2'); }
+@font-face { font-family: 'PeydaWeb'; font-weight: 900; font-style: normal; font-display: swap; src: url('/fonts/PeydaWeb-900.woff2') format('woff2'); }
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -177,13 +187,23 @@
   --brand-blue-ink: 210 100% 28%; --brand-purple-ink: 317 84% 31%; --brand-gold-ink: 40 100% 25%; }
 :root[data-mode='dark'] { --brand-blue-ink: 210 80% 72%; --brand-purple-ink: 317 62% 74%; --brand-gold-ink: 45 100% 60%; }
 
+/* 3.9.70 ظاهرِ اپل: خاکستری‌های خنثیِ iOS/macOS برای همهٔ تم‌ها؛ رنگِ برند فقط تأکید می‌ماند */
+:root, :root[data-theme] {
+  --bg: 240 11% 96%; --surface: 0 0% 100%; --card: 0 0% 100%;
+  --text: 240 6% 10%; --muted: 240 9% 95%; --muted-foreground: 240 4% 46%; --border: 240 6% 89%; --shadow: 240 10% 10%;
+}
+:root[data-mode='dark'], :root[data-theme][data-mode='dark'] {
+  --bg: 0 0% 0%; --surface: 240 3% 9%; --card: 240 3% 11%;
+  --text: 0 0% 96%; --muted: 240 3% 17%; --muted-foreground: 240 4% 62%; --border: 240 3% 22%; --shadow: 0 0% 0%;
+}
+
 /* نام‌های قدیمیِ shadcn → همان توکن‌ها (کدِ موجود بدونِ تغییر کار کند) */
 :root {
   --background: var(--bg);
   --foreground: var(--text);
   --card-foreground: var(--text);
   --ring: var(--focus);
-  --radius: 1rem;
+  --radius: 1.25rem;
   --gold: var(--warning);
   --moss: var(--success);
   --rose: var(--error);
@@ -200,7 +220,8 @@ html, body { margin: 0; min-height: 100%; }
 body {
   background: hsl(var(--bg));
   color: hsl(var(--text));
-  font-family: 'Peyda', 'PeydaWeb', 'Vazirmatn', system-ui, sans-serif;
+  font-family: 'PeydaWeb', 'Peyda', 'Vazirmatn', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
   transition: background-color .2s ease, color .2s ease;
 }
 select option { background: hsl(var(--card)); color: hsl(var(--text)); }
@@ -280,3 +301,34 @@ select:not([multiple]):not([size]):disabled { opacity: .6; cursor: not-allowed; 
   --chart-tooltip-foreground: hsl(var(--text));
   --chart-tooltip-muted: hsl(var(--muted-foreground));
 }
+
+/* 3.9.79: mobile drawer (RTL: slides in from the right) */
+@keyframes drawer-in { from { transform: translateX(100%); } }
+@keyframes fadein { from { opacity: 0; } }
+
+/* 3.9.81: تنظیمات به سبکِ Claude Desktop — کارت‌های داخلِ هر بخش تخت می‌شوند (بدونِ سایه/قاب)، فقط خطِ جداکننده */
+.cs-pane > * { box-shadow: none !important; --tw-ring-shadow: 0 0 #0000 !important; background: transparent !important; border-radius: 0 !important; border: 0 !important; border-bottom: 1px solid hsl(var(--border) / .6) !important; padding-inline: 0 !important; margin: 0 !important; }
+
+/* 3.9.87: Segmented (AlexisRoe e-ink-ui-lib) — Tailwind 3 project, so its variables and classes live here; mapped to the theme tokens */
+:root {
+  --eink-color-primary: hsl(var(--foreground));
+  --eink-color-secondary: hsl(var(--card));
+  --eink-color-background: hsl(var(--muted));
+  --eink-color-disabled: hsl(var(--muted-foreground));
+  --eink-size-16: 16px;
+  --eink-size-24: 24px;
+  --eink-font-size-default: 14px;
+  --eink-border-width-medium: 2px;
+  --eink-border-style: solid;
+  --eink-border-color: hsl(var(--border));
+  --eink-border-medium: var(--eink-border-width-medium) var(--eink-border-style) var(--eink-border-color);
+}
+.eink-segmented { display: inline-flex; max-width: 100%; }
+.eink-segmented--full-width { display: flex; width: 100%; }
+.eink-segmented__list { display: flex; flex: 1; gap: 4px; margin: 0; padding: 4px; list-style: none; border: var(--eink-border-medium); border-radius: 14px; background: var(--eink-color-background); }
+.eink-segmented__item-wrapper { flex: 1; display: flex; }
+.eink-segmented__item { flex: 1; min-height: 44px; padding: 0 var(--eink-size-16); border: 0; border-radius: 10px; background: transparent; color: var(--eink-color-disabled);
+  font: inherit; font-size: var(--eink-font-size-default); font-weight: 600; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
+.eink-segmented__item:hover { color: var(--eink-color-primary); }
+.eink-segmented__item:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.eink-segmented__item--selected { background: var(--eink-color-secondary); color: var(--eink-color-primary); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }

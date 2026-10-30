@@ -2005,7 +2005,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
         <span class="pblabel">سطح:</span>
         <select id="personLevel" aria-label="سطح ارشدیت" style="min-width:120px">
           <option value="senior">ارشد (Senior)</option>
-          <option value="mid">میانی (Mid)</option>
+          <option value="mid">میدل (Middle)</option>
           <option value="junior">تازه‌کار (Junior)</option>
         </select>
         <span class="pblabel">نقش:</span>
@@ -3601,7 +3601,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
       <h2>👥 افزودنِ کارشناس <span class="sub">کارشناسِ جدید را این‌جا بساز؛ بعد در جدولِ «دسترسی کاربران» نقش، سطح، موبایل و رمزش را تنظیم کن — فقط مدیر</span></h2>
       <div class="btnrow" style="gap:8px;flex-wrap:wrap;align-items:center">
         <input type="text" id="staffNewName" placeholder="نامِ کاملِ کارشناس (مثلاً محمد محمدی)" style="flex:1;min-width:220px">
-        <select id="staffNewLevel" style="min-width:120px"><option value="junior">تازه‌کار</option><option value="mid">میانی</option><option value="senior">ارشد</option></select>
+        <select id="staffNewLevel" style="min-width:120px"><option value="junior">جونیور</option><option value="mid">میدل</option><option value="senior">سنیور</option></select>
         <select id="staffNewRole" style="min-width:140px"><option value="sales">کارشناس فروش</option><option value="support">کارشناس پشتیبانی</option><option value="finance">کارشناس مالی</option><option value="salesmgr">مدیر فروش</option><option value="manager">مدیر</option></select>
         <button class="btn gold" id="staffAddBtn">➕ ساختِ کارشناس</button>
       </div>
@@ -3979,7 +3979,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   </footer>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="/vendor/xlsx-0.18.5.full.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -4003,7 +4003,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     officialDeduct:10, months:{} }; }
 
   /* ---------- چند کارشناس ---------- */
-  var APP_VERSION = "3.9.55";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
+  var APP_VERSION = "3.10.10";       // نسخه‌ی سیستم — پلِ ایمپورت برای نسخهٔ React + لینکِ مستقیم به تب
   var DATA_VERSION=3;             // نسخه‌ی ساختار داده (برای مهاجرت خودکار)
   var PEOPLE=[], activePid=null, gid=1;
   var SALESCRISIS=false;   // شرایطِ بحرانی: مدیرِ فروش هم تارگت می‌گیرد و می‌فروشد
@@ -4034,7 +4034,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   var TARGETS={};  // تارگت هر کارشناس به تفکیک ماه (تومان): TARGETS[pid]=[۱۲ ماه] [سال‌مالی‌محور]
   var FY="";       // سالِ مالیِ جاری (مثلاً "1404")
   var YEARS={};    // دادهٔ هر سالِ مالی: YEARS[y]={budget:{}, targets:{}} — فاکتورها در p.invY[y]
-  var LEVELW={senior:1.5, mid:1.0, junior:0.6};   // وزن تارگت بر اساس تجربه
+  var LEVELW={senior:1.5, middle:1.0, mid:1.0, junior:0.6};   // وزن تارگت بر اساس تجربه
   var budM=3;
   var GM="all";   // ماه فعال سراسری ("all" = همه‌ی ماه‌ها)
   var SERVICE={byAgent:{}, byDeal:{}, total:0};
@@ -4256,7 +4256,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   function activeName(){ var p=activePerson(); return p?p.name:""; }
   var ROLES=[{v:"sales",t:"کارشناس فروش"},{v:"support",t:"کارشناس پشتیبانی"},{v:"finance",t:"کارشناس مالی"}];
   var LEVELS=[{v:"senior",t:"ارشد",en:"Senior",c:"#1E8E3E"},{v:"mid",t:"میانی",en:"Mid",c:"var(--gold)"},{v:"junior",t:"تازه‌کار",en:"Junior",c:"var(--petrol-2)"}];
-  function levelOf(p){ return (p&&p.level)||"junior"; }
+  function levelOf(p){ return p&&p.level==="middle"?"mid":((p&&p.level)||"junior"); }
   function levelLabel(v){ for(var i=0;i<LEVELS.length;i++) if(LEVELS[i].v===v) return LEVELS[i].t; return "تازه‌کار"; }
   function levelEn(v){ for(var i=0;i<LEVELS.length;i++) if(LEVELS[i].v===v) return LEVELS[i].en; return "Junior"; }
   function levelColor(v){ for(var i=0;i<LEVELS.length;i++) if(LEVELS[i].v===v) return LEVELS[i].c; return "var(--ink-3)"; }
@@ -4347,33 +4347,39 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   /* ---------- کاربران و ورود ---------- */
   var USERS={};            // {username:{pass, role, person}}
   var session=null;        // {user, role, person}
-  var SESSION_PW="";       // فقط در حافظه — برای احرازِ سمتِ سرورِ دستیار (دانشِ همین کسب‌وکار)
-  function aiHeaders(){ var h={"Content-Type":"application/json"}; if(session&&session.user&&SESSION_PW){ h["X-Aromin-User"]=encodeURIComponent(session.user); h["X-Aromin-Pass"]=encodeURIComponent(SESSION_PW); } return h; }
+  var SESSION_TOKEN="";
+  function aiHeaders(){ var h={"Content-Type":"application/json"}; if(SESSION_TOKEN){ h.Authorization="Bearer "+SESSION_TOKEN; h["X-Aromin-Tenant"]=TENANT||"team"; } return h; }
   function firstName(full){ return String(full||"").trim().split(/\s+/)[0]||""; }
   function syncUsers(){
+    if(!session || !isAdmin(session.role)) return;
     // برای هر کارشناس، نام کاربری = اسم کوچک، رمز پیش‌فرض ۱۲۳
     PEOPLE.forEach(function(p){
       var u=firstName(p.name); if(!u) return;
-      if(!USERS[u]) USERS[u]={pass:"123", role:(p.role||"sales"), person:p.name};
+      if(!USERS[u]) USERS[u]={role:(p.role||"sales"), person:p.name};
       else { USERS[u].role=(p.role||USERS[u].role); USERS[u].person=p.name; }
     });
-    if(!USERS["مدیر"]) USERS["مدیر"]={pass:"123", role:"manager", person:""};
-    if(!USERS["مالی"]) USERS["مالی"]={pass:"123", role:"finance", person:""};
-    if(!USERS["پشتیبان"]) USERS["پشتیبان"]={pass:"123", role:"support", person:""};
+    if(!USERS["مدیر"]) USERS["مدیر"]={role:"manager", person:""};
+    if(!USERS["مالی"]) USERS["مالی"]={role:"finance", person:""};
+    if(!USERS["پشتیبان"]) USERS["پشتیبان"]={role:"support", person:""};
   }
   function renderLoginUsers(){
     syncUsers();
     var list=Object.keys(USERS).map(function(u){ return u+" ("+(VIEWER_LABEL[USERS[u].role]||u)+")"; });
     if(el("loginUsers")) el("loginUsers").innerHTML="کاربران موجود: "+list.join("، ");
   }
-  function doLogin(u,pw){
-    syncUsers();
-    u=String(u||"").trim();
-    if(!USERS[u]) return "کاربری با این نام پیدا نشد.";
-    if(USERS[u].pass!==String(pw||"")) return "رمز عبور درست نیست.";
-    // قطعِ همکاری: اگر کارشناسِ متناظر غیرفعال شده باشد، دسترسی مسدود است
-    if(USERS[u].person){ for(var pi=0;pi<PEOPLE.length;pi++){ if(PEOPLE[pi].name===USERS[u].person && PEOPLE[pi].inactive){ return "همکاری شما"+(PEOPLE[pi].leftDate?(" در تاریخِ "+PEOPLE[pi].leftDate):"")+" پایان یافته و دسترسی غیرفعال است. برای بازگشت با مدیر تماس بگیرید."; } } }
-    session={user:u, role:USERS[u].role, person:USERS[u].person}; SESSION_PW=String(pw||"");
+  async function acceptSession(d){
+    if(!d || !d.ok || !d.token || !d.session || d.session.tenant!==(TENANT||"team")) return (d&&d.error)||"ورود معتبر نیست.";
+    SESSION_TOKEN=d.token;
+    if(d.session.must_change_password){
+      var next=prompt("برای ادامه رمز پیش‌فرض را تغییر دهید (حداقل ۸ نویسه):");
+      if(next===null){ SESSION_TOKEN=""; return "تغییر رمز برای ادامه الزامی است."; }
+      var changed=await fetch("/api/auth/change-password",{method:"POST",headers:aiHeaders(),body:JSON.stringify({tenant:TENANT||"team",next:next})});
+      var result=await changed.json();
+      if(!changed.ok || !result.ok){ SESSION_TOKEN=""; return result.error||"تغییر رمز ناموفق بود."; }
+      return acceptSession(result);
+    }
+    session={user:d.session.user, role:d.session.role, person:d.session.name};
+    var u=session.user;
     viewerRole=session.role;
     applyPersona(session.role);
     if(el("loginOverlay")) el("loginOverlay").style.display="none";
@@ -4381,25 +4387,28 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     if(el("sessionRole")) el("sessionRole").textContent=VIEWER_LABEL[session.role]||session.role;
     // کارشناسِ متناظر را فعال کن
     if(session.person){ for(var i=0;i<PEOPLE.length;i++){ if(PEOPLE[i].name===session.person){ loadPerson(PEOPLE[i].id); break; } } }
-    refreshPersonSel(); syncSettings(); render(); applyAccess(); autosave();
+    refreshPersonSel(); syncSettings(); render(); applyAccess();
     return "";
   }
-  // Export globally for STEA login
-  window.doLogin = doLogin;
-  window.syncUsers = syncUsers;
-  window.USERS = USERS;
-  // ورود پس از تأییدِ OTP: شماره → کاربر (بدون رمز؛ چون کد سمتِ سرور تأیید شده)
-  function loginByMobile(mob){
-    syncUsers();
-    function np(x){ var s=String(x||"").replace(/[^\d]/g,""); if(s.indexOf("98")===0&&s.length===12)s="0"+s.slice(2); if(s.length===10&&s.charAt(0)==="9")s="0"+s; return s; }
-    var n=np(mob), uname=null, u;
-    for(u in USERS){ if(USERS.hasOwnProperty(u) && USERS[u].mobile && np(USERS[u].mobile)===n){ uname=u; break; } }
-    if(!uname){ var per=null,i; for(i=0;i<PEOPLE.length;i++){ if(PEOPLE[i].mobile && np(PEOPLE[i].mobile)===n){ per=PEOPLE[i].name; break; } }
-      if(per){ for(u in USERS){ if(USERS.hasOwnProperty(u) && USERS[u].person===per){ uname=u; break; } } } }
-    if(!uname) return "این شماره به هیچ کاربری وصل نیست. (موبایلِ کارشناس را در «تیم» ثبت کنید)";
-    return doLogin(uname, USERS[uname].pass);   // OTP احراز شده؛ رمزِ ذخیره‌شده را می‌دهیم
+  async function sessionLogin(payload){
+    try{
+      payload.tenant=TENANT||"team";
+      var response=await fetch("/api/auth/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+      return await acceptSession(await response.json());
+    }catch(e){ return "اتصال به سرور برقرار نشد."; }
   }
-  window.loginByMobile = loginByMobile;
+  async function doLogin(u,pw){ return sessionLogin({username:String(u||"").trim(),password:String(pw||"")}); }
+  function loginByMobile(mob,code){ return sessionLogin({mobile:mob,code:code}); }
+  window.doLogin=doLogin;
+  window.loginByMobile=loginByMobile;
+  window.arominTenant=function(){return TENANT||"team";};
+  window.arominAcceptSession=acceptSession;
+  // 3.9.94: a fresh token from the dashboard (already verified by the server on resume) — no re-login, no UI change
+  window.arominSetToken=function(t){ if(t && typeof t==="string") SESSION_TOKEN=t; };
+  window.arominHasSession=function(){ return !!(session && SESSION_TOKEN); };
+  window.arominGoogleLogin=function(credential){ return sessionLogin({credential:credential}); };
+  window.syncUsers=syncUsers;
+  window.USERS=USERS;
   function canSee(panel){ return isAdmin(viewerRole) || (ACCESS[viewerRole]||ACCESS.manager).indexOf(panel)>-1; }
   function applyAccess(){
     var allowed=ACCESS[viewerRole]||ACCESS.manager;
@@ -4711,8 +4720,18 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
         var cfgf=cfgOf(k), ef=months[k].eligible+(d.settle==="hold"?months[k].hold:0), fr=0;
         if(ef>cfgf.threshold*1e6) for(var fi=0;fi<cfgf.tiers.length;fi++){if(ef<=cfgf.tiers[fi].cap*1e6||fi===cfgf.tiers.length-1){fr=cfgf.tiers[fi].rate/100;break;}}
         var fb=ca*((wts.fin||0)/100), fc=fb*fr;
-        var f=financeBonus[financialOwner]||(financeBonus[financialOwner]={id:financialOwner,n:0,base:0,basis:0,cash:0,check:0,pending:0});
-        f.n++;f.basis+=fb;if(d.settle==="hold")f.pending+=fc;else{f.base+=fc;if(d.settle==="check")f.check+=fc;else f.cash+=fc;}
+        var f=financeBonus[financialOwner]||(financeBonus[financialOwner]={id:financialOwner,n:0,base:0,basis:0,cash:0,check:0,pending:0,held:0});
+        // تصمیمِ مالک ۱۴۰۵/۰۷/۳۰: سهمِ مالیِ فاکتورِ معلق (چکِ وصول‌نشده) با تصویب کسب و همین حالا پرداخت می‌شود؛ held فقط نشان می‌دهد چه مقدار از معلق‌ها آمده
+        f.n++;f.basis+=fb;f.base+=fc;if(d.settle==="hold"){f.cash+=fc;f.held+=fc;}else if(d.settle==="check")f.check+=fc;else f.cash+=fc;
+      }
+      // تصمیمِ مالک ۱۴۰۵/۰۷/۳۰: سهمِ لیدساز هم برای فاکتورِ معلق کسب می‌شود (فقط فروشنده تا وصولِ چک صبر می‌کند)
+      if(d.leadGen && d.settle==="hold"){
+        var lRate=(function(){ var cfgm=cfgOf(k), elig=months[k].eligible+months[k].hold; if(!(elig>0)) return 0; var prev=cfgm.threshold*1e6; if(elig<=prev) return 0;
+          for(var ti=0; ti<cfgm.tiers.length; ti++){ var cap=cfgm.tiers[ti].cap*1e6; if(elig<=cap || ti===cfgm.tiers.length-1) return cfgm.tiers[ti].rate/100; prev=cap; }
+          return months[k].commission/elig; })();
+        var lB=ca*((wts.lead||0)/100);
+        if(!leadBonus[d.leadGen]) leadBonus[d.leadGen]={id:d.leadGen,n:0,base:0,basis:0};
+        leadBonus[d.leadGen].n++; leadBonus[d.leadGen].basis+=lB; leadBonus[d.leadGen].base+=lB*lRate;
       }
       if(d.settle!=="hold"){ b.basis+=ca*w;
         if(full) T.indep+=ca*w;
@@ -7920,7 +7939,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var id=e.target.dataset.accpw; if(!id) return;
     var p=PEOPLE.filter(function(x){return String(x.id)===String(id);})[0]; if(!p) return;
     var u=firstName(p.name); if(!u) return;
-    syncUsers(); if(USERS[u]){ USERS[u].pass="123"; autosave(); alert("رمز «"+u+"» به ۱۲۳ بازنشانی شد."); }
+    syncUsers(); if(USERS[u]){ USERS[u].pass="123"; API.save(JSON.parse(snapshot())).then(function(r){ if(!r.ok) alert(r.error||"بازنشانی ناموفق بود."); }); alert("رمز «"+u+"» به ۱۲۳ بازنشانی شد."); }
   });
   el("globalMonth").addEventListener("change",function(){
     GM=this.value;
@@ -8014,8 +8033,8 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var u=el("loginUser").value, pw=el("loginPass").value, orig=btn.innerHTML;
     btn.setAttribute("data-busy","1"); btn.disabled=true; el("loginMsg").textContent="";
     btn.innerHTML='<span class="ploader pshape" style="width:18px;height:18px"></span>';   // لودر پرسونا-شکل (§48)
-    setTimeout(function(){
-      var msg=doLogin(u,pw);
+    setTimeout(async function(){
+      var msg=await doLogin(u,pw);
       btn.disabled=false; btn.removeAttribute("data-busy"); btn.innerHTML=orig;
       el("loginMsg").textContent=msg;
       if(!msg){ el("loginPass").value=""; try{ autoBackup("ورود"); }catch(e){} }
@@ -8154,17 +8173,20 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   el("loginUser").addEventListener("input",function(){ previewPersona(el("loginUser").value); });
   el("logoutBtn").addEventListener("click",function(){
     try{ autoBackup("خروج"); }catch(e){}
-    session=null; if(el("loginOverlay")) el("loginOverlay").style.display="";
+    session=null; SESSION_TOKEN=""; if(el("loginOverlay")) el("loginOverlay").style.display="";
     el("loginUser").value=""; el("loginPass").value=""; el("loginMsg").textContent=""; renderLoginUsers();
     applyPersona(null); previewPersona("");
   });
-  el("changePass").addEventListener("click",function(){
+  el("changePass").addEventListener("click",async function(){
     if(!session) return;
-    var cur=prompt("رمز فعلی را وارد کن:"); if(cur===null) return;
-    if(USERS[session.user].pass!==cur){ alert("رمز فعلی درست نیست."); return; }
-    var nw=prompt("رمز تازه:"); if(nw===null) return;
-    nw=String(nw).trim(); if(!nw){ alert("رمز نمی‌تواند خالی باشد."); return; }
-    USERS[session.user].pass=nw; autosave(); alert("رمز عوض شد.");
+    var cur=prompt("رمز فعلی:"); if(cur===null) return;
+    var next=prompt("رمز تازه (حداقل ۸ نویسه):"); if(next===null) return;
+    try{
+      var response=await fetch("/api/auth/change-password",{method:"POST",headers:aiHeaders(),body:JSON.stringify({tenant:TENANT||"team",current:cur,next:next})});
+      var d=await response.json();
+      if(!response.ok || !d.ok) return alert(d.error||"تغییر رمز ناموفق بود.");
+      await acceptSession(d); alert("رمز عوض شد.");
+    }catch(e){ alert("اتصال به سرور برقرار نشد."); }
   });
   el("addPerson").addEventListener("click",function(){
     var nm=prompt("نام کارشناس جدید:","کارشناس "+fa(PEOPLE.length+1));
@@ -8351,8 +8373,8 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
       var canEdit=(p.canEdit!=null)?p.canEdit:!(acc==="sales"||acc==="support");
       var opts=[["manager","مدیر"],["finance","کارشناس مالی"],["sales","کارشناس فروش"],["support","کارشناس پشتیبانی"]]
         .map(function(o){ return '<option value="'+o[0]+'"'+(acc===o[0]?" selected":"")+'>'+o[1]+'</option>'; }).join("");
-      var lvl=levelOf(p);
-      var lvlOpts=[["senior","ارشد"],["mid","میانی"],["junior","تازه‌کار"]]
+      var lvl=levelOf(p)==="mid"?"middle":levelOf(p);
+      var lvlOpts=[["senior","سنیور"],["middle","میدل"],["junior","جونیور"]]
         .map(function(o){ return '<option value="'+o[0]+'"'+(lvl===o[0]?" selected":"")+'>'+o[1]+'</option>'; }).join("");
       var pr=(typeof personaOf==="function")?personaOf(acc):null;
       var glyph=(pr&&typeof personaGlyph==="function")?('<span title="'+pr.name+'">'+personaGlyph(pr.id,20)+'</span> <span style="font-size:11px;color:var(--ink-3)">'+pr.name+'</span>'):'—';
@@ -8369,7 +8391,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   // ── مدیریت کسب‌وکارها (حذف) — فقط مدیر ──
   function renderBizManage(){
     var box=el("bizManageBox"); if(!box) return;
-    if(!isAdmin(viewerRole) || !(API && API.on && API.ready)){ box.hidden=true; return; }
+    if(!session || !isAdmin(session.role) || !(API && API.on && API.ready)){ box.hidden=true; return; }
     box.hidden=false;
     var tb=el("bizTable")&&el("bizTable").querySelector("tbody"); if(!tb) return;
     tb.innerHTML='<tr><td colspan="3" style="text-align:center;color:var(--ink-3);padding:12px 0">در حال خواندن…</td></tr>';
@@ -8385,7 +8407,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   }
   document.addEventListener("click",function(e){
     var b=e.target&&e.target.closest&&e.target.closest("[data-bizdel]"); if(!b) return;
-    if(!isAdmin(viewerRole)){ return; }
+    if(!session || !isAdmin(session.role)){ return; }
     var id=b.getAttribute("data-bizdel"), nm=b.getAttribute("data-bizname")||id;
     if(id==="team"){ if(el("bizManageMsg")) el("bizManageMsg").textContent="کسب‌وکارِ اصلی قابل حذف نیست."; return; }
     if(!confirm("کسب‌وکارِ «"+nm+"» برای همیشه حذف شود؟ این کار قابل بازگشت نیست.")) return;
@@ -8789,7 +8811,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     el("xlsxFile").click();
   });
   // C1: مسیرِ درون‌برنامه — خواندن با پیشرفتِ واقعی، تجزیه در Web Worker (در صورتِ خطا روی نخِ اصلی)، سپس پیش‌نمایش
-  var C1_XLSX="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js", C1_IMP={json:null, mode:"replace"};
+  var C1_XLSX="/vendor/xlsx-0.18.5.full.min.js", C1_IMP={json:null, mode:"replace"};
   function c1ParseXlsx(buf, cb){
     var done=false;
     function main(){ try{ var wb=XLSX.read(new Uint8Array(buf),{type:"array"}); cb(null, XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:""})); }catch(e){ cb(e.message||String(e)); } }
@@ -13035,24 +13057,29 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     },
     async save(state){
       var r = await fetch(this.base+"/api/state"+this.qs(), {
-        method:"POST", headers:{"Content-Type":"application/json"},
+        method:"POST", headers:aiHeaders(),
         body: JSON.stringify(state)
       });
-      return await r.json();
+      var result=await r.json();
+      if(result.ok) Object.keys(USERS).forEach(function(u){ delete USERS[u].pass; delete USERS[u].password; });
+      return result;
     },
     async tenants(){
-      try{ var r = await fetch(this.base+"/api/tenants", {cache:"no-store"}); var d=await r.json(); return (d&&d.ok&&d.tenants)||[]; }catch(e){ return []; }
+      if(!session || !isAdmin(session.role)) return [];
+      try{ var r = await fetch(this.base+"/api/tenants", {cache:"no-store",headers:aiHeaders()}); var d=await r.json(); return (d&&d.ok&&d.tenants)||[]; }catch(e){ return []; }
     },
     async createTenant(industry,name){
-      try{ var r = await fetch(this.base+"/api/tenants", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({industry:industry,name:name})}); return await r.json(); }catch(e){ return {ok:false}; }
+      if(!session || !isAdmin(session.role)) return {ok:false,error:"این عملیات فقط برای مدیر مجاز است."};
+      try{ var r = await fetch(this.base+"/api/tenants", {method:"POST",headers:aiHeaders(),body:JSON.stringify({industry:industry,name:name})}); return await r.json(); }catch(e){ return {ok:false}; }
     },
     async deleteTenant(id){
-      try{ var r = await fetch(this.base+"/api/tenants/"+encodeURIComponent(id), {method:"DELETE"}); return await r.json(); }catch(e){ return {ok:false}; }
+      if(!session || !isAdmin(session.role)) return {ok:false};
+      try{ var r = await fetch(this.base+"/api/tenants/"+encodeURIComponent(id), {method:"DELETE",headers:aiHeaders()}); return await r.json(); }catch(e){ return {ok:false}; }
     },
     async login(u,p){
-      var r = await fetch(this.base+"/api/login", {
+      var r = await fetch(this.base+"/api/auth/session", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({username:u, password:p})
+        body: JSON.stringify({tenant:TENANT||"team",username:u, password:p})
       });
       return await r.json();
     }
@@ -13210,16 +13237,18 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
   // همگام‌سازی با «پلِ دستیار» تا MCP از aromin-data.json بخواند (throttle، بی‌صدا، فقط اگر پل در دسترس باشد)
   var _mcpT=null;
   function syncBridgeState(){
+    if(!session || !SESSION_TOKEN) return;
     if(location.protocol!=="http:"&&location.protocol!=="https:") return;   // فقط وقتی از سرور باز شده
     if(_mcpT) clearTimeout(_mcpT);
     _mcpT=setTimeout(function(){
-      try{ fetch("/api/state?tenant="+encodeURIComponent(TENANT||"team"),{method:"POST",headers:{"Content-Type":"application/json"},body:snapshot()}).catch(function(){}); }catch(e){}
+      try{ fetch("/api/state?tenant="+encodeURIComponent(TENANT||"team"),{method:"POST",headers:aiHeaders(),body:snapshot()}).catch(function(){}); }catch(e){}
     },1500);
   }
   // جاسازی در نسخهٔ React: تا وقتی تبِ این موتور باز نشده (و دادهٔ تازه بار نشده)، «پارک» است و خودکار ذخیره نمی‌کند
   // تا نسخهٔ قدیمیِ حافظه‌اش روی ویرایش‌های تب‌های بومی (مثلاً دفترِ فروش) ننشیند. ورودِ تب ← بارگذاریِ تازه ← خروج از پارک.
   window.__arominParked = /[?&]embed=/.test(location.search);
   function autosave(){
+    if(!session || !SESSION_TOKEN) return;
     if(!_appReady) return;   // تا اولین بارگذاریِ کاملِ کسب‌وکار، چیزی ذخیره نکن (تا دادهٔ واقعی کلوبر نشود)
     if(window.__arominParked) return;
     try{ if(window.localStorage) localStorage.setItem(CUR_KEY, snapshot()); }catch(e){}
@@ -13242,13 +13271,14 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     try{ return !!(PEOPLE && PEOPLE.some(function(p){ return (p.inv&&p.inv.length) || (p.invY && Object.keys(p.invY).some(function(y){ return p.invY[y]&&p.invY[y].length; })); })); }catch(e){ return false; }
   }
   function autoBackup(tag){
+    if(!session || !isAdmin(session.role) || !SESSION_TOKEN) return;
     if(!_appReady) return;                                  // تا دادهٔ واقعیِ کسب‌وکار بارگذاری نشده، بک‌آپ نگیر
     if(!(API && API.on && API.ready)) return;        // فقط وقتی سرور در دسترس است (بک‌آپ روی سرور، نه مرورگر)
     if(!_hasRealData()) return;                             // بلابِ خالی را بک‌آپ نگیر تا نسخهٔ خالی روی سرور ننشیند
     var snap; try{ snap=snapshot(); }catch(e){ return; }
     try{
-      fetch(API.base+"/api/backup",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({tenant:TENANT||"team", tag:String(tag||""), payload:snap})}).catch(function(){});
+      fetch(API.base+"/api/backup",{method:"POST",headers:aiHeaders(),
+        body:JSON.stringify({tenant:TENANT||"team", tag:String(tag||""), payload:JSON.parse(snap)})}).catch(function(){});   // 3.9.92: object, not an escaped string (the CDN edge drops that)
     }catch(e){}
   }
 
@@ -13304,7 +13334,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     var msg=el("srvBakMsg"), sel=el("srvBakList"); if(!sel) return;
     if(!(API && API.on)){ if(msg) msg.textContent="بک‌آپِ سروری فقط وقتی کار می‌کند که برنامه از طریقِ سرور باز شده باشد."; return; }
     if(msg) msg.textContent="در حال خواندنِ فهرستِ بک‌آپ‌ها…";
-    fetch(API.base+"/api/backups?tenant="+encodeURIComponent(TENANT||"team"),{cache:"no-store"})
+    fetch(API.base+"/api/backups?tenant="+encodeURIComponent(TENANT||"team"),{cache:"no-store",headers:aiHeaders()})
       .then(function(r){return r.json();}).then(function(d){
         var list=(d&&d.ok&&d.backups)||[];
         if(!list.length){ sel.innerHTML='<option value="">— هنوز بک‌آپی ثبت نشده —</option>'; if(msg) msg.textContent="هنوز هیچ بک‌آپی روی سرور نیست. یک‌بار خارج و دوباره وارد شو تا اولین نسخه ساخته شود."; return; }
@@ -13322,7 +13352,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     if(!confirm("این نسخه بازیابی شود؟ دادهٔ فعلیِ این کسب‌وکار جایگزین می‌شود. (قبلش خودش یک بک‌آپِ ایمنی از حالتِ فعلی می‌گیرد.)")) return;
     if(msg) msg.textContent="در حال بازیابی…";
     try{ autoBackup("پیش‌از‌بازیابی"); }catch(e){}
-    fetch(API.base+"/api/backup/"+encodeURIComponent(id),{cache:"no-store"})
+    fetch(API.base+"/api/backup/"+encodeURIComponent(id)+"?tenant="+encodeURIComponent(TENANT||"team"),{cache:"no-store",headers:aiHeaders()})
       .then(function(r){return r.json();}).then(function(d){
         if(!(d&&d.ok&&d.payload)){ if(msg) msg.textContent="این نسخه خوانده نشد."; return; }
         var o=(typeof d.payload==="string")?JSON.parse(d.payload):d.payload;
@@ -13438,9 +13468,9 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     function backupNow(tag){
       return new Promise(function(res){
         try{
-          if(!(API.on && API.ready) || !_hasRealData()) return res(false);
-          fetch(API.base+"/api/backup",{method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({tenant:TENANT||"team",tag:String(tag||""),payload:snapshot()})})
+          if(!session || !isAdmin(session.role) || !SESSION_TOKEN || !(API.on && API.ready) || !_hasRealData()) return res(false);
+          fetch(API.base+"/api/backup",{method:"POST",headers:aiHeaders(),
+            body:JSON.stringify({tenant:TENANT||"team",tag:String(tag||""),payload:JSON.parse(snapshot())})})   // 3.9.92: object payload
             .then(function(r){ return r.json(); }).then(function(j){ res(!!(j&&j.ok)); }).catch(function(){ res(false); });
         }catch(e){ res(false); }
       });
@@ -13475,7 +13505,11 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
       whenReady(function(ok){
         if(!ok) return reply({ok:false,error:"اپِ کامل آماده نشد (اتصال به سرور؟)"});
         // اول تازه‌ترین دادهٔ سرور (ممکن است نسخهٔ بومی از بارِ قبل چیزی ذخیره کرده باشد — مثلاً ایمپورتِ معاملات در دفترِ بومی)
-        window.__arominReload().then(function(rok){
+        // 3.9.94: sign this hidden engine in with the dashboard's current token (it may never have had a session, or its 1-hour token expired)
+        var auth = !m.token ? Promise.resolve() : window.arominHasSession() ? Promise.resolve(window.arominSetToken(m.token))
+          : fetch("/api/auth/session",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+String(m.token)},body:JSON.stringify({tenant:window.arominTenant(),resume:true})})
+              .then(function(r){ return r.json(); }).then(function(d){ return window.arominAcceptSession(d); }).catch(function(){});
+        auth.then(function(){ return window.__arominReload(); }).then(function(rok){
         if(!rok) return reply({ok:false,error:"دادهٔ تازهٔ سرور خوانده نشد؛ برای امنیت، ایمپورت انجام نشد."});
         backupNow("پیش از ایمپورت از نسخهٔ جدید").then(function(bok){
         if(!bok) return reply({ok:false,error:"بک‌آپِ پیش از ایمپورت روی سرور گرفته نشد؛ برای امنیت، ایمپورت انجام نشد."});
@@ -13497,6 +13531,14 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     if(window.parent!==window) whenReady(function(ok){ try{ window.parent.postMessage({aromin:"import-ready",ok:ok,tenant:TENANT,log:(typeof IMPORTLOG!=="undefined"?IMPORTLOG.slice(-60):[])}, location.origin); }catch(e){} });
   })();
   function _hasInv(f){ try{ return !!(f && Array.isArray(f.people) && f.people.some(function(p){ return (p.inv&&p.inv.length) || (p.invY && Object.keys(p.invY).some(function(y){ return p.invY[y]&&p.invY[y].length; })); })); }catch(e){ return false; } }
+  // 3.9.84: saves were rejected for days (ledger lock 409) — candidates typed in that time live only in this browser's local copy.
+  // Read them BEFORE the server state replaces memory, then add back any candidate the server does not have and save once.
+  function _localHire(){ var out=[]; try{ [CUR_KEY,SAVE_KEY].forEach(function(k){ var raw=localStorage.getItem(k); if(!raw) return; var o=JSON.parse(raw); (o.hire||[]).forEach(function(h){ if(h&&h.id&&!out.some(function(x){return x.id===h.id;})) out.push(h); }); }); }catch(e){} return out; }
+  function _mergeHire(list){
+    var n=0; (list||[]).forEach(function(h){ if(!HIRE.some(function(x){return x.id===h.id;})){ HIRE.push(h); n++; } });
+    if(n){ try{ console.info("[aromin] "+n+" hiring candidate(s) restored from this browser"); }catch(e){}
+      setTimeout(function(){ if(typeof autosave==="function") autosave(); if(typeof toast==="function") toast(n+" داوطلب از حافظهٔ این مرورگر بازیابی و ذخیره شد"); }, 1500); }
+  }
   function _hasInvLS(){ try{ var raw=localStorage.getItem(CUR_KEY)||localStorage.getItem(SAVE_KEY); if(!raw) return false; return _hasInv(JSON.parse(raw)); }catch(e){ return false; } }
   function loadTenantData(cb){
     function doneLocal(){
@@ -13510,7 +13552,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
         dbBadge("MariaDB — متصل", true);
         API.load().then(function(d){
           var full=(d&&d.ok&&d.full&&d.full.people)?d.full:null;
-          if(full && _hasInv(full)){ applySnapshot(full); tenantFinish(); dbBadge("MariaDB — بارگذاری شد (کامل)", true); if(cb) cb(); return; }
+          if(full && _hasInv(full)){ var _lh=_localHire(); applySnapshot(full); _mergeHire(_lh); tenantFinish(); dbBadge("MariaDB — بارگذاری شد (کامل)", true); if(cb) cb(); return; }
           // بازیابیِ اضطراری: بلابِ کسب‌وکار خالی است ولی سرور آرایهٔ people/normalized (جدول‌های people+deals) را برگردانده — از همان بازسازی کن
           var sqlPeople=(d&&d.ok&&Array.isArray(d.people)&&d.people.length)?d.people:null;
           if(sqlPeople && _hasInv({people:sqlPeople})){
@@ -13538,6 +13580,7 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     } else { dbBadge("حافظه‌ی مرورگر", false); doneLocal(); }
   }
   function enterTenant(t){
+    if(t.id!==TENANT){ session=null; SESSION_TOKEN=""; }
     TENANT=t.id; TENANT_INFO={industry:t.industry||"", name:t.name||""}; nsKeys();
     tenantUpsertLocal({id:t.id,industry:t.industry||"",name:t.name||""});
     try{ localStorage.setItem("aromin.lastTenant", JSON.stringify({id:t.id,industry:t.industry||"",name:t.name||""})); }catch(e){}
@@ -13576,12 +13619,13 @@ select:not([multiple]){padding-inline-start:9px; padding-inline-end:6px; text-ov
     else { if(el("tenantConn")) el("tenantConn").textContent="حالتِ محلی (بدونِ سرور)."; fill([]); }
     if(el("tenantGo")) el("tenantGo").addEventListener("click", function(){
       var sel=el("tenantExisting"), msg=el("tenantMsg"); if(msg) msg.textContent="";
+      if(!session || !isAdmin(session.role)){ if(msg)msg.textContent="این عملیات فقط برای مدیر مجاز است."; return; }
       if(sel && sel.value){ var op=sel.options[sel.selectedIndex]; enterTenant({id:sel.value, industry:op.getAttribute("data-ind")||"", name:op.getAttribute("data-name")||""}); return; }
       var ind=el("tenantIndustry")?el("tenantIndustry").value:"", nm=(el("tenantName")&&el("tenantName").value||"").trim();
       if(!ind){ if(msg) msg.textContent="اول «صنعت» را انتخاب کن."; return; }
       if(!nm){ if(msg) msg.textContent="سپس «نام کسب‌وکار» را وارد کن."; return; }
-      if(API.on && API.ready){ API.createTenant(ind,nm).then(function(r){ if(r&&r.ok&&r.tenant){ tenantUpsertLocal(r.tenant); enterTenant(r.tenant); } else { enterTenant({id:slugifyBiz(nm),industry:ind,name:nm}); } }); }
-      else { enterTenant({id:slugifyBiz(nm),industry:ind,name:nm}); }
+      if(API.on && API.ready){ API.createTenant(ind,nm).then(function(r){ if(r&&r.ok&&r.tenant){ tenantUpsertLocal(r.tenant); enterTenant(r.tenant); } else { if(msg)msg.textContent=r.error||"ساخت کسب‌وکار ناموفق بود."; } }); }
+      else { if(msg)msg.textContent="اتصال به سرور برقرار نیست."; }
     });
     if(el("tenantBack")) el("tenantBack").addEventListener("click", function(){ if(el("loginCard")) el("loginCard").hidden=true; if(el("tenantCard")) el("tenantCard").hidden=false; });
     // بازیابیِ خودکارِ آخرین/پیش‌فرض کسب‌وکار → داده با هر آپدیت حفظ می‌شود (صفحهٔ انتخاب فقط بارِ اول یا با «تغییرِ کسب‌وکار»)
@@ -13873,7 +13917,7 @@ var CALC_B64="PCFkb2N0eXBlIGh0bWw+CjxodG1sIGxhbmc9ImZhIiBkaXI9InJ0bCI+CjxoZWFkPg
     if(!validMobile(n)){ avPhoneErr.hidden=false; avPhoneErr.textContent="شماره موبایل معتبر وارد کنید."; return; }
     if(!LIVE){ if(avNotice){ avNotice.hidden=false; avNotice.textContent="ارسالِ کد فقط وقتی از روی سرور (https) باز شود کار می‌کند."; } return; }
     avRequestCode.disabled=true;
-    fetch(APIBASE+"/api/otp/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mobile:n})})
+    fetch(APIBASE+"/api/otp/request",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mobile:n,tenant:window.arominTenant()})})
       .then(function(r){return r.json();}).then(function(j){
         avRequestCode.disabled=false;
         if(j&&j.ok){ for(var i=0;i<otp.length;i++) otp[i].value=""; if(avNotice){ avNotice.hidden=false; avNotice.textContent="کدِ تأیید به شمارهٔ شما پیامک شد."; } show("code"); startTimer(60); }
@@ -13887,12 +13931,10 @@ var CALC_B64="PCFkb2N0eXBlIGh0bWw+CjxodG1sIGxhbmc9ImZhIiBkaXI9InJ0bCI+CjxoZWFkPg
     if(!LIVE){ avCodeErr.hidden=false; avCodeErr.textContent="بک‌اند در دسترس نیست (از روی سرور باز کنید)."; return; }
     var n=normPhone(avPhone.value);
     avVerify.disabled=true;
-    fetch(APIBASE+"/api/otp/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mobile:n,code:c})})
-      .then(function(r){return r.json();}).then(function(j){
-        avVerify.disabled=false;
-        if(j&&j.ok){ var err=(typeof window.loginByMobile==="function")?window.loginByMobile(n):"ورود ممکن نشد."; if(err){ avCodeErr.hidden=false; avCodeErr.textContent=err; } }
-        else { avCodeErr.hidden=false; avCodeErr.textContent=(j&&j.error)||"کد اشتباه است."; }
-      }).catch(function(){ avVerify.disabled=false; avCodeErr.hidden=false; avCodeErr.textContent="خطا در ارتباط با سرور."; });
+    window.loginByMobile(n,c).then(function(err){
+      avVerify.disabled=false;
+      if(err){ avCodeErr.hidden=false; avCodeErr.textContent=err; }
+    }).catch(function(){ avVerify.disabled=false; avCodeErr.hidden=false; avCodeErr.textContent="خطا در ارتباط با سرور."; });
   });
   for(var i=0;i<otp.length;i++){ (function(box,idx){
     box.addEventListener("input",function(){ var d=toLatin(box.value).replace(/\D/g,""); box.value=d.slice(-1); if(d && idx<5) otp[idx+1].focus(); });
@@ -13955,7 +13997,19 @@ var CALC_B64="PCFkb2N0eXBlIGh0bWw+CjxodG1sIGxhbmc9ImZhIiBkaXI9InJ0bCI+CjxoZWFkPg
       +'<p class="aromin-gnote" id="arominGnote" hidden></p>';
     loginBtn.insertAdjacentElement("afterend", alt);
     document.getElementById("arominGoogle").addEventListener("click", function(){
-      var n=document.getElementById("arominGnote"); if(n){ n.hidden=false; n.textContent="ورود با Google نیازمندِ تنظیمِ OAuth است و هنوز فعال نیست."; }
+      var n=document.getElementById("arominGnote");
+      function note(msg){ if(n){n.hidden=false;n.textContent=msg;} }
+      fetch("/api/auth/google/config",{cache:"no-store"}).then(function(r){return r.json();}).then(function(cfg){
+        if(!cfg.enabled || !cfg.clientId) return note("ورود با Google هنوز فعال نیست.");
+        function ready(){
+          google.accounts.id.initialize({client_id:cfg.clientId,callback:function(response){
+            window.arominGoogleLogin(response.credential).then(function(err){if(err)note(err);});
+          }});
+          google.accounts.id.prompt();
+        }
+        if(window.google && google.accounts) return ready();
+        var script=document.createElement("script");script.src="https://accounts.google.com/gsi/client";script.onload=ready;script.onerror=function(){note("اتصال به Google برقرار نشد.");};document.head.appendChild(script);
+      }).catch(function(){note("اتصال به سرور برقرار نشد.");});
     });
   }
   // مخفی‌کردنِ بلوکِ Google در نماهای موبایل/کد
@@ -14166,7 +14220,12 @@ var CALC_B64="PCFkb2N0eXBlIGh0bWw+CjxodG1sIGxhbmc9ImZhIiBkaXI9InJ0bCI+CjxoZWFkPg
       var ready=typeof window.__arominReady==="function" && window.__arominReady() && typeof window.doLogin==="function";
       if(!ready){ if(n<320) return setTimeout(function(){ tryLogin(n+1); },250); return post({type:"auth",ok:false,error:"اپِ کامل آماده نشد"}); }
       var ov=document.getElementById("loginOverlay");
-      if(!(ov && getComputedStyle(ov).display==="none")){ var err=window.doLogin(String(m.user||""),String(m.pass||"")); if(err) return post({type:"auth",ok:false,error:err}); }
+      if(!(ov && getComputedStyle(ov).display==="none")){
+        fetch("/api/auth/session",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+String(m.token||"")},body:JSON.stringify({tenant:window.arominTenant(),resume:true})})
+          .then(function(r){return r.json();}).then(function(d){return window.arominAcceptSession(d);}).then(function(err){post({type:"auth",ok:!err,error:err,tab:err?null:openTab()});});
+        return;
+      }
+      if(typeof window.arominSetToken==="function") window.arominSetToken(m.token);   // 3.9.94: keep the renewed token
       setTimeout(function(){ post({type:"auth",ok:true,tab:openTab()}); },250);
     })(0);
   });

@@ -229,6 +229,9 @@ export const reopenDeal = (session: Session, id: number, reason: string, code?: 
 /** بازگرداندنِ گروهیِ تصویب (دکمهٔ کلی؛ فقط مدیر): یک کدِ تلگرام فقط برای همین مجموعه */
 export const requestReopenCodeMany = (session: Session, ids: number[], reason = '') => c1Call(session, 'reopen-code', { ids, reason }) as Promise<{ to?: string; count?: number }>
 export const reopenMany = (session: Session, ids: number[], reason: string, code: string) => c1Call(session, 'reopen', { ids, reason, code }) as Promise<{ via: string; reopened?: number }>
+/** «انتقالِ سهمِ مالی» (فقط مدیر): finBy ِ یک ماه از یک نفر به دیگری؛ dry=true فقط تعداد */
+export const reassignFinance = (session: Session, body: { month: number; from: string; to: string; dry?: boolean; reason?: string }) =>
+	c1Call(session, 'finance-reassign', { fy: LEDGER_FY, ...body }) as Promise<{ count?: number; moved?: number }>
 
 /* ---------- چیدمانِ کاشی‌ها برای هر کاربر روی سرور ---------- */
 export async function loadLayout(session: Session, list: string): Promise<string[] | null> {

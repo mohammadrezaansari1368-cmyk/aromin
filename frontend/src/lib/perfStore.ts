@@ -1,6 +1,7 @@
 /**
- * ذخیره‌سازِ «حضور و عملکرد» در همین مرورگر — IndexedDB برای داده‌های حجیم (فایلِ حضور، ویرایش‌های دستی، فایل‌های وظایف)،
- * localStorage فقط برای تنظیماتِ سبک (قواعد، نگاشت). هیچ چیز به سرور فرستاده نمی‌شود.
+ * ذخیره‌سازِ محلیِ «حضور و عملکرد» — IndexedDB برای فایل‌های وظایفِ جولیو؛ localStorage فقط برای نگاشتِ جولیو.
+ * حضور، ویرایش‌های دستی و قواعد روی سرورند (lib/attendanceApi.ts)؛ اسنادِ قدیمیِ attendance/overrides فقط برای
+ * مهاجرتِ یک‌باره به سرور خوانده و پس از موفقیت پاک می‌شوند.
  *
  * خواندن‌ها هم‌گام از یک کشِ حافظه‌اند (موتورِ محاسبه هم‌گام است)؛ `perfReady(tenant)` یک‌بار کش را از IndexedDB پر می‌کند
  * و دادهٔ نسخه‌های قبلی (localStorage) را منتقل می‌کند — کلیدِ قدیمی فقط پس از نوشتنِ موفق پاک می‌شود.
@@ -110,6 +111,7 @@ export function perfReady(tenant: string): Promise<void> {
 }
 export const isPerfReady = (tenant: string) => readyFor === tenant && readyP !== null
 
+export const hasLocalDoc = (d: PerfDoc) => mem.has(d)
 export function memGet<T>(d: PerfDoc, fallback: T): T {
 	return mem.has(d) ? (mem.get(d) as T) : fallback
 }

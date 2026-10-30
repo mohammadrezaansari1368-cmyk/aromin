@@ -27,7 +27,7 @@ const WRITABLE: Record<string, Record<string, (v: string) => string | null>> = {
 	people: {
 		mobile: (v) => { const s = v.replace(/[^\d]/g, '').replace(/^98/, '0').replace(/^9/, '09'); return /^09\d{9}$/.test(s) ? s : null },
 		email: (v) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim()) ? v.trim().toLowerCase() : null),
-		level: (v) => (['junior', 'mid', 'senior'].includes(v) ? v : null),
+		level: (v) => (v === 'middle' ? 'mid' : ['junior', 'mid', 'senior'].includes(v) ? v : null),
 	},
 	users: {
 		role: (v) => (ROLES.some((r) => r.id === v) ? v : null),
@@ -59,9 +59,10 @@ export interface Msg {
 }
 export interface Confirm { title: string; lines: string[]; resolve: (ok: boolean) => void }
 export interface PageAction { label: string; run: () => void }
-interface State { open: boolean; status: Status; msgs: Msg[]; confirm: Confirm | null; features: Features; pulse: number; pageActions: PageAction[] }
+/** agent: ایجنتِ تخصصیِ فعلی که ارکستراتورِ سرور انتخاب کرد (3.9.64)؛ allowed: ابزارهای مجازِ همان نوبت از سرور */
+interface State { open: boolean; status: Status; msgs: Msg[]; confirm: Confirm | null; features: Features; pulse: number; pageActions: PageAction[]; agent: { key: string; name: string } | null; allowed: string[] | null }
 
-let state: State = { open: false, status: 'idle', msgs: [], confirm: null, features: readFeatures(), pulse: 0, pageActions: [] }
+let state: State = { open: false, status: 'idle', msgs: [], confirm: null, features: readFeatures(), pulse: 0, pageActions: [], agent: null, allowed: null }
 const subs = new Set<() => void>()
 const set = (p: Partial<State>) => { state = { ...state, ...p }; subs.forEach((f) => f()) }
 const patchMsg = (id: string, p: Partial<Msg>) => set({ msgs: state.msgs.map((m) => (m.id === id ? { ...m, ...p } : m)) })
@@ -94,7 +95,7 @@ export const setFeature = (k: keyof Features, v: boolean) => {
 	set({ features: f })
 }
 export const setStatus = (status: Status) => set({ status })
-export const clearChat = () => set({ msgs: [] })
+export const clearChat = () => set({ msgs: [], agent: null, allowed: null })
 
 /* ---------------- نمایشِ تدریجی (افکتِ استریم) ---------------- */
 function reveal(id: string, full: string): Promise<void> {
@@ -196,6 +197,7 @@ export async function runTool(name: string, args: Record<string, unknown>): Prom
 	const role = host?.session.role
 	if (!TOOLS.some((t) => t.name === name)) return { result: { ok: false, error: 'ابزارِ ناشناخته' }, status: 'error', summary: `ابزارِ ناشناخته: ${name}` }
 	if (ADMIN.has(name) && !isAdmin(role)) return { result: { ok: false, error: 'این کار فقط برای مدیر مجاز است' }, status: 'denied', summary: 'فقط برای مدیر' }
+	if (state.allowed && !state.allowed.includes(name)) return { result: { ok: false, error: 'این کار برای این ایجنت مجاز نیست' }, status: 'denied', summary: 'برای ایجنتِ فعلی مجاز نیست' }
 	try {
 		if (name === 'navigateToTab') {
 			const t = resolveTab(String(args.tab || ''))
@@ -246,7 +248,7 @@ function tenantInfo() {
 async function post(body: Record<string, unknown>) {
 	// دانشِ کسب‌وکار را سرور از S3 پیوست می‌کند (فقط برای کاربرِ معتبرِ همین tenant) — دیگر از کلاینت فرستاده نمی‌شود
 	const r = await fetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders(host?.session) }, body: JSON.stringify({ tenant: currentTenant(), ...body }) })
-	return r.json() as Promise<{ ok: boolean; text?: string; error?: string; detail?: string }>
+	return r.json() as Promise<{ ok: boolean; text?: string; error?: string; detail?: string; allowedTools?: string[]; agent?: { key: string; name: string } }>
 }
 let busy = false
 let lastUserText = ''
@@ -262,9 +264,10 @@ export async function send(text: string) {
 			const history = state.msgs.filter((m) => m.llm).map((m) => m.llm!)
 			const res = await post({
 				mode: 'agent', messages: history, role: host?.session.role, page: host?.tabs.find((t) => t.id === host?.activeTab())?.label || '',
-				tabs: (host?.tabs || []).map(({ id, label }) => ({ id, label })), context: pageContext?.() || '', ...tenantInfo(),
+				tabs: (host?.tabs || []).map(({ id, label }) => ({ id, label })), context: pageContext?.() || '', ...tenantInfo(), agent: state.agent?.key,
 			})
 			if (!res?.ok) { set({ msgs: [...state.msgs, { id: uid(), role: 'assistant', text: 'دستیار پاسخ نداد: ' + String(res?.detail || res?.error || 'نامشخص') }] }); break }
+			set({ agent: res.agent || null, allowed: res.allowedTools || null })
 			const raw = String(res.text || '')
 			const m = raw.match(TOOL_RE)
 			const visible = raw.replace(TOOL_RE, '').trim()

@@ -11,8 +11,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { authHeaders, isAdmin, type Session } from '@/lib/auth'
 import { currentTenant } from '@/lib/data'
 import { BTN_DANGER, BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_TITLE } from '@/components/ui/tokens'
+import { COLLECTION_FA } from '@/lib/agents'
 
-interface KbItem { id: string; filename: string; contentType: string; size: number; createdAt: string; updatedAt: string; status: 'ready' | 'no-text' | string; chars: number; source: string; internal?: boolean }
+interface KbItem { id: string; filename: string; contentType: string; size: number; createdAt: string; updatedAt: string; status: 'ready' | 'no-text' | string; chars: number; source: string; internal?: boolean; collections?: string[] }
 const EXT = ['.txt', '.md', '.json', '.html', '.csv', '.pdf', '.docx']
 const MAX = 10 * 1024 * 1024
 const faNum = (n: number) => n.toLocaleString('fa-IR')
@@ -34,8 +35,8 @@ function loadPdfJs() {
 	if (w.pdfjsLib) return Promise.resolve(w.pdfjsLib)
 	pdfjs ??= new Promise((res, rej) => {
 		const s = document.createElement('script')
-		s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js'
-		s.onload = () => { try { w.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js' } catch { /* */ } res(w.pdfjsLib) }
+		s.src = '/vendor/pdf-3.11.174.min.js'
+		s.onload = () => { try { w.pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf-3.11.174.worker.min.js' } catch { /* */ } res(w.pdfjsLib) }
 		s.onerror = () => { pdfjs = null; rej(new Error('بارگذاریِ خوانندهٔ PDF ناموفق بود (اینترنت؟)')) }
 		document.head.appendChild(s)
 	})
@@ -94,6 +95,13 @@ export default function KnowledgeTile({ session }: { session: Session }) {
 		setBusy(true)
 		try { await api('DELETE', '/' + it.id); setMsg({ tone: 'ok', text: `«${it.filename}» حذف شد.` }); await refresh() } catch (e) { setMsg({ tone: 'err', text: (e as Error).message }); setBusy(false) }
 	}
+	// مجموعه‌ها (3.9.64): هر ایجنت فقط از مجموعه‌های مجازِ خودش می‌خواند؛ بی‌مجموعه = «عمومی»
+	const setCollections = async (it: KbItem, c: string, on: boolean) => {
+		const cur = it.collections?.length ? it.collections : ['general']
+		const next = on ? [...cur.filter((x) => x !== c), c] : cur.filter((x) => x !== c)
+		setBusy(true)
+		try { await api('PATCH', '/' + it.id, { collections: next.length ? next : ['general'] }); await refresh() } catch (e) { setMsg({ tone: 'err', text: (e as Error).message }); setBusy(false) }
+	}
 	// «فقط داخلی»: فقط برای دستیارِ داشبورد؛ هرگز وارد زمینهٔ ابزارکِ سایت نمی‌شود
 	const setInternal = async (it: KbItem, internal: boolean) => {
 		setBusy(true)
@@ -124,7 +132,7 @@ export default function KnowledgeTile({ session }: { session: Session }) {
 			) : (
 				<div className="overflow-x-auto rounded-md ring-1 ring-border">
 					<table className="w-full border-collapse text-[12.5px]">
-						<thead><tr className="bg-muted/60 text-right text-[11.5px] text-muted-foreground">{['نام فایل', 'نوع', 'حجم', 'تاریخ', 'وضعیت', 'فقط داخلی', ''].map((h, i) => <th key={i} className="whitespace-nowrap px-3 py-2.5 font-bold">{h}</th>)}</tr></thead>
+						<thead><tr className="bg-muted/60 text-right text-[11.5px] text-muted-foreground">{['نام فایل', 'نوع', 'حجم', 'تاریخ', 'وضعیت', 'فقط داخلی', 'مجموعه', ''].map((h, i) => <th key={i} className="whitespace-nowrap px-3 py-2.5 font-bold">{h}</th>)}</tr></thead>
 						<tbody>
 							{items.map((it) => (
 								<tr key={it.id} className="border-t border-border/80 hover:bg-muted/40">
@@ -134,6 +142,10 @@ export default function KnowledgeTile({ session }: { session: Session }) {
 									<td className="whitespace-nowrap px-3 py-2 tabular-nums">{when(it.createdAt)}</td>
 									<td className="whitespace-nowrap px-3 py-2">{it.status === 'ready' ? <span className="font-bold text-success">آماده · {faNum(it.chars)} نویسه</span> : <span className="font-bold text-warning" title="متنی از این فایل استخراج نشد (شاید PDF تصویری باشد)">بدون متن</span>}</td>
 									<td className="whitespace-nowrap px-3 py-2"><label className="inline-flex cursor-pointer items-center gap-1.5" title="فقط دستیارِ داشبورد؛ هرگز در ابزارکِ سایت"><input type="checkbox" checked={!!it.internal} disabled={busy} onChange={(e) => setInternal(it, e.target.checked)} className="size-4 accent-[hsl(var(--primary))]" aria-label={'فقط داخلی: ' + it.filename} /><span className="text-[11.5px] text-muted-foreground">{it.internal ? 'داخلی' : 'سایت هم'}</span></label></td>
+									<td className="px-3 py-2"><details className="relative"><summary className="cursor-pointer whitespace-nowrap text-[11.5px] font-bold text-primary">{(it.collections?.length ? it.collections : ['general']).map((c) => COLLECTION_FA[c] || c).join('، ')}</summary>
+										<div className="absolute z-10 mt-1 grid min-w-44 gap-1 rounded-md bg-card p-2 shadow-card ring-1 ring-border">{Object.entries(COLLECTION_FA).filter(([c]) => c !== 'dashboard_help').map(([c, l]) => (
+											<label key={c} className="flex items-center gap-1.5 text-[12px]"><input type="checkbox" disabled={busy} checked={(it.collections?.length ? it.collections : ['general']).includes(c)} onChange={(e) => setCollections(it, c, e.target.checked)} className="size-4 accent-[hsl(var(--primary))]" />{l}</label>
+										))}</div></details></td>
 									<td className="whitespace-nowrap px-3 py-2 text-left"><button type="button" disabled={busy} onClick={() => remove(it)} aria-label={'حذفِ ' + it.filename} className="rounded-lg px-2 py-1 text-[12px] font-bold text-error hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-error/40 disabled:opacity-50">حذف</button></td>
 								</tr>
 							))}

@@ -6,6 +6,7 @@ import { ago, fa, persian } from '../data/adapters'
 import { exportDetails, usePerf } from '../data/hooks'
 import { IMPORT_SOURCE } from '../data/clusterConfig'
 import { DynamicButton, TactileButton } from '../ui/primitives'
+import AchievementBreakdown from './AchievementBreakdown'
 
 export function CalcReceipt({ metric, who, from, to, onConnect }: { metric: Metric; who: string; from: string; to: string; onConnect: () => void }) {
 	const off = metric.status === 'not_computable' || metric.status === 'error'
@@ -13,9 +14,10 @@ export function CalcReceipt({ metric, who, from, to, onConnect }: { metric: Metr
 	const line = (k: string, v: string) => <div className="pv-rc-l"><span>{k}</span><b>{v}</b></div>
 	return <div className="pv-receipt" aria-label="رسید محاسبه"><div className="pv-rc-paper">
 		<header><b>{metric.label} · {who}</b><span>{persian(from)} — {persian(to)}</span></header><hr />
+        {(metric.parts?.activity || metric.basis) && <AchievementBreakdown metrics={[metric]} />}
 		{off ? <>{line('دلیل', metric.status === 'error' ? 'خطا در محاسبه' : 'قابل محاسبه نیست')}{line('منبع لازم', IMPORT_SOURCE[metric.id] || '—')}<p className="pv-rc-def">{metric.definition}</p>
 			<TactileButton onClick={onConnect}>اتصال منبع ←</TactileButton></> : <>
-			{line('صورت', fa(metric.numerator))}{line('مخرج', metric.denominator === null ? '—' : fa(metric.denominator))}<hr />
+			{metric.parts?.tickets !== undefined && <>{line('تیکت', fa(metric.parts.tickets))}{line('تماس ورودی پاسخ‌داده', fa(metric.parts.callsIn))}{line('تماس خروجی پاسخ‌داده', fa(metric.parts.callsOut))}</>}{line('صورت', fa(metric.numerator))}{line('مخرج', metric.denominator === null ? '—' : fa(metric.denominator))}<hr />
 			{line('مقدار', fa(metric.value) + ' ' + metric.unit)}{line('پوشش', (metric.status === 'partial' ? 'ناقص' : 'کامل') + ' · ' + fa(metric.records, 0) + ' رکورد')}
 			{line('منبع', src + ' · ' + ago(metric.updatedAt))}{line('هدف', metric.target === null ? 'بدون هدف' : fa(metric.target))}<p className="pv-rc-def">{metric.definition}</p></>}
 		<hr /><div className="pv-rc-bar" aria-hidden>|||||| {metric.id} ||||||</div>

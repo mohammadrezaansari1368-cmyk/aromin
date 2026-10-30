@@ -16,7 +16,7 @@ export default function LegacyTab({ panel, session }: { panel: string; session: 
 	const [h, setH] = useState(900)
 
 	const sendAuth = () => {
-		frame.current?.contentWindow?.postMessage({ aromin: 'auth', user: session.user, pass: session.pass }, location.origin)
+		frame.current?.contentWindow?.postMessage({ aromin: 'auth', user: session.user, token: session.token }, location.origin)
 	}
 
 	useEffect(() => {

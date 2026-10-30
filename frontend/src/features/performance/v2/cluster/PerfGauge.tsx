@@ -14,19 +14,16 @@ export interface PerfGaugeProps {
 	active?: boolean; onSelect?: () => void; reason?: string; onConnect?: () => void
 	format?: (n: number) => string
 }
-const SWEPT_KEY = 'pv-gauge-swept'
 
 export default function PerfGauge(p: PerfGaugeProps) {
 	const v = statusVisual(p.status), uid = useId().replace(/:/g, '')
 	const r = v.needle === 'value' ? ratio(p.value, p.max) : null
 	const target = angle(r), [deg, setDeg] = useState(target), first = useRef(true)
 	useEffect(() => {
-		// startup sweep 0 → max → value, once per session; later changes spring from the previous value
-		if (first.current) {
+		// startup sweep once when this gauge receives data; later changes transition from its current value
+		if (first.current && r !== null) {
 			first.current = false
-			let swept = true; try { swept = !!sessionStorage.getItem(SWEPT_KEY) } catch { /* */ }
-			if (!swept && !reducedMotion() && r !== null) {
-				try { sessionStorage.setItem(SWEPT_KEY, '1') } catch { /* */ }
+			if (!reducedMotion()) {
 				setDeg(START); const a = setTimeout(() => setDeg(START + SWEEP), 40), b = setTimeout(() => setDeg(target), 520)
 				return () => { clearTimeout(a); clearTimeout(b) }
 			}

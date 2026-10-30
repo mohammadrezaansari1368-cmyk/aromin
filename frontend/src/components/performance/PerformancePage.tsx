@@ -21,9 +21,9 @@ import Sortable from '@/components/ui/sortable'
 import { BTN_GHOST, BTN_PRIMARY, CARD, CARD_PAD, CARD_SUB, CARD_TITLE, FOCUS } from '@/components/ui/tokens'
 import ActivityCalendar, { weekdayOf, type CalendarDay } from '@/components/ui/activity-calendar'
 import {
-	CATEGORY_LABELS, DEFAULT_SETTINGS, EMPTY_FILTER, NA, canSeeAll, clearAttendance, loadOverrides, norm, normDate, dailySeries, exportLawyer, exportPerson, exportRecon, filterRows, hhmm, lateRows, lawyerBasis, lawyerRows,
-	SESSION_LABEL, defaultDurNote, personIn, personSummary, printSection, reconRows, saveEdit, saveLink, saveSettings, sessionRows, summaryLines, totals,
-	type Code, type Dataset, type DayRow, type Filter, type LinkHow, type PersonPerf, type RowEdit, type Settings,
+	CATEGORY_LABELS, EMPTY_FILTER, NA, canSeeAll, dailySeries, exportLawyer, exportPerson, exportRecon, filterRows, hhmm, lateRows, lawyerBasis, lawyerRows,
+	SESSION_LABEL, defaultDurNote, personIn, personSummary, printSection, reconRows, saveEdit, saveLink, sessionRows, summaryLines, totals,
+	type Code, type Dataset, type DayRow, type Filter, type LinkHow, type PersonPerf, type RowEdit,
 } from '@/lib/performance'
 import { usePerformance } from './usePerformance'
 import { clearPerfView, setPerfView } from './perfNav'
@@ -148,9 +148,9 @@ function useChart() {
 	const c = useMemo(() => ({ primary: tokenHex('primary'), secondary: tokenHex('secondary'), accent: tokenHex('accent'), ok: tokenHex('success'), warn: tokenHex('warning'), err: tokenHex('error'), grid: tokenHex('border'), text: tokenHex('muted-foreground'), card: tokenHex('card'), fg: tokenHex('foreground') }), [th])
 	return {
 		c,
-		axis: { tick: { fill: c.text, fontSize: 11, fontFamily: 'Vazirmatn' }, tickLine: false, axisLine: false },
-		tip: { contentStyle: { background: c.card, border: '1px solid ' + c.grid, borderRadius: 10, fontFamily: 'Vazirmatn', fontSize: 12, color: c.fg, direction: 'rtl' as const }, labelStyle: { color: c.fg } },
-		legend: { wrapperStyle: { fontFamily: 'Vazirmatn', fontSize: 11, color: c.text } },
+		axis: { tick: { fill: c.text, fontSize: 11, fontFamily: 'PeydaWeb, Vazirmatn' }, tickLine: false, axisLine: false },
+		tip: { contentStyle: { background: c.card, border: '1px solid ' + c.grid, borderRadius: 10, fontFamily: 'PeydaWeb, Vazirmatn', fontSize: 12, color: c.fg, direction: 'rtl' as const }, labelStyle: { color: c.fg } },
+		legend: { wrapperStyle: { fontFamily: 'PeydaWeb, Vazirmatn', fontSize: 11, color: c.text } },
 	}
 }
 function ChartBox({ title, sub, children, empty, why }: { title: string; sub?: string; children: ReactNode; empty?: boolean; why?: string }) {
@@ -443,7 +443,7 @@ function EditDialog({ p, r, onClose, session }: { p: PersonPerf; r: DayRow; onCl
 			<div className="flex flex-col gap-4 p-6">
 				<div>
 					<h3 className="text-[16px] font-extrabold">ویرایش دستی — {faDate(r.date)} {r.day}</h3>
-					<p className="mt-1 text-[12px] text-muted-foreground">{p.displayName} · در همان دادهٔ حضور ذخیره می‌شود</p>
+					<p className="mt-1 text-[12px] text-muted-foreground">{p.displayName} · جدا از دادهٔ خام، روی سرور ذخیره می‌شود</p>
 				</div>
 				<Field label="وضعیت روز">
 					<select className={inCls} value={e.code} onChange={(ev) => setE({ ...e, code: ev.target.value as Code })}>
@@ -720,90 +720,13 @@ function Lawyer({ ds, f, set }: { ds: Dataset; f: Filter; set: (f: Filter) => vo
 	)
 }
 
-/* ---------------- تنظیمات → محاسبات عملکرد (در تبِ تنظیمات نمایش داده می‌شود) ---------------- */
-export function PerfSettingsCard({ session }: { session: Session }) {
-	const all = canSeeAll(session)
-	const { ds } = usePerformance(session, all)
-	const [st, setSt] = useState<Settings | null>(null)
-	const [msg, setMsg] = useState('')
-	useEffect(() => { if (ds) setSt(ds.settings) }, [ds])
-	if (!all || !st || !ds) return null
-	const f = (key: keyof Settings, label: string, hint?: string) => (
-		<Field label={label}>
-			<input className={inCls} dir={key === 'taskKeywords' ? 'rtl' : 'ltr'} value={String(st[key])} onChange={(e) => setSt({ ...st, [key]: e.target.value })} />
-			{hint && <span className="mt-1 text-[10.5px] text-muted-foreground">{hint}</span>}
-		</Field>
-	)
-	const R = ds.R
-	return (
-		<div dir="rtl" className="mb-5">
-			<Card title="محاسبات عملکرد" sub="قواعدِ حضور، دیرکرد، کسر و جلسهٔ حضوری — مبنای همهٔ نماها و گزارش‌های «حضور و عملکرد».">
-				<div className="grid grid-cols-2 gap-3 @2xl:grid-cols-4">
-					{f('workStart', 'شروع موظفی', 'hh:mm')}
-					{f('workEnd', 'پایان موظفی', 'hh:mm')}
-					{f('dailyWork', 'کار موظفی روزانه', 'hh:mm')}
-					{f('restDuration', 'استراحت (دقیقه)')}
-					{f('lateThreshold', 'آستانهٔ دیرکرد (دقیقه)')}
-					{f('lateDeduct', 'هر چند ساعت دیرکردِ قابل کسر = ۱ روز', 'hh:mm')}
-					{f('meetingDefault', 'مدت پیش‌فرض جلسه (دقیقه)', 'وقتی زمان سررسید معتبر نیست')}
-					{f('taskKeywords', 'عنوان وظیفهٔ بیرون از شرکت شامل', 'چند کلمه را با «،» جدا کنید')}
-				</div>
-				<ul className="mt-4 space-y-1 rounded-xl bg-muted/45 p-4 text-[12px] leading-6 text-muted-foreground ring-1 ring-border/80">
-					<li>ساعت موظفی: <b className="text-foreground">{tm(R.workStart)} → {tm(R.workEnd)}</b> · روز کامل: <b className="text-foreground">{tm(R.dailyWork)} کار + {tm(R.rest)} استراحت = {tm(R.fullDay)}</b></li>
-					<li>ورود تا <b className="text-foreground">{tm(R.workStart + R.lateThreshold)}</b> دیرکرد نیست؛ بعد از آن، دیرکرد از <b className="text-foreground">{tm(R.workStart)}</b> شمرده می‌شود (مثلاً ورود {tm(R.workStart + R.lateThreshold + 2)} = {fa(R.lateThreshold + 2)} دقیقه).</li>
-					<li>دیرکردِ قابل کسر = مجموع − بخشوده؛ هر <b className="text-foreground">{tm(R.lateDeduct)}</b> = ۱ روز کسر و مانده حفظ می‌شود.</li>
-					<li>وظیفهٔ «{st.taskKeywords}»ِ برگزارشده در روزِ دیرکرد ← دیرکرد بخشوده؛ بخشِ بیرون از حضورِ ثبت‌شده ← اضافه‌کارِ جلسه. مدت: برنامه‌ریزی تا سررسید اگر بیش از ۱۵ دقیقه و حداکثر ۴ ساعت، وگرنه {fa(R.meetingDefault)} دقیقه. وظیفهٔ لغو/یادآوری/برگزارنشده نه بخشودگی دارد نه اضافه‌کار.</li>
-				</ul>
-				<div className="mt-4 flex flex-wrap items-center gap-2">
-					<Btn kind="primary" onClick={() => { try { saveSettings(session, st); setMsg('ذخیره شد.') } catch (e) { setMsg((e as Error).message) } }}>ذخیرهٔ محاسبات</Btn>
-					<Btn onClick={() => { saveSettings(session, DEFAULT_SETTINGS); setMsg('پیش‌فرض‌ها برگشت.') }}>پیش‌فرض</Btn>
-					{msg && <span role="status" className="text-[12px] font-bold text-success">{msg}</span>}
-				</div>
-			</Card>
-		</div>
-	)
-}
-
-/* ---------------- مرکز ایمپورت: وضعیتِ حضور (زیرِ کادرِ «ورودِ فایل»، فقط مدیران/مالی) ---------------- */
-const faDateTime = (ts: number) => new Date(ts).toLocaleString('fa-IR')
-// فایلِ حضور فقط از موتورِ ایمپورت وارد می‌شود (تشخیصِ خودکارِ نوعِ attendance)؛ این نوار فقط وضعیت و حذف را نشان می‌دهد
-export function AttendanceStatus({ session }: { session: Session }) {
-	const all = canSeeAll(session)
-	const { ds } = usePerformance(session, all)
-	const [msg, setMsg] = useState<{ t: string; err?: boolean } | null>(null)
-	if (!all || !ds) return null
-	const overrides = Object.keys(loadOverrides()).length
-	const last = ds.file?.last
-	const onClear = async () => {
-		if (!confirm('فایلِ حضور و داده‌های مشتق‌شدهٔ آن از این مرورگر پاک شود؟')) return
-		const withOv = overrides > 0 && confirm(`${fa(overrides)} ویرایشِ دستی هم هست. آن‌ها هم پاک شوند؟\n«تأیید» = پاک شوند · «لغو» = نگه داشته شوند (با بارگذاریِ دوباره اعمال می‌شوند)`)
-		try { await clearAttendance(session, withOv); setMsg({ t: 'فایلِ حضور از این مرورگر پاک شد' + (overrides && !withOv ? `؛ ${fa(overrides)} ویرایشِ دستی نگه داشته شد.` : '.') }) } catch (e) { setMsg({ t: (e as Error).message, err: true }) }
-	}
-	const range = (() => {
-		const d = ds.file ? Object.values(ds.file.sheets).flatMap((rows) => rows.map((r) => normDate(Object.entries(r).find(([k]) => norm(k) === norm('تاریخ'))?.[1]))).filter(Boolean).sort() : []
-		return d.length ? faDate(d[0]) + ' تا ' + faDate(d[d.length - 1]) : ''
-	})()
-	return (
-		<div dir="rtl" className="mt-3 rounded-xl bg-muted/40 px-3 py-2.5 ring-1 ring-border/70" aria-label="حضور و غیاب">
-			<div className="flex flex-wrap items-center justify-between gap-2">
-				<p className="min-w-0 text-[12px] text-muted-foreground" data-testid="att-current">
-					<b className="text-foreground">حضور و غیاب: </b>
-					{ds.file ? <><bdi dir="auto">{last ? last.fileName : ds.file.fileName}</bdi> · <bdi>{faDateTime(last ? last.loadedAt : ds.file.loadedAt)}</bdi> · {fa(last ? last.people : Object.keys(ds.file.sheets).length)} نفر</> : 'هنوز فایلی بارگذاری نشده'}
-				</p>
-				{ds.file && <button type="button" onClick={onClear} className={`shrink-0 text-[12px] font-bold text-error hover:underline ${FOCUS}`}>حذف از این مرورگر</button>}
-			</div>
-			{ds.file && (range || overrides > 0) && <p className="mt-1 text-[11.5px] text-muted-foreground">{range && <>دادهٔ موجود: {fa(Object.keys(ds.file.sheets).length)} نفر · {range}</>}{overrides > 0 && <> · ویرایشِ دستی: {fa(overrides)} (با فایلِ تازه حفظ می‌شود)</>}</p>}
-			{msg && <p role="status" className={`mt-1 text-[12px] font-bold ${msg.err ? 'text-error' : 'text-success'}`}>{msg.t}</p>}
-		</div>
-	)
-}
-
+/* 3.9.68–69: «محاسبات عملکرد» و وضعیتِ فایلِ حضور حذف شدند — حضور فقط از هاریکان (کادرِ HarikanStatus در «مرکز ایمپورت») */
 /* ---------------- نگاشتِ اشخاص (N18، فقط مدیران/مالی) ---------------- */
 function MappingPanel({ ds, session, go }: { ds: Dataset; session: Session; go?: (id: string) => void }) {
 	const owners = ds.stats.owners
 	return (
 		<div className="flex flex-col gap-5">
-			<Card title="نگاشتِ اشخاص" sub="هر شیتِ حضور ← شخصِ سیستم (دسترسی و وظایفِ سیستم) ← کاربرِ جولیو (جلسات). اولویت با نامِ کاملِ سیستم و شناسهٔ جولیو است؛ ردیفِ «حدسی» را بررسی و در صورت نیاز دستی تعیین کنید. هیچ نامی در داده تغییر نمی‌کند."
+			<Card title="نگاشتِ اشخاص" sub="هر کارتِ حضور ← شخصِ سیستم (فقط با تأییدِ نگاشت در «مرکز ایمپورت»، بدونِ حدسِ نام) ← کاربرِ جولیو (جلسات؛ اولویت با شناسهٔ جولیو). هیچ نامی در داده تغییر نمی‌کند."
 				actions={<><Btn onClick={() => go?.('import')}>فایل‌ها در مرکز ایمپورت ←</Btn><Btn onClick={() => go?.('p-set')}>محاسبات در تنظیمات ←</Btn></>}>
 				{ds.people.length ? (
 					<Table head={['شیت', 'نام در فایل حضور', 'شخصِ سیستم', '', 'کاربرِ جولیو (وظایف)', '', 'بازهٔ وظایفِ سیستم']}>
@@ -811,16 +734,11 @@ function MappingPanel({ ds, session, go }: { ds: Dataset; session: Session; go?:
 							<tr key={p.sheetName}>
 								<Td>{p.sheetName}</Td>
 								<Td>{p.displayName}</Td>
-								<Td>
-									<select aria-label={'شخصِ سیستم برای ' + p.displayName} className={inCls + ' min-w-[160px]'} value={p.person || ''} onChange={(e) => saveLink(session, p.sheetName, { person: e.target.value || undefined })}>
-										<option value="">— انتخاب —</option>
-										{ds.peopleNames.map((n) => <option key={n} value={n}>{n}</option>)}
-									</select>
-								</Td>
+								<Td>{p.person || <button type="button" onClick={() => go?.('import')} className={`font-bold text-warning hover:underline ${FOCUS}`}>تأیید نگاشت در مرکز ایمپورت ←</button>}</Td>
 								<Td><HowChip how={p.personHow} /></Td>
 								<Td>
 									<select aria-label={'کاربرِ جولیو برای ' + p.displayName} className={inCls + ' min-w-[180px]'} value={owners.find((o) => o.name === p.ownerName)?.key || ''} disabled={!owners.length}
-										onChange={(e) => saveLink(session, p.sheetName, { person: p.personHow === 'manual' ? p.person || undefined : undefined, owner: e.target.value || undefined })}>
+										onChange={(e) => saveLink(session, p.sheetName, { owner: e.target.value || undefined })}>
 										<option value="">{owners.length ? '— انتخاب —' : 'فایلِ وظایف نیست'}</option>
 										{owners.map((o) => <option key={o.key} value={o.key}>{o.name}{o.pid ? ` (ID ${o.pid})` : ''} · {fa(o.n)}</option>)}
 									</select>
@@ -976,12 +894,12 @@ export default function PerformancePage({ session, go, setPanel }: { session: Se
  // v2 (instrument cabin) is the default; VITE_PERF_UI=v1 restores the previous workspace
  if (import.meta.env.VITE_PERF_UI !== 'v1') return <PerformancePageV2 session={session} go={go}
   renderReview={(f,names) => <ExistingPerformance session={session} initial="recon" go={go} sharedFilter={f} scopeNames={names} embedded />}
-  renderSettings={() => <><PerfSettingsCard session={session} /><ExistingPerformance session={session} initial="data" go={go} embedded /></>}
+  renderSettings={() => <ExistingPerformance session={session} initial="data" go={go} embedded />}
   renderLegacy={() => <ExistingPerformance session={session} initial="activity" go={go} setPanel={setPanel} />} />
  return <div className="flex flex-col gap-5">
   <WorkspaceBoundary><PerformanceWorkspace session={session}
     renderReview={(f,names) => <ExistingPerformance session={session} initial="recon" go={go} sharedFilter={f} scopeNames={names} embedded />}
-    renderSettings={() => <><PerfSettingsCard session={session} /><ExistingPerformance session={session} initial="data" go={go} embedded /></>}
+    renderSettings={() => <ExistingPerformance session={session} initial="data" go={go} embedded />}
     renderLegacy={() => <ExistingPerformance session={session} initial="activity" go={go} setPanel={setPanel} />}
    /></WorkspaceBoundary>
   {/* N21 — نقشهٔ فعالیتِ سالانه (Contribution Skyline، دوبعدی/سه‌بعدی)؛ دادهٔ نمونهٔ خودِ کامپوننت، به دادهٔ سیستم وصل نیست (درخواستِ کاربر) */}

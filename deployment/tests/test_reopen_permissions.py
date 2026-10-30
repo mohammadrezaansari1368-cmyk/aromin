@@ -1,6 +1,9 @@
 """Only existing manager roles may undo document approval, even with a valid OTP."""
 import copy
+import os
+import re
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -8,13 +11,28 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import server
 
+def sent_code(text):
+    return re.search(r"کد: (\d{6})", text).group(1)
+
+
 class ReopenPermissions(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.pf = patch.object(server, 'C1_CODES_FILE', os.path.join(self.tmp.name, 'codes.json'))
+        self.pf.start()
+        server._c1_codes.clear()
+
+    def tearDown(self):
+        self.pf.stop()
+        server._c1_codes.clear()
+        self.tmp.cleanup()
+
     def test_non_managers_cannot_reopen_or_request_code(self):
         for role in ('sales', 'finance', 'online', 'support'):
             full = {'people': []}
             original = copy.deepcopy(full)
             ident = {'user': 'test', 'role': role}
-            with patch.object(server, '_c1_ctx', return_value=('test', ident, full, None)), patch.object(server, '_c1_save') as save, patch.object(server, 'send_otp_sms') as sms, patch.object(server, 'tg_api') as tg, patch.dict(server._c1_codes, {'test': {'code':'123456', 'exp':time.time()+300, 'tries':0, 'deal':'1'}}):
+            with patch.object(server, '_c1_ctx', return_value=('test', ident, full, None)), patch.object(server, '_c1_save') as save, patch.object(server, 'send_otp_sms') as sms, patch.object(server, 'tg_api') as tg, patch.dict(server._c1_codes, {'test:test': {'hash': server._c1_code_hash('test:test', '123456'), 'exp':time.time()+300, 'tries':0, 'last':0, 'deal':'1'}}):
                 for handler in (server.c1_reopen, server.c1_reopen_code):
                     response = handler(None, {'id':'1', 'reason':'test reason', 'code':'123456'})
                     self.assertEqual(response.status_code, 403)
@@ -42,8 +60,9 @@ class ReopenPermissions(unittest.TestCase):
                 sms.assert_not_called()
                 self.assertEqual(sent[0][0], 'sendMessage')
                 self.assertEqual(sent[0][1]['chat_id'], server.TG_ADMIN_ID)
-                code = server._c1_codes['test']['code']
-                self.assertIn(code.translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹')), sent[0][1]['text'])
+                code = sent_code(sent[0][1]['text'])
+                self.assertNotIn(code, str(server._c1_codes))               # only a hash is stored
+                self.assertNotIn(code, open(server.C1_CODES_FILE, encoding='utf-8').read())
                 # بدونِ کد یا با کدِ اشتباه: رد و بدونِ تغییر
                 self.assertEqual(server.c1_reopen(None, {'id': '1', 'reason': 'correction', 'code': '000000' if code != '000000' else '111111'}).status_code, 403)
                 self.assertEqual(d['finState'], 'approved')
@@ -53,10 +72,9 @@ class ReopenPermissions(unittest.TestCase):
                 backup.assert_called_once(); save.assert_called_once(); audit.assert_called_once()
                 self.assertNotIn('finApproval', d)
                 self.assertEqual(d['finBy'], 'accountant')
-                self.assertNotIn('test', server._c1_codes)   # کد یک‌بارمصرف
+                self.assertNotIn('test:test', server._c1_codes)   # کد یک‌بارمصرف
 
     def test_reopen_without_code_or_telegram_is_refused(self):
-        server._c1_codes.clear()
         d = {'id': 1, 'finState': 'approved'}
         ps = self._ctx('manager', d)
         with ps[0], ps[1], ps[2], patch.object(server, 'tg_configured', return_value=False), patch.object(server, 'tg_api') as tg, patch.object(server, '_c1_save') as save:
@@ -66,13 +84,12 @@ class ReopenPermissions(unittest.TestCase):
             save.assert_not_called()
 
     def test_telegram_failure_stores_no_code(self):
-        server._c1_codes.clear()
         d = {'id': 1, 'finState': 'approved'}
         ps = self._ctx('manager', d)
         with ps[0], ps[1], ps[2], ps[3], patch.object(server, 'tg_api', side_effect=server.TgError('transient', 'timeout')):
             r = server.c1_reopen_code(None, {'id': '1'})
             self.assertFalse(r['ok'])
-            self.assertNotIn('test', server._c1_codes)
+            self.assertNotIn('test:test', server._c1_codes)
 
     def test_bulk_reopen_one_code_for_exactly_that_group(self):
         """دکمهٔ کلی: یک کدِ تلگرام برای همان گروهِ اسناد؛ فقط تصویب‌شده‌ها برمی‌گردند؛ یک بک‌آپ، ممیزیِ هر سند."""
@@ -89,9 +106,13 @@ class ReopenPermissions(unittest.TestCase):
             r = server.c1_reopen_code(None, {'ids': [3, 2, 1], 'reason': 'اصلاح دوره'})
             self.assertEqual((r['ok'], r['count']), (True, 2))
             self.assertIn('۲ سندِ مالی', sent[0]['text'])
-            code = server._c1_codes['test']['code']
-            # کد فقط برای همان مجموعه؛ مجموعهٔ دیگر رد می‌شود
-            self.assertEqual(server.c1_reopen(None, {'ids': [1], 'reason': 'اصلاح دوره', 'code': code}).status_code, 403)
+            code = sent_code(sent[0]['text'])
+            # کد فقط برای همان اسناد (یا کمتر)؛ سندی بیرون از آن رد می‌شود
+            d4 = {'id': 4, 'no': '7004', 'finState': 'approved'}
+            with patch.object(server, '_c1_index', return_value={'1': [a], '2': [b], '3': [c], '4': [d4]}):
+                r4 = server.c1_reopen(None, {'ids': [1, 4], 'reason': 'اصلاح دوره', 'code': code})
+            self.assertEqual(r4.status_code, 403)
+            self.assertIn('تغییر کرده', r4.body.decode())
             save.assert_not_called()
             r = server.c1_reopen(None, {'ids': [1, 2, 3], 'reason': 'اصلاح دوره', 'code': code})
             self.assertEqual((r['via'], r['reopened']), ('telegram', 2))
@@ -99,6 +120,34 @@ class ReopenPermissions(unittest.TestCase):
             self.assertEqual(audit.call_count, 2)
             self.assertNotIn('finState', a); self.assertNotIn('finClosed', b); self.assertEqual(a['finBy'], 'acc')
             self.assertEqual(c, {'id': 3, 'no': '7003'})
+
+
+
+class ReopenCodeSurvivesRestart(unittest.TestCase):
+    """3.9.67: the reported «ابتدا کدِ تلگرام را دریافت کنید» — a restart lost the in-memory code; a subset of the list is fine."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.pf = patch.object(server, 'C1_CODES_FILE', os.path.join(self.tmp.name, 'codes.json'))
+        self.pf.start()
+        server._c1_codes.clear()
+
+    def tearDown(self):
+        self.pf.stop(); server._c1_codes.clear(); self.tmp.cleanup()
+
+    def test_code_after_restart_and_subset(self):
+        a = {'id': 1, 'no': '1', 'finState': 'approved'}
+        b = {'id': 2, 'no': '2', 'finState': 'approved'}
+        sent = []
+        with patch.object(server, '_c1_ctx', return_value=('team', {'user': 'boss', 'role': 'manager'}, {}, None)),                 patch.object(server, '_c1_index', return_value={'1': [a], '2': [b]}), patch.object(server, '_c1_person_name', return_value='m'),                 patch.object(server, 'tg_configured', return_value=True), patch.object(server, 'tg_api', side_effect=lambda m, f: sent.append(f) or {}),                 patch.object(server, '_c1_backup'), patch.object(server, '_c1_save'), patch.object(server, '_c1_audit'):
+            self.assertTrue(server.c1_reopen_code(None, {'ids': [1, 2], 'reason': 'اصلاح'})['ok'])
+            code = sent_code(sent[0]['text'])
+            server._c1_codes.clear()                                      # service restarted
+            r = server.c1_reopen(None, {'ids': [1], 'reason': 'اصلاح', 'code': code})
+            self.assertEqual(r['reopened'], 1)
+            self.assertNotIn('finState', a); self.assertEqual(b['finState'], 'approved')
+            r = server.c1_reopen(None, {'ids': [2], 'reason': 'اصلاح', 'code': code})   # one-time code
+            self.assertIn('در انتظار نیست', r.body.decode())
+            self.assertEqual(b['finState'], 'approved')
 
 
 if __name__ == '__main__':

@@ -172,6 +172,20 @@ class FinanceAssignee(unittest.TestCase):
         same = copy.deepcopy(old)
         self.assertIsNone(server._c1_lock_violation(old, same))
 
+    def test_legacy_save_is_repaired_not_rejected(self):
+        """3.9.84: a stale legacy autosave keeps its other data (e.g. hiring candidates); the ledger's locked/finance fields stay the server's."""
+        old = blob([deal(finState="approved")])
+        stale = copy.deepcopy(old)
+        for arr in (stale["people"][0]["inv"], stale["people"][0]["invY"]["1405"]):
+            arr[0]["finState"] = "draft"; arr[0]["amount"] = "1"
+        stale["people"][0]["inv"].append(deal(id=9, finBy="نورا"))
+        stale["hire"] = [{"id": "h1", "role": "پشتیبانی", "name": "داوطلب"}]
+        self.assertTrue(server._c1_repair(old, stale) > 0)
+        self.assertIsNone(server._c1_lock_violation(old, stale))
+        self.assertEqual(stale["people"][0]["inv"][0], old["people"][0]["inv"][0])
+        self.assertNotIn("finBy", stale["people"][0]["inv"][-1])
+        self.assertEqual(stale["hire"][0]["name"], "داوطلب")
+
     def test_sale_times_merge_is_fill_only_and_validated(self):
         old = blob([deal()], {"saleTimes": {"1405": {"1:1": "10:00:00"}}})
         new = blob([deal(), deal(id=2)], {"saleTimes": {"1405": {"1:1": "11:11:11", "1:2": "25:00", "9:9": "09:00:00"}}})

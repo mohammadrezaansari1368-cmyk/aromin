@@ -1,4 +1,4 @@
-import { yearDays } from '@/components/performance/PerformanceWorkspace'
+import { yearDays } from '../lib/yearDays'
 import type { DailyKey, DayVM } from '../data/types'
 import { persian } from '../data/adapters'
 import { BentoCard } from '../ui/primitives'
@@ -8,7 +8,7 @@ export function yearStats(days: DayVM[], today: string) {
 	const past = days.filter((d) => d.date <= today)
 	return { total: past.length ? past.reduce((n, d) => n + d.value, 0) : null, busiest: past.length ? [...past].sort((a, b) => b.value - a.value)[0].date : null }
 }
-const KEYS: [DailyKey, string][] = [['tasks', 'وظایف'], ['contracts', 'قرارداد'], ['finance_documents', 'سند']]
+const KEYS: [DailyKey, string][] = [['tasks', 'وظایف'], ['contracts', 'قرارداد'], ['finance_documents', 'سند'], ['calls_out', 'تماس خروجی'], ['calls_answered', 'تماس پاسخ‌داده']]
 
 /** Yearly map — the restored 2D/3D skyline (commit 0046a99) fed with real /daily data for one Jalali year. */
 export function YearHeatmap({ days, unit, year, setYear, metric, setMetric, onDay, error, loading, needPerson }: {

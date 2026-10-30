@@ -10,7 +10,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
 import { currentTenant } from '@/lib/data'
 import { saveState, fetchFull } from '@/lib/forecastStore'
-import { ROLES, type Role } from '@/lib/auth'
+import { ROLES, type Role, activeAuthHeaders } from '@/lib/auth'
 
 interface Req { id: number; email: string; name?: string; picture?: string; created?: string }
 interface Person { name: string; role?: string; inactive?: boolean }
@@ -28,7 +28,7 @@ export default function SignupRequests({ beforeWrite, afterWrite }: { beforeWrit
 
 	const load = useCallback(async () => {
 		try {
-			const d = await (await fetch(`/api/auth/signup-requests?tenant=${encodeURIComponent(currentTenant())}`, { cache: 'no-store' })).json()
+			const d = await (await fetch(`/api/auth/signup-requests?tenant=${encodeURIComponent(currentTenant())}`, { cache: 'no-store', headers: activeAuthHeaders() })).json()
 			setReqs(d && d.ok ? d.requests || [] : [])
 		} catch { setReqs([]) }
 	}, [])
@@ -57,7 +57,7 @@ export default function SignupRequests({ beforeWrite, afterWrite }: { beforeWrit
 					}
 				}, { forceBackup: true, tag: 'approve-signup' })
 			}
-			await fetch(`/api/auth/signup-requests/${r.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
+			await fetch(`/api/auth/signup-requests/${r.id}?tenant=${encodeURIComponent(currentTenant())}`, { method: 'POST', headers: { ...activeAuthHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) })
 			if (status === 'approved') afterWrite()
 			setReqs((x) => x.filter((y) => y.id !== r.id))
 		} catch (e) {

@@ -1,3 +1,4 @@
+import typography from '@tailwindcss/typography'
 import containerQueries from '@tailwindcss/container-queries'
 
 // رنگ‌ها = توکن‌های تم (src/index.css)؛ <alpha-value> تا bg-primary/10 و مانندش کار کند
@@ -35,9 +36,9 @@ export default {
         rose: t('error'),
       },
       borderRadius: { lg: 'var(--radius)', md: 'calc(var(--radius) - 2px)', sm: 'calc(var(--radius) - 4px)' },
-      boxShadow: { card: '0 1px 2px hsl(var(--shadow) / .05), 0 14px 34px -20px hsl(var(--shadow) / .22)' },
-      fontFamily: { sans: ['Peyda', 'PeydaWeb', 'Vazirmatn', 'system-ui', 'sans-serif'] },
+      boxShadow: { card: '0 1px 1px hsl(var(--shadow) / .03), 0 10px 30px -14px hsl(var(--shadow) / .14)' },
+      fontFamily: { sans: ['PeydaWeb', 'Peyda', 'Vazirmatn', 'system-ui', 'sans-serif'] },
     },
   },
-  plugins: [containerQueries],
+  plugins: [containerQueries, typography],
 }
