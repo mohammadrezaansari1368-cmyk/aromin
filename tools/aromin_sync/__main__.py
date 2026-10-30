@@ -3,6 +3,7 @@ import getpass
 import json
 from pathlib import Path
 import shutil
+import platform
 import subprocess
 import sys
 import uuid
@@ -66,18 +67,18 @@ def main():
         stop_task()
     with Lock():
         if args.command == 'login':
-            if not (folder/'config.json').exists():
-                tenant = input('شناسه تیم: ').strip()
-                if not tenant:
-                    raise ValueError('شناسه تیم لازم است.')
-                key = getpass.getpass('کلید وب سرویس: ').strip()
-                if not key.startswith('ark_'):
-                    raise ValueError('کلید معتبر نیست.')
-                (folder/'secret.bin').write_bytes(crypt(key.encode()))
-                atomic_json(folder/'config.json',dict(tenant=tenant,interval_minutes=5))
             from .browser import Browser
             with Browser(folder,visible=True) as browser:
                 browser.login()
+                if not (folder/'secret.bin').exists():
+                    tenant = input('شناسه تیم [team]: ').strip() or 'team'
+                    password = getpass.getpass('رمزِ داشبورد برای ساختِ خودکارِ کلید (ذخیره نمی‌شود): ')
+                    key = browser.mint_key(tenant, password, 'AROMINSync ' + platform.node()[:40])
+                    del password
+                    (folder/'secret.bin').write_bytes(crypt(key.encode()))
+                    del key
+                    atomic_json(folder/'config.json',dict(tenant=tenant,interval_minutes=5))
+                    print('کلیدِ این دستگاه ساخته و رمزنگاری‌شده ذخیره شد.')
             atomic_json(folder/'runtime.json',{})
         elif args.command == 'install':
             task(install=True)

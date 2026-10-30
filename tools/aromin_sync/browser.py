@@ -23,6 +23,20 @@ FETCH = r"""async ({path, form, fields, method}) => {
 }"""
 
 
+KEY_SCOPES = ('calls:write', 'joolio:write', 'conversion:write', 'sync:notify')
+
+MINT = r"""async ({tenant, password, name, scopes}) => {
+ const raw = localStorage.getItem('aromin-session:' + tenant);
+ if (!raw) return {ok:false, error:'ابتدا در داشبورد وارد شوید.'};
+ let token = raw; try { const s = JSON.parse(raw); token = s.token || s } catch (e) {}
+ const response = await fetch('/api/settings/api-keys', {method:'POST', credentials:'same-origin',
+   headers:{'Content-Type':'application/json', Authorization:'Bearer ' + token},
+   body: JSON.stringify({tenant, name, scopes, password})});
+ const data = await response.json().catch(() => ({}));
+ return {ok: response.ok && !!data.ok, key: data.key, error: data.error};
+}"""
+
+
 class Browser:
     def __init__(self, folder, visible=False):
         self.folder, self.visible, self.last = folder, visible, 0
@@ -42,6 +56,14 @@ class Browser:
         for url in ('https://crm.arominco.com','https://dashboard.arominco.com'):
             self.page.goto(url)
             input('در پنجره وارد شوید؛ «مرا به خاطر بسپار» را بزنید؛ سپس Enter: ')
+
+    def mint_key(self, tenant, password, name):
+        """Create this machine's scoped dashboard key with the owner's live session; the key never reaches the screen or logs."""
+        self.page.goto('https://dashboard.arominco.com')
+        result = self.page.evaluate(MINT, dict(tenant=tenant, password=password, name=name, scopes=list(KEY_SCOPES)))
+        if not result.get('ok') or not str(result.get('key') or '').startswith('ark_'):
+            raise ValueError(result.get('error') or 'ساختِ کلید ناموفق بود؛ ابتدا در داشبورد وارد شوید.')
+        return result['key']
 
     def rows(self, kind, start, end, direction=None):
         if kind == 'calls':
